@@ -1,25 +1,24 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "v0.7 qmd search + memory hotness/retrieval telemetry production seviyede tamamlandı",
+  "current_task": "v0.8 OpenBB analysis + financial provider fallback hardening tamamlandı",
   "next_actions": [
-    "QMD index health için scheduled update/maintenance job",
+    "Financial provider health telemetry ve circuit-breaker",
     "Memory retrieval için embedding/hybrid ranker",
-    "Memory/RAG store encrypt-at-rest (data key + KMS)",
+    "Memory/RAG encrypt-at-rest (KMS)",
     "RAG URL ingest için allowlist + SSRF hardening"
   ],
   "risks": [
-    "QMD search index güncelliği otomatik scheduler olmadan manuel update'e bağlı kalabilir",
-    "Memory scoring lexical+heuristic temelli olduğu için çok uzun içerikte semantic kalite sınırlı kalabilir",
+    "AlphaVantage ücretsiz limitleri belirli saatlerde quote fallback performansını etkileyebilir",
+    "QMD index güncelliği scheduler olmadan manuel update'e bağımlı kalabilir",
     "MASTER_KEY env yönetimi production'da secret manager gerektirir"
   ],
   "decisions": [
     "Mimari: Modüler monolith + async worker",
     "Pattern-level sentez yaklaşımı",
-    "RAG: tenant-izole dosya tabanlı store + API",
-    "Memory: pre-retrieval decision + tenant memory plane + memory_search tool",
     "QMD: local CLI tabanlı qmd_search tool entegrasyonu",
-    "Memory ranking: hotness score (retrieval_count + recency decay)",
+    "Memory: pre-retrieval decision + hotness + retrieval telemetry",
+    "Financial: OpenBB-style provider fallback (stooq + alpha_vantage)",
     "OpenRouter: Retry-After destekli exponential backoff + jitter retry"
   ],
   "artifacts": [
@@ -27,6 +26,7 @@
     "analysis-repo-findings-2026-03-16.md",
     "analysis-memu-2026-03-16.md",
     "analysis-openviking-openclaw-cognee-qmd-2026-03-16.md",
+    "analysis-openbb-2026-03-16.md",
     "contracts/openai-compatible.yaml",
     "contracts/platform-extensions.yaml",
     "service/api",
@@ -42,5 +42,5 @@
     "security-report.md",
     "delivery.md"
   ],
-  "updated_at": "2026-03-16T10:05:24+03:00"
+  "updated_at": "2026-03-16T12:18:11+03:00"
 }

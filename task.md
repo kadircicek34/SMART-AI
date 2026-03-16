@@ -1,5 +1,13 @@
 # TASKS — OpenRouter Agentic Intelligence API
 
+## v0.8 Delta (OpenBB Financial Runtime Hardening) — Tamamlandı
+- [x] OpenBB repo `github-readonly + repomix` ile analiz edildi
+- [x] `financial_deep_search` provider fallback modeline geçirildi (Stooq + AlphaVantage)
+- [x] Çoklu sembol parser + provider spread analizi eklendi
+- [x] Financial quote cache (TTL) eklendi
+- [x] Yeni testler eklendi (`service/tests/tools/financial.test.ts`)
+- [x] Fresh verification: typecheck + test + audit + delivery-gate
+
 ## v0.7 Delta (QMD Search + OpenViking/OpenClaw/Cognee pattern integration) — Tamamlandı
 - [x] `qmd_search` tool adapter eklendi (VPS'teki kurulu qmd binary kullanımı)
 - [x] QMD collection auto-bootstrap eklendi (`collection list/add --name`)
