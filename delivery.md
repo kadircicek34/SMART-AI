@@ -1,43 +1,47 @@
-# DELIVERY — SMART-AI v0.9 (Mevzuat/Borsa/Yargı MCP Integration)
+# DELIVERY — SMART-AI v0.10 (MCP Resilience & Health Endpoints)
 
 ## Özet
-Bu koşumda `mcporter` + `github-readonly` + `repomix` ile üç domain MCP repo analiz edilip SMART-AI tool plane’e production seviyesinde entegre edildi:
-- `saidsurucu/mevzuat-mcp`
-- `saidsurucu/borsa-mcp`
-- `saidsurucu/yargi-mcp`
+Bu koşumda en yüksek etkili günlük iyileştirme olarak **MCP dayanıklılık katmanı** teslim edildi:
+- Sunucu bazlı circuit breaker
+- Adaptif timeout
+- MCP health gözlemlenebilirlik endpointleri
+
+Böylece Mevzuat/Borsa/Yargı MCP entegrasyonları transient hata dalgalarında kontrollü şekilde degrade oluyor ve operasyonel görünürlük sağlanıyor.
 
 ## Teslim Edilen Ana Bileşenler
-1. **MCP Adapter Layer**
-   - `service/tools/tr-mcp-search.ts` (yeni)
-   - Tool’lar:
-     - `mevzuat_mcp_search`
-     - `borsa_mcp_search`
-     - `yargi_mcp_search`
-2. **Orchestrator Route Update**
-   - `planner.ts`, `thinking-loop.ts`, `verifier.ts`
-   - Domain query’lerde MCP tool seçimi
-3. **Deep Research Enrichment**
-   - `deep_research` akışı artık mevzuat/yargı/borsa MCP kaynaklarını da birleştiriyor
-4. **Config/Ops Surface**
-   - `.env.example`, `config.ts` MCP URL/timeout/limit ayarları
-5. **Analiz Artefaktı**
-   - `analysis-saidsurucu-mcps-2026-03-16.md`
+1. **MCP Health Core (yeni)**
+   - `service/mcp-health/types.ts`
+   - `service/mcp-health/circuit-breaker.ts`
+   - `service/mcp-health/index.ts`
+2. **Tool Runtime Resilience**
+   - `service/tools/tr-mcp-search.ts`
+   - call öncesi `canCallMcp`
+   - success/failure telemetry (`recordMcpSuccess/Failure`)
+   - adaptif timeout (`getMcpAdaptiveTimeout`)
+3. **API Observability Surface (yeni)**
+   - `service/api/routes/mcp-health.ts`
+   - `GET /v1/mcp/health`
+   - `GET /v1/mcp/health/:serverId`
+   - `POST /v1/mcp/reset`
+   - `service/api/app.ts` route registration
+4. **Test Kapsamı Artışı**
+   - `service/tests/mcp-health/circuit-breaker.test.ts`
+   - `service/tests/contract/mcp-health.test.ts`
 
 ## Verification Özeti
 | İddia | Kanıt | Sonuç |
 |---|---|---|
 | Kod derleniyor | `npm run typecheck` | ✅ |
-| Testler geçiyor | `npm test` (46/46) | ✅ |
+| Testler geçiyor | `npm test` (**50/50**) | ✅ |
 | Güvenlik bağımlılık taraması temiz | `npm audit --omit=dev` | ✅ |
-| Teslim kapıları geçildi | `scripts/delivery-gate.sh` | ✅ |
+| Teslim kapıları geçildi | `scripts/delivery-gate.sh` | ✅ PASS |
 
-## Bilinen Sınırlar
-- Remote MCP availability dış servis uptime’ına bağlı.
-- Bazı domain tool’lar (özellikle yargı/bedesten) kaynak sistemde anlık boş veri döndürebilir.
-- MCP health check/telemetry paneli bu iterasyonda minimal seviyede.
+## Bilinen Sınırlar / Riskler
+- MCP health metrikleri process-memory içinde; restart sonrası sıfırlanır.
+- Circuit breaker şu an server bazlı; tool/endpoint bazında ayrıştırma sonraki iterasyon.
+- Dış MCP servis uptime dalgalanmaları tamamen ortadan kalkmaz, ancak etkisi azaltılır.
 
 ## GitHub Senkronizasyonu
 - Repo: `https://github.com/kadircicek34/SMART-AI`
 - Branch: `main`
-- Push: MCP (`github-work.push_files`) ile tamamlandı
-- Latest remote commit: `c161143d63fd3cd259dbcec907b00535d48a0557`
+- Bu koşumda commit + push tamamlandı.

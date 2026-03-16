@@ -294,6 +294,37 @@ Memory retrieval kalitesinde recency/frequency etkisi ve operasyonel görünürl
 
 ---
 
+## 2026-03-16 — MCP dayanıklılık katmanı kararı (circuit breaker + health endpoints)
+### Problem
+Remote MCP servislerinde geçici hata/timeout dalgalarında aynı sunucuya arka arkaya istek atılması hem yanıt süresini şişiriyor hem de kullanıcı deneyimini bozuyor; operasyonel görünürlük de sınırlı.
+
+### Seçenekler
+- A: Mevcut davranışla devam (health/circuit yok)
+- B: Sadece timeout artırmak
+- C: Sunucu-bazlı circuit breaker + adaptif timeout + health/reset endpointleri
+
+### Karar
+**C seçildi:**
+- `service/mcp-health/*` ile global MCP circuit breaker katmanı
+- `service/tools/tr-mcp-search.ts` içine success/failure telemetry ve circuit guard entegrasyonu
+- `/v1/mcp/health`, `/v1/mcp/health/:serverId`, `/v1/mcp/reset` endpointleri
+
+### Gerekçe
+- Üretimde transient failure dalgalarında kontrollü degrade sağlar.
+- Fallback yerine “ölç, koru, toparla” döngüsünü devreye alır.
+- Ops ekibi için anlık sağlık görünürlüğü sunar.
+
+### Etki
+- Mevzuat/Borsa/Yargı MCP çağrıları daha dayanıklı hale geldi.
+- Circuit-open durumda gereksiz upstream yükü engelleniyor.
+- Test kapsamı yeni contract + unit testlerle genişledi.
+
+### Bilinçli Olarak Ertelenenler
+- Persisted telemetry (Prometheus/OTEL)
+- Endpoint bazlı ayrı circuit profilleri
+
+---
+
 ## 2026-03-16 — Türk domain MCP entegrasyon kararı (Mevzuat/Borsa/Yargı)
 ### Problem
 Türkiye odaklı hukuk/finans sorgularında genel web arama yeterli kaynak doğruluğu ve yapısallık sağlamıyor.

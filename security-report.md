@@ -1,4 +1,4 @@
-# SECURITY REPORT — SMART-AI v0.9
+# SECURITY REPORT — SMART-AI v0.10
 
 ## Kapsam
 Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
@@ -7,7 +7,7 @@ Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
 - Input validation (zod)
 - Tool safety (policy allowlist + loop guard)
 - QMD subprocess safety (`execFile`, timeout)
-- Remote MCP call safety (`mcporter` controlled args + timeout)
+- Remote MCP call safety (`mcporter` controlled args + adaptive timeout + circuit breaker)
 - Dependency güvenliği (`npm audit`)
 
 ## Kontrol Sonuçları
@@ -16,7 +16,7 @@ Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
 | Auth / Tenant scope | ✅ | `/v1/*` tenant sınırları korunuyor |
 | Tool policy | ✅ | yeni `mevzuat_mcp_search`, `borsa_mcp_search`, `yargi_mcp_search` allowlist kontrollü |
 | QMD güvenliği | ✅ | shell interpolation yok, timeout var |
-| MCP call güvenliği | ✅ | sabit command template + JSON args + timeout |
+| MCP call güvenliği | ✅ | sabit command template + JSON args + adaptive timeout + circuit guard |
 | Memory/RAG izolasyonu | ✅ | cross-tenant erişim bloklu |
 | Dependencies | ✅ | `npm audit --omit=dev` sonucu 0 vuln |
 
@@ -26,8 +26,8 @@ Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
 - Yargı aramada fallback açık olsa da hata durumunda kontrollü degrade ediliyor.
 
 ## Kalan İyileştirme Alanları
-1. MCP health telemetry + circuit breaker
-2. MCP call retry budget / adaptive timeout
+1. MCP health metriklerini external telemetry backend'e taşıma (Prometheus/OTEL)
+2. MCP call retry budget'i circuit state ile policy-driven birleştirme
 3. Memory/RAG encrypt-at-rest data key + KMS
 4. RAG URL ingest SSRF hardening
 
