@@ -80,11 +80,6 @@ curl http://127.0.0.1:8080/v1/jobs/<job_id> \
   -H 'x-tenant-id: tenant-a'
 ```
 
-## Güvenlik Notu
-- OpenRouter key’lerini **repoya yazma**.
-- `.env` ve `.data` gitignored.
-- `MASTER_KEY_BASE64` olmadan prod çalıştırma.
-
 ## Referans Esin Kaynakları
 - AgentFlow (orchestration yaklaşımı)
 - Poetiq ARC solver (thinking/refine yaklaşımı)
