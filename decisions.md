@@ -352,3 +352,30 @@ Türkiye odaklı hukuk/finans sorgularında genel web arama yeterli kaynak doğr
 ### Bilinçli Olarak Ertelenenler
 - MCP health check ve circuit-breaker telemetry paneli
 - MCP credentials/headers için tenant bazlı gizli yönetim katmanı
+
+---
+
+## 2026-03-16 — MCP health persistence kararı (restart-resistant resilience)
+### Problem
+MCP circuit/latency metrikleri sadece process-memory’de tutulduğu için servis restart sonrası resiliency sinyalleri sıfırlanıyordu.
+
+### Seçenekler
+- A: Sadece in-memory tutmaya devam etmek
+- B: Diskte snapshot persistence + startup seed restore eklemek
+
+### Karar
+**B seçildi:**
+- `service/mcp-health/store.ts` ile snapshot read/write
+- startup sırasında snapshot seed edilerek circuit/latency state restore
+- runtime’da debounce’lu persistence scheduler
+- ops için `POST /v1/mcp/flush` endpointi
+
+### Gerekçe
+- Restart sonrası tekrar ısınma (cold-start) etkisini azaltır.
+- Operasyon ekiplerine daha stabil hata/trend görünürlüğü sağlar.
+- Düşük karmaşıklıkla yüksek üretim etkisi üretir.
+
+### Etki
+- MCP dayanıklılık katmanı artık restart sonrası da tutarlı davranır.
+- Circuit breaker state continuity iyileşti.
+- Failover/fallback kararları daha hızlı ve daha doğru verilir.

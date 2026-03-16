@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: SMART-AI Platform Extensions
-  version: 0.7.0
+  version: 0.9.0
 paths:
   /v1/keys/openrouter/status:
     get:
@@ -54,6 +54,48 @@ paths:
       responses:
         '200':
           description: Job payload
+  /v1/mcp/health:
+    get:
+      summary: Get MCP health snapshot and aggregated metrics
+      responses:
+        '200':
+          description: MCP health payload
+  /v1/mcp/health/{serverId}:
+    get:
+      summary: Get MCP health for a specific server
+      parameters:
+        - in: path
+          name: serverId
+          required: true
+          schema:
+            type: string
+            enum: [mevzuat, borsa, yargi]
+      responses:
+        '200':
+          description: Server health payload
+  /v1/mcp/reset:
+    post:
+      summary: Reset MCP circuit for a specific server
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [serverId]
+              properties:
+                serverId:
+                  type: string
+                  enum: [mevzuat, borsa, yargi]
+      responses:
+        '200':
+          description: Reset result
+  /v1/mcp/flush:
+    post:
+      summary: Force persist MCP health snapshot
+      responses:
+        '200':
+          description: Flush result
   /v1/memory/items:
     post:
       summary: Memorize tenant-scoped memory items

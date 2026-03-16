@@ -28,6 +28,7 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - **Memory hotness scoring + retrieval telemetry** (OpenViking pattern)
 - **OpenBB-inspired financial provider fallback** (Stooq + AlphaVantage quote harmonization)
 - **Türk domain MCP entegrasyonu** (Mevzuat MCP + Borsa MCP + Yargı MCP via mcporter)
+- **MCP Dayanıklılık Katmanı** (circuit breaker + adaptive timeout + kalıcı health snapshot + health endpointleri)
 
 ## Klasörler
 - `contracts/` → API sözleşmeleri
@@ -112,6 +113,17 @@ curl -X POST http://127.0.0.1:8080/v1/memory/search \
   -H 'x-tenant-id: tenant-a' \
   -H 'content-type: application/json' \
   -d '{"query":"Benim toplantı tercihim neydi, hatırla"}'
+```
+
+## MCP Health (Resilience Ops)
+```bash
+curl http://127.0.0.1:8080/v1/mcp/health \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a'
+
+curl -X POST http://127.0.0.1:8080/v1/mcp/flush \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a'
 ```
 
 ## QMD Collection Bootstrap (opsiyonel manuel)

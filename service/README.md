@@ -43,6 +43,9 @@
 - `BORSA_MCP_URL` (varsayılan: `https://borsamcp.fastmcp.app/mcp`)
 - `YARGI_MCP_URL` (varsayılan: `https://yargimcp.fastmcp.app/mcp`)
 - `YARGI_MCP_FALLBACK_ENABLED` (varsayılan: true)
+- `MCP_HEALTH_PERSIST_ENABLED` (varsayılan: true)
+- `MCP_HEALTH_STORE_FILE` (varsayılan: `.data/mcp-health.json`)
+- `MCP_HEALTH_PERSIST_DEBOUNCE_MS` (varsayılan: 750)
 
 ## New endpoints
 - `POST /v1/rag/documents` → belge veya URL ingest
@@ -54,6 +57,10 @@
 - `GET /v1/memory/items` → tenant memory listesi
 - `GET /v1/memory/stats` → tenant memory istatistikleri
 - `DELETE /v1/memory/items/:memoryId` → memory silme
+- `GET /v1/mcp/health` → MCP health + circuit + latency telemetry
+- `GET /v1/mcp/health/:serverId` → tek MCP sunucusu health detayı
+- `POST /v1/mcp/reset` → circuit reset
+- `POST /v1/mcp/flush` → health snapshot’ını diskte flush etme
 
 ## Tool plane updates
 - `qmd_search` aracı eklendi (VPS'teki kurulu `qmd` CLI ile lokal repo doküman araması)
