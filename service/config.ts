@@ -100,6 +100,11 @@ export const config = {
     autoCaptureUserMessages: (process.env.MEMORY_AUTO_CAPTURE_USER_MESSAGES ?? 'true').toLowerCase() === 'true',
     hotnessHalfLifeDays: Number(process.env.MEMORY_HOTNESS_HALF_LIFE_DAYS ?? 7)
   },
+  mcpHealth: {
+    persistEnabled: (process.env.MCP_HEALTH_PERSIST_ENABLED ?? 'true').toLowerCase() === 'true',
+    storeFile: process.env.MCP_HEALTH_STORE_FILE ?? path.resolve(process.cwd(), '.data', 'mcp-health.json'),
+    persistDebounceMs: Number(process.env.MCP_HEALTH_PERSIST_DEBOUNCE_MS ?? 750)
+  },
   security: {
     masterKey: getMasterKey()
   }

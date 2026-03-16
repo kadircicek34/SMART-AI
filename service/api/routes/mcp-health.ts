@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { getMcpHealth, resetMcpCircuit } from '../../mcp-health/index.js';
+import { flushMcpHealthSnapshot, getMcpHealth, resetMcpCircuit } from '../../mcp-health/index.js';
 import type { McpServerId } from '../../mcp-health/types.js';
 
 const McpServerIdSchema = z.enum(['mevzuat', 'borsa', 'yargi']);
@@ -36,6 +36,14 @@ export async function registerMcpHealthRoutes(app: FastifyInstance): Promise<voi
     return reply.status(200).send({
       status: 'reset',
       serverId
+    });
+  });
+
+  app.post('/v1/mcp/flush', async (_request, reply) => {
+    await flushMcpHealthSnapshot();
+
+    return reply.status(200).send({
+      status: 'flushed'
     });
   });
 

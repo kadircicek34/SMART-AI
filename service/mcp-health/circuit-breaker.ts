@@ -3,7 +3,6 @@ import type {
   McpHealthConfig,
   McpHealthMetrics,
   McpHealthStatus,
-  McpCallResult,
   McpServerId
 } from './types.js';
 import { DEFAULT_MCP_HEALTH_CONFIG, MCP_SERVER_IDS } from './types.js';
@@ -54,11 +53,43 @@ function createInitialStatus(serverId: McpServerId): McpHealthStatus {
   };
 }
 
-export function createMcpCircuitBreaker(config: McpHealthConfig = DEFAULT_MCP_HEALTH_CONFIG): McpCircuitBreaker {
+function hydrateStatus(serverId: McpServerId, seed?: McpHealthStatus): McpHealthStatus {
+  const base = createInitialStatus(serverId);
+  if (!seed) return base;
+
+  return {
+    ...base,
+    ...seed,
+    serverId,
+    circuitState: seed.circuitState === 'open' || seed.circuitState === 'half-open' ? seed.circuitState : 'closed',
+    consecutiveFailures: Math.max(0, seed.consecutiveFailures ?? 0),
+    consecutiveSuccesses: Math.max(0, seed.consecutiveSuccesses ?? 0),
+    totalCalls: Math.max(0, seed.totalCalls ?? 0),
+    totalFailures: Math.max(0, seed.totalFailures ?? 0),
+    totalSuccesses: Math.max(0, seed.totalSuccesses ?? 0),
+    avgLatencyMs: Math.max(0, seed.avgLatencyMs ?? 0),
+    p95LatencyMs: Math.max(0, seed.p95LatencyMs ?? 0)
+  };
+}
+
+function seedLatencyWindow(window: LatencyWindow, status: McpHealthStatus): void {
+  const fallbackLatency = Math.max(0, Math.round(status.p95LatencyMs || status.avgLatencyMs || 0));
+  if (fallbackLatency <= 0) return;
+
+  const sampleCount = Math.min(window.latencies.length, Math.max(1, Math.min(status.totalCalls, 8)));
+  for (let i = 0; i < sampleCount; i += 1) {
+    pushLatency(window, fallbackLatency);
+  }
+}
+
+export function createMcpCircuitBreaker(
+  config: McpHealthConfig = DEFAULT_MCP_HEALTH_CONFIG,
+  seed?: Partial<McpHealthMetrics>
+): McpCircuitBreaker {
   const serverStatuses: Record<McpServerId, McpHealthStatus> = {
-    mevzuat: createInitialStatus('mevzuat'),
-    borsa: createInitialStatus('borsa'),
-    yargi: createInitialStatus('yargi')
+    mevzuat: hydrateStatus('mevzuat', seed?.servers?.mevzuat),
+    borsa: hydrateStatus('borsa', seed?.servers?.borsa),
+    yargi: hydrateStatus('yargi', seed?.servers?.yargi)
   };
 
   const latencyWindows: Record<McpServerId, LatencyWindow> = {
@@ -66,6 +97,10 @@ export function createMcpCircuitBreaker(config: McpHealthConfig = DEFAULT_MCP_HE
     borsa: createLatencyWindow(config.latencyWindowSize),
     yargi: createLatencyWindow(config.latencyWindowSize)
   };
+
+  for (const serverId of MCP_SERVER_IDS) {
+    seedLatencyWindow(latencyWindows[serverId], serverStatuses[serverId]);
+  }
 
   const halfOpenAttempts: Record<McpServerId, number> = {
     mevzuat: 0,
@@ -171,15 +206,17 @@ export function createMcpCircuitBreaker(config: McpHealthConfig = DEFAULT_MCP_HE
   }
 
   function getHealth(): McpHealthMetrics {
-    const servers = { ...serverStatuses };
-    const allStatuses = MCP_SERVER_IDS.map((id) => serverStatuses[id]);
+    const servers = {
+      mevzuat: { ...serverStatuses.mevzuat },
+      borsa: { ...serverStatuses.borsa },
+      yargi: { ...serverStatuses.yargi }
+    };
 
+    const allStatuses = MCP_SERVER_IDS.map((id) => serverStatuses[id]);
     const globalTotalCalls = allStatuses.reduce((sum, s) => sum + s.totalCalls, 0);
     const globalTotalFailures = allStatuses.reduce((sum, s) => sum + s.totalFailures, 0);
 
-    const allLatencies = MCP_SERVER_IDS.flatMap((id) =>
-      latencyWindows[id].latencies.filter((l) => l > 0)
-    );
+    const allLatencies = MCP_SERVER_IDS.flatMap((id) => latencyWindows[id].latencies.filter((l) => l > 0));
     const globalAvgLatencyMs =
       allLatencies.length > 0
         ? Math.round(allLatencies.reduce((a, b) => a + b, 0) / allLatencies.length)
@@ -195,7 +232,7 @@ export function createMcpCircuitBreaker(config: McpHealthConfig = DEFAULT_MCP_HE
   }
 
   function getServerHealth(serverId: McpServerId): McpHealthStatus {
-    return serverStatuses[serverId] ?? createInitialStatus(serverId);
+    return serverStatuses[serverId] ? { ...serverStatuses[serverId] } : createInitialStatus(serverId);
   }
 
   function getAdaptiveTimeout(serverId: McpServerId): number {
@@ -241,5 +278,7 @@ export const __private__ = {
   createLatencyWindow,
   pushLatency,
   computePercentile,
-  createInitialStatus
+  createInitialStatus,
+  hydrateStatus,
+  seedLatencyWindow
 };
