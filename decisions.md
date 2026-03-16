@@ -155,3 +155,30 @@ Upstream OpenRouter oran limitleri (429) ve geçici 5xx hataları kısa süreli 
 ### Bilinçli Olarak Ertelenenler
 - Circuit breaker + merkezi retry telemetry
 - Tenant/endpoint bazlı adaptif retry politikaları
+
+---
+
+## 2026-03-16 — Orchestrator kalite kapıları (source diversity + loop guard + research budget)
+### Problem
+Araştırma akışında tekrar eden tool pass'leri, tek kaynaktan aşırı alıntı ve sınırsız query genişletmesi kaliteyi düşürebilir.
+
+### Seçenekler
+- A: Mevcut heuristik akışa dokunmamak
+- B: Sadece daha fazla tool eklemek
+- C: Verifier kalite kapısı + orchestrator loop guard + deep research bütçe/concurrency kontrolü
+
+### Karar
+**C seçildi:**
+- Verifier için minimum citation + minimum source diversity kapısı
+- Orchestrator için tekrarlayan tool-pass imza kırıcı (loop guard)
+- Deep research için query budget + max concurrent research unit limiti
+
+### Gerekçe
+- Deer-Flow’daki loop/tool-stability yaklaşımını hafif bir middleware mantığıyla taşır.
+- Open Deep Research’teki iteration/concurrency disiplinini ürün dostu env ayarlarına dönüştürür.
+- Kaynak çeşitliliği düşük çıktılarda yanlış güven üretimini azaltır.
+
+### Etki
+- Düşük kanıtta otomatik genişletme daha kontrollü çalışır.
+- Tek kaynağa dayalı cevaplar daha temkinli sentezlenir.
+- Üretim yükü ve latency davranışı daha öngörülebilir olur.

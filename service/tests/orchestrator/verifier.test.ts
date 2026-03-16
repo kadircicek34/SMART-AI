@@ -33,7 +33,7 @@ test('verifier marks response sufficient when strong evidence exists', () => {
       {
         tool: 'deep_research',
         summary: 'B'.repeat(130),
-        citations: ['https://example.com/a', 'https://example.com/b']
+        citations: ['https://example.com/a', 'https://another-example.com/b']
       }
     ],
     'query'
@@ -41,4 +41,30 @@ test('verifier marks response sufficient when strong evidence exists', () => {
 
   assert.equal(result.sufficient, true);
   assert.ok(result.confidence >= 0.65);
+});
+
+test('verifier keeps evidence insufficient when citations come from a single source', () => {
+  const result = verifyEvidence(
+    {
+      objective: 'test',
+      tools: ['web_search', 'wikipedia'],
+      reasoning: 'test'
+    },
+    [
+      {
+        tool: 'web_search',
+        summary: 'C'.repeat(140),
+        citations: ['https://single-source.example/a', 'https://single-source.example/b']
+      },
+      {
+        tool: 'wikipedia',
+        summary: 'D'.repeat(130),
+        citations: ['https://single-source.example/c']
+      }
+    ],
+    'query'
+  );
+
+  assert.equal(result.sufficient, false);
+  assert.equal(result.suggestedTool, 'deep_research');
 });

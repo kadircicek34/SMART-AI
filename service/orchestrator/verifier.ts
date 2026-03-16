@@ -1,3 +1,4 @@
+import { config } from '../config.js';
 import type { ToolName, ToolResult } from '../tools/types.js';
 import type { Plan } from './types.js';
 
@@ -17,6 +18,31 @@ function looksLikeKnowledgeBaseQuery(query: string | undefined): boolean {
   return /\b(docs?|documentation|knowledge\s?base|kb|rag|repo|codebase|api|spec|readme|dok[üu]man|iç\s?bilgi|bilgi\s?taban[ıi]|projede)\b/i.test(
     query
   );
+}
+
+function citationSourceKey(citation: string): string {
+  if (!citation) return 'unknown';
+
+  try {
+    const url = new URL(citation);
+    return `${url.protocol}//${url.host || url.pathname}`.toLowerCase();
+  } catch {
+    const normalized = citation.trim().toLowerCase();
+    const hashIdx = normalized.indexOf('#');
+    return hashIdx >= 0 ? normalized.slice(0, hashIdx) : normalized;
+  }
+}
+
+function countDistinctCitationSources(results: ToolResult[]): number {
+  const sourceSet = new Set<string>();
+
+  for (const result of results) {
+    for (const citation of result.citations) {
+      sourceSet.add(citationSourceKey(citation));
+    }
+  }
+
+  return sourceSet.size;
 }
 
 export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string): VerificationResult {
@@ -39,20 +65,26 @@ export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string
   }
 
   const citationCount = results.reduce((acc, r) => acc + r.citations.length, 0);
+  const distinctSources = countDistinctCitationSources(results);
   const hasSummary = hasMeaningfulSummary(results);
   const hasRagEvidence = results.some((r) => r.tool === 'rag_search' && r.citations.length > 0);
 
   let confidence = 0;
-  if (hasSummary) confidence += 0.4;
-  if (citationCount >= 2) confidence += 0.3;
-  if (results.length >= 2) confidence += 0.2;
+  if (hasSummary) confidence += 0.35;
+  if (citationCount >= config.verifier.minCitations) confidence += 0.2;
+  if (distinctSources >= config.verifier.minSourceDomains) confidence += 0.2;
+  if (results.length >= 2) confidence += 0.15;
   if (hasRagEvidence) confidence += 0.15;
 
-  if (confidence >= 0.65) {
+  const citationFloorMet = citationCount >= config.verifier.minCitations;
+  const sourceDiversityMet = distinctSources >= config.verifier.minSourceDomains;
+  const qualityFloorMet = citationFloorMet && (sourceDiversityMet || hasRagEvidence);
+
+  if (confidence >= 0.65 && qualityFloorMet) {
     return {
       sufficient: true,
       confidence,
-      reason: `Evidence sufficient (confidence=${confidence.toFixed(2)}).`
+      reason: `Evidence sufficient (confidence=${confidence.toFixed(2)}, citations=${citationCount}, sources=${distinctSources}).`
     };
   }
 
@@ -62,6 +94,15 @@ export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string
       confidence,
       reason: 'Confidence low for internal query, adding rag_search pass.',
       suggestedTool: 'rag_search'
+    };
+  }
+
+  if (!sourceDiversityMet && !plan.tools.includes('web_search')) {
+    return {
+      sufficient: false,
+      confidence,
+      reason: `Evidence source diversity düşük (sources=${distinctSources}), web_search ile genişletiliyor.`,
+      suggestedTool: 'web_search'
     };
   }
 
@@ -77,6 +118,11 @@ export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string
   return {
     sufficient: false,
     confidence,
-    reason: 'Evidence still low after available tools; will synthesize with caveats.'
+    reason: `Evidence still low after available tools (citations=${citationCount}, sources=${distinctSources}); will synthesize with caveats.`
   };
 }
+
+export const __private__ = {
+  citationSourceKey,
+  countDistinctCitationSources
+};

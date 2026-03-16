@@ -1,3 +1,4 @@
+import { config } from '../config.js';
 import { createBudget, assertWithinRuntime } from '../security/budget-guard.js';
 import { enforceToolPolicy } from '../security/policy-engine.js';
 import type { ToolName, ToolResult } from '../tools/types.js';
@@ -20,6 +21,10 @@ function addSuggestedTool(plan: Plan, suggestedTool: ToolName): Plan {
     ...plan,
     tools: [...plan.tools, suggestedTool]
   };
+}
+
+function toolPassSignature(toolNames: ToolName[]): string {
+  return [...toolNames].sort().join('|');
 }
 
 export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
@@ -60,7 +65,9 @@ export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
   let allResults: ToolResult[] = [];
   let verification = verifyEvidence(plan, allResults, query);
 
-  const stepLimit = Math.max(1, Math.min(policy.maxSteps, 4));
+  const stepLimit = Math.max(1, Math.min(policy.maxSteps, config.orchestrator.maxToolPasses));
+  const passSignatureCounts = new Map<string, number>();
+
   let step = 0;
 
   while (step < stepLimit) {
@@ -72,6 +79,14 @@ export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
           : [];
 
     if (toolsToRun.length === 0) break;
+
+    const signature = toolPassSignature(toolsToRun);
+    const signatureCount = (passSignatureCounts.get(signature) ?? 0) + 1;
+    passSignatureCounts.set(signature, signatureCount);
+
+    if (signatureCount > config.orchestrator.maxRepeatedToolPasses) {
+      break;
+    }
 
     assertWithinRuntime(startedAt, budget);
 
@@ -120,3 +135,7 @@ export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
     plan
   };
 }
+
+export const __private__ = {
+  toolPassSignature
+};

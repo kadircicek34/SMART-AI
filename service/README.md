@@ -14,6 +14,12 @@
 - `OPENROUTER_MAX_RETRIES` (varsayılan: 2)
 - `OPENROUTER_RETRY_BASE_DELAY_MS` (varsayılan: 400)
 - `OPENROUTER_RETRY_MAX_DELAY_MS` (varsayılan: 4000)
+- `ORCHESTRATOR_MAX_TOOL_PASSES` (varsayılan: 4)
+- `ORCHESTRATOR_MAX_REPEATED_TOOL_PASSES` (varsayılan: 2)
+- `VERIFIER_MIN_CITATIONS` (varsayılan: 2)
+- `VERIFIER_MIN_SOURCE_DOMAINS` (varsayılan: 2)
+- `RESEARCH_MAX_QUERIES` (varsayılan: 3)
+- `RESEARCH_MAX_CONCURRENT_UNITS` (varsayılan: 2)
 - Tenant-specific keys via `/v1/keys/openrouter`
 - `BRAVE_API_KEY` (web_search aracı için Brave Search API)
 - `RAG_STORE_FILE` (tenant bazlı bilgi tabanı dosyası)

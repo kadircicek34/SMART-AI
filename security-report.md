@@ -1,13 +1,15 @@
-# SECURITY REPORT — SMART-AI v0.4
+# SECURITY REPORT — SMART-AI v0.5
 
 ## Kapsam
-Bu iterasyonda kontrol edilen güvenlik yüzeyleri:
+Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
 - AuthN/AuthZ (Bearer API key + tenant header)
-- Tenant isolation (key-store + job + RAG data plane)
+- Tenant isolation (key-store + RAG data plane)
 - Input validation (zod)
 - Secret management (AES-256-GCM)
 - Rate limit + runtime/tool budget
-- LLM provider dayanıklılığı (OpenRouter retry policy)
+- LLM provider dayanıklılığı (OpenRouter retry)
+- **Orchestrator kalite kapıları** (citation floor + source diversity)
+- **Tool loop dayanıklılığı** (repeated pass guard)
 - Dependency güvenliği (`npm audit`)
 
 ## Kontrol Sonuçları
@@ -18,13 +20,15 @@ Bu iterasyonda kontrol edilen güvenlik yüzeyleri:
 | Secrets | ✅ | tenant OpenRouter key encrypted-at-rest |
 | Tenant Isolation | ✅ | RAG doküman/chunk erişimi tenant scope ile sınırlandı |
 | Abuse Guard | ✅ | rate-limit + max step/tool/runtime bütçesi |
-| OpenRouter Transient Error Handling | ✅ | 429/5xx için kontrollü retry, non-retryable 4xx fail-fast |
+| Provider Resilience | ✅ | 429/5xx kontrollü retry, non-retryable 4xx fail-fast |
+| Evidence Quality Gate | ✅ | min citation + source diversity kontrolü |
+| Loop Guard | ✅ | tekrarlayan tool-pass imzası tespitinde kırma |
 | Dependencies | ✅ | `npm audit --omit=dev` sonucu: 0 vulnerability |
 
 ## Yeni Güvenlik/Dayanıklılık Notu
-- Retry mekanizması yalnızca retryable status kodlarında çalışır (408/409/425/429/5xx).
-- `Retry-After` başlığı varsa önceliklendirilir; yoksa exponential backoff + jitter kullanılır.
-- Retry ayarları env değişkenleri ile sınırlandırılabilir (`OPENROUTER_MAX_RETRIES`, `OPENROUTER_RETRY_*`).
+- Verifier yalnızca özet uzunluğuna değil kaynak çeşitliliğine de bakıyor.
+- Deep research query genişlemesi env budget ile sınırlı (`RESEARCH_MAX_QUERIES`).
+- Paralel araştırma birimi env ile sınırlı (`RESEARCH_MAX_CONCURRENT_UNITS`).
 
 ## Kalan İyileştirme Alanları
 1. Circuit breaker + retry telemetry (SLO takibi)
@@ -33,4 +37,4 @@ Bu iterasyonda kontrol edilen güvenlik yüzeyleri:
 4. KMS entegrasyonu (env master key yerine)
 
 ## Sonuç
-Sistem güvenlik tabanı korunarak LLM katmanında üretim dayanıklılığı artırıldı; yeni retry davranışı testlerle doğrulandı.
+Sistem güvenlik tabanı korunarak araştırma/orkestrasyon tarafında kalite ve dayanıklılık kapıları güçlendirildi; tüm kontroller yeşil.

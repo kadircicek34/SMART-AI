@@ -1,38 +1,43 @@
-# DELIVERY — SMART-AI v0.4 (OpenRouter Retry Hardening)
+# DELIVERY — SMART-AI v0.5 (Orchestrator Quality Gates + Deep Research Hardening)
 
 ## Özet
-Bu koşumda tek günlük en yüksek etkili iyileştirme olarak **OpenRouter çağrı dayanıklılığı** geliştirildi:
-- 429 ve geçici 5xx hatalarında kontrollü retry
-- `Retry-After` header uyumluluğu
-- Exponential backoff + jitter
-- Retry davranışı için yeni birim testleri ve env tabanlı ayarlanabilirlik
+Bu koşumda, referans repo analizlerinden (CrewAI / OpenRAG / Open Deep Research / Qwen-Agent / Deer-Flow / memU) çıkan yüksek ROI pattern’ler SMART-AI’a uygulandı:
+- Verifier tarafında **citation quality gate** (minimum citation + source diversity)
+- Orchestrator tarafında **repeated tool-pass loop guard**
+- Deep research tarafında **query budget + concurrency limit + partial-failure tolerance**
 
 ## Teslim Edilen Ana Bileşenler
-1. **LLM Client Hardening**
-   - `service/llm/openrouter-client.ts`
-   - Retryable status kodları + gecikme stratejisi
-2. **Test Kapsamı Genişletme**
-   - `service/tests/llm/openrouter-client.test.ts` (yeni)
-3. **Konfigürasyon / DX**
-   - `service/config.ts` (retry env değerleri)
+1. **Orchestrator Hardening**
+   - `service/orchestrator/run.ts`
+     - tool pass signature + repeated-pass guard
+   - `service/orchestrator/verifier.ts`
+     - source diversity kontrollü kanıt doğrulama
+2. **Deep Research Hardening**
+   - `service/tools/deep-research.ts`
+     - query planning budget
+     - max concurrent research units
+     - source-level partial failure isolation
+3. **Config / Ops Surface**
+   - `service/config.ts`
    - `service/.env.example`
    - `service/README.md`
-4. **Operasyon Raporları**
-   - `decisions.md`, `test-report.md`, `security-report.md`, `state.json`
+4. **Test Kapsamı**
+   - `service/tests/tools/deep-research.test.ts` (yeni)
+   - `service/tests/orchestrator/verifier.test.ts` (genişletildi)
 
 ## Verification Özeti
 | İddia | Kanıt | Sonuç |
 |---|---|---|
 | Kod derleniyor | `npm run typecheck` | ✅ |
-| Testler geçiyor | `npm test` (19/19) | ✅ |
+| Testler geçiyor | `npm test` (22/22) | ✅ |
 | Güvenlik bağımlılık taraması temiz | `npm audit --omit=dev` | ✅ |
-| Retry davranışı doğru | `tests/llm/openrouter-client.test.ts` | ✅ |
+| Teslim kapıları geçildi | `scripts/delivery-gate.sh <project-dir>` | ✅ |
 
 ## Bilinen Sınırlar
-- Retry katmanı tek çağrı düzeyinde; henüz circuit breaker/telemetry yok.
-- Upstream uzun süreli kesintilerde kullanıcı hatası kaçınılmaz (beklenen davranış).
+- Loop guard hafif heuristik; tam telemetry/circuit-breaker katmanı henüz yok.
+- Deep research kalite artışı var, ancak provider maliyet-optimizasyonu için adaptif query budget henüz yok.
 
 ## GitHub Senkronizasyonu
 - Repo: `https://github.com/kadircicek34/SMART-AI`
 - Branch: `main`
-- Push: bu koşum sonunda yapıldı
+- Push: bu koşum sonunda MCP üzerinden yapılacak

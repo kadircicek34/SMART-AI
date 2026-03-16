@@ -1,5 +1,13 @@
 # TASKS — OpenRouter Agentic Intelligence API
 
+## v0.5 Delta (Quality Gates + Deep Research Hardening) — Tamamlandı
+- [x] Verifier kalite kapısı eklendi (minimum citation + source diversity)
+- [x] Orchestrator repeated tool-pass loop guard eklendi
+- [x] Deep research query budget + concurrency limit eklendi
+- [x] Deep research source-level partial failure tolerance eklendi
+- [x] Yeni testler eklendi (`tests/tools/deep-research.test.ts`, verifier genişletmesi)
+- [x] Fresh verification: typecheck + test + audit + delivery-gate
+
 ## v0.3 Delta (RAG + Brave) — Tamamlandı
 - [x] `web_search` aracı Brave API ile genişletildi (fallback: DuckDuckGo)
 - [x] Tenant izole RAG data-plane eklendi (`service/rag/*`)

@@ -33,6 +33,18 @@ export const config = {
   rateLimitPerMinute: Number(process.env.RATE_LIMIT_PER_MINUTE ?? 60),
   maxSteps: Number(process.env.MAX_STEPS ?? 6),
   maxToolCalls: Number(process.env.MAX_TOOL_CALLS ?? 6),
+  orchestrator: {
+    maxToolPasses: Number(process.env.ORCHESTRATOR_MAX_TOOL_PASSES ?? 4),
+    maxRepeatedToolPasses: Number(process.env.ORCHESTRATOR_MAX_REPEATED_TOOL_PASSES ?? 2)
+  },
+  verifier: {
+    minCitations: Number(process.env.VERIFIER_MIN_CITATIONS ?? 2),
+    minSourceDomains: Number(process.env.VERIFIER_MIN_SOURCE_DOMAINS ?? 2)
+  },
+  research: {
+    maxQueries: Number(process.env.RESEARCH_MAX_QUERIES ?? 3),
+    maxConcurrentUnits: Number(process.env.RESEARCH_MAX_CONCURRENT_UNITS ?? 2)
+  },
   openRouter: {
     baseUrl: process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1',
     defaultModel: process.env.OPENROUTER_DEFAULT_MODEL ?? 'deepseek/deepseek-chat-v3.1',

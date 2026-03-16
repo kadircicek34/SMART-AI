@@ -20,6 +20,9 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - Stream/non-stream cevap desteği
 - **RAG knowledge base** (tenant izole ingest + retrieval)
 - **Brave Search destekli web_search** (fallback: DuckDuckGo)
+- **Verifier kalite kapıları** (minimum citation + source diversity)
+- **Loop guard** (tekrarlayan tool-pass kırıcı)
+- **Deep research budget/concurrency kontrolleri**
 
 ## Klasörler
 - `contracts/` → API sözleşmeleri
