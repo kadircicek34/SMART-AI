@@ -1,7 +1,7 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "v0.10 MCP resilience: circuit breaker + adaptive timeout + health endpoints",
+  "current_task": "v0.11 MCP health persistence + flush ops endpoint production seviyede tamamlandı",
   "next_actions": [
     "MCP health metriklerini Prometheus/OTEL'e export et",
     "MCP retry budget'i circuit state'e göre policy-driven hale getir",
@@ -9,8 +9,8 @@
     "Memory/RAG encrypt-at-rest (KMS)"
   ],
   "risks": [
-    "MCP health/circuit metrikleri process-memory tabanlı; restart sonrası sıfırlanır",
-    "Remote MCP sunucularında anlık availability düşüşleri tamamen engellenemez",
+    "MCP health persistence local disk tabanlı; multi-instance shared state henüz yok",
+    "Circuit breaker granularity şu an server-bazlı, tool-bazlı ayrıştırma sonraki iterasyon",
     "MASTER_KEY env yönetimi production'da secret manager gerektirir"
   ],
   "decisions": [
@@ -20,7 +20,8 @@
     "Memory: pre-retrieval decision + hotness + retrieval telemetry",
     "Financial: OpenBB-style provider fallback (stooq + alpha_vantage)",
     "Türk domain MCP: mevzuat/borsa/yargı remote MCP entegrasyonu",
-    "MCP resilience: circuit breaker + adaptive timeout + health endpointleri"
+    "MCP resilience: circuit breaker + adaptive timeout + health endpointleri",
+    "MCP health persistence: snapshot store + startup restore + ops flush"
   ],
   "artifacts": [
     "README.md",
@@ -28,11 +29,15 @@
     "delivery.md",
     "test-report.md",
     "security-report.md",
-    "service/mcp-health",
+    "service/mcp-health/types.ts",
+    "service/mcp-health/circuit-breaker.ts",
+    "service/mcp-health/index.ts",
+    "service/mcp-health/store.ts",
     "service/api/routes/mcp-health.ts",
     "service/tools/tr-mcp-search.ts",
     "service/tests/mcp-health/circuit-breaker.test.ts",
+    "service/tests/mcp-health/store.test.ts",
     "service/tests/contract/mcp-health.test.ts"
   ],
-  "updated_at": "2026-03-16T15:34:01+03:00"
+  "updated_at": "2026-03-16T15:48:04+03:00"
 }

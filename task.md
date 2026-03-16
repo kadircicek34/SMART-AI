@@ -1,5 +1,14 @@
 # TASKS — OpenRouter Agentic Intelligence API
 
+## v1.0 Delta (MCP Resilience Persistence + Ops Flush) — Tamamlandı
+- [x] MCP health snapshot persistence eklendi (`service/mcp-health/store.ts`)
+- [x] Circuit-breaker seed restore desteği eklendi (restart sonrası state continuity)
+- [x] Global mcp-health index persistence scheduler eklendi (`persistDebounceMs`)
+- [x] Yeni endpoint eklendi: `POST /v1/mcp/flush`
+- [x] Config/env yüzeyi genişletildi (`MCP_HEALTH_PERSIST_*`)
+- [x] Yeni testler eklendi (`tests/mcp-health/store.test.ts`, circuit seed testi, contract flush testi)
+- [x] Fresh verification: typecheck + test + audit + delivery-gate
+
 ## v0.9 Delta (saidsurucu MCP Integrations: mevzuat/borsa/yargı) — Tamamlandı
 - [x] `saidsurucu/mevzuat-mcp`, `saidsurucu/borsa-mcp`, `saidsurucu/yargi-mcp` repo analizleri `github-readonly + repomix` ile tamamlandı
 - [x] MCP adapter katmanı eklendi (`service/tools/tr-mcp-search.ts`)

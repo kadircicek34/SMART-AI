@@ -8,6 +8,7 @@ before(async () => {
   process.env.APP_API_KEYS = 'test-api-key';
   process.env.KEY_STORE_FILE = '/tmp/smart-ai-test-keys-mcp-health.json';
   process.env.MASTER_KEY_BASE64 = Buffer.alloc(32, 4).toString('base64');
+  process.env.MCP_HEALTH_STORE_FILE = `/tmp/smart-ai-test-mcp-health-${Date.now()}.json`;
 
   const mod = await import('../../api/app.js');
   app = mod.buildApp();
@@ -62,4 +63,18 @@ test('POST /v1/mcp/reset validates serverId enum', async () => {
 
   assert.equal(ok.statusCode, 200);
   assert.equal(ok.json().status, 'reset');
+});
+
+test('POST /v1/mcp/flush persists snapshot trigger', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/v1/mcp/flush',
+    headers: {
+      authorization: 'Bearer test-api-key',
+      'x-tenant-id': 'tenant-test'
+    }
+  });
+
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().status, 'flushed');
 });
