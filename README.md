@@ -40,6 +40,7 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - `service/security/` → key-store, policy, budget
 - `service/worker/` → async job runtime
 - `service/tests/` → contract + security + unit testleri
+- `service/web/` → control dashboard + chatbot UI statik frontend
 
 ## Hızlı Başlangıç
 ```bash
@@ -125,6 +126,13 @@ curl -X POST http://127.0.0.1:8080/v1/mcp/flush \
   -H 'Authorization: Bearer dev-admin-key' \
   -H 'x-tenant-id: tenant-a'
 ```
+
+## Web UI (Control Dashboard + Chat UI)
+Sunucu kalktıktan sonra:
+- `http://127.0.0.1:8080/ui/dashboard`
+- `http://127.0.0.1:8080/ui/chat`
+
+UI, API Key ve Tenant ID girilerek canlı kullanım sağlar.
 
 ## QMD Collection Bootstrap (opsiyonel manuel)
 ```bash

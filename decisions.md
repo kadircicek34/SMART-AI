@@ -379,3 +379,29 @@ MCP circuit/latency metrikleri sadece process-memory’de tutulduğu için servi
 - MCP dayanıklılık katmanı artık restart sonrası da tutarlı davranır.
 - Circuit breaker state continuity iyileşti.
 - Failover/fallback kararları daha hızlı ve daha doğru verilir.
+
+---
+
+## 2026-03-17 — Control Dashboard + Chatbot UI kararı
+### Problem
+API güçlü olsa da operasyonel kontrol ve son kullanıcı etkileşimi sadece API seviyesinde kalıyordu; ürün kullanılabilirliği düşüyordu.
+
+### Seçenekler
+- A: Sadece API bırakmak
+- B: Hafif web control dashboard + chatbot UI eklemek
+
+### Karar
+**B seçildi:**
+- `/ui/dashboard` ile operasyonel kontrol ekranı
+- `/ui/chat` ile canlı chatbot arayüzü
+- statik route katmanı (`service/api/routes/ui.ts`) ile server içinden servis
+
+### Gerekçe
+- Sunucu ayağa kalktıktan sonra kullanıcıya doğrudan kullanılabilir UI sağlar.
+- Operasyonel metrikleri (MCP/memory/rag) tek ekranda görünür yapar.
+- Harici frontend deploy bağımlılığı olmadan hızlı ürünleşme sağlar.
+
+### Etki
+- Ürün API-first + UI-ready hale geldi.
+- Teknik olmayan kullanıcı için kullanım eşiği dramatik biçimde düştü.
+- SRE/operasyon tarafında troubleshooting hızı arttı.

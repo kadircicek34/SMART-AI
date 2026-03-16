@@ -8,7 +8,8 @@
 - ✅ v0.8 teslim edildi: OpenBB-inspired financial provider fallback + quote harmonization
 - ✅ v0.9 teslim edildi: saidsurucu MCP entegrasyonu (mevzuat/borsa/yargı) + planner/verifier/deep-research route güncellemesi
 - ✅ v1.0 teslim edildi: MCP health persistence + circuit restore + `/v1/mcp/flush` ops endpointi
-- ✅ Test paketi 53/53 yeşil
+- ✅ v1.1 teslim edildi: control dashboard + kullanıcı chatbot web UI (`/ui/dashboard`, `/ui/chat`)
+- ✅ Test paketi 57/57 yeşil
 
 ## Faz 1 — Foundation (Hafta 1)
 ### Hedef

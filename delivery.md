@@ -1,42 +1,45 @@
-# DELIVERY — SMART-AI v0.11 (MCP Health Persistence + Flush Ops)
+# DELIVERY — SMART-AI v1.1 (Control Dashboard + Chatbot UI)
 
 ## Özet
-Bu koşumda SMART-AI MCP dayanıklılık katmanı bir üst seviyeye taşındı:
-- MCP health metrikleri artık sadece memory’de değil, **disk snapshot** olarak da tutuluyor.
-- Servis restart sonrası circuit/latency sinyalleri seed edilerek devam ediyor.
-- Operasyon için manuel persist endpointi eklendi: `POST /v1/mcp/flush`.
+Bu koşumda kullanıcı talebi doğrultusunda SMART-AI’ye doğrudan kullanılabilir iki arayüz eklendi:
+- **Control Dashboard** (`/ui/dashboard`)
+- **Chatbot UI** (`/ui/chat`)
+
+Böylece ürün artık sadece API değil, sunucu ayağa kalkar kalkmaz kullanılabilen web arayüzüne sahip.
 
 ## Teslim Edilen Ana Bileşenler
-1. **Persistence Store (yeni)**
-   - `service/mcp-health/store.ts`
-   - snapshot read/write + sanitize + atomic write
-2. **Circuit Restore**
-   - `service/mcp-health/circuit-breaker.ts`
-   - seed snapshot ile startup restore
-3. **Runtime Persistence Scheduler**
-   - `service/mcp-health/index.ts`
-   - debounce’lu auto-persist + `flushMcpHealthSnapshot`
-4. **API Surface**
-   - `service/api/routes/mcp-health.ts`
-   - yeni endpoint: `POST /v1/mcp/flush`
-5. **Config/Ops**
-   - `service/config.ts`, `service/.env.example`
-   - `MCP_HEALTH_PERSIST_ENABLED`, `MCP_HEALTH_STORE_FILE`, `MCP_HEALTH_PERSIST_DEBOUNCE_MS`
-6. **Contracts & Docs**
-   - `contracts/platform-extensions.yaml` mcp endpoints güncellendi
-   - README / service README güncellendi
+1. **UI Route Katmanı**
+   - `service/api/routes/ui.ts` (yeni)
+   - güvenli statik dosya servisleme + traversal koruması
+2. **Web UI Dosyaları**
+   - `service/web/dashboard.html`
+   - `service/web/chat.html`
+   - `service/web/assets/app.css`
+   - `service/web/assets/dashboard.js`
+   - `service/web/assets/chat.js`
+3. **Dashboard Fonksiyonları**
+   - servis health görüntüleme
+   - MCP health/global metrikler
+   - memory stats + rag document sayısı
+   - MCP flush tetikleme
+4. **Chat UI Fonksiyonları**
+   - model listesi yükleme (`/v1/models`)
+   - tenant bazlı `/v1/chat/completions` ile mesajlaşma
+5. **Test ve Dokümantasyon**
+   - `service/tests/contract/ui.test.ts` (yeni)
+   - README / service README / contracts güncellendi
 
 ## Verification Özeti
 | İddia | Kanıt | Sonuç |
 |---|---|---|
 | Kod derleniyor | `npm run typecheck` | ✅ |
-| Testler geçiyor | `npm test` (**53/53**) | ✅ |
+| Testler geçiyor | `npm test` (**57/57**) | ✅ |
 | Güvenlik bağımlılık taraması temiz | `npm audit --omit=dev` | ✅ |
 | Teslim kapıları geçildi | `scripts/delivery-gate.sh` | ✅ PASS |
 
 ## Bilinen Sınırlar
-- Snapshot persistence local disk üzerinde; multi-instance shared store henüz yok.
-- Circuit breaker granularity şu an server-bazlı; tool-bazlı ayrıştırma gelecek iterasyon.
+- UI tarafı API key’i localStorage’da tutar; production’da kısa ömürlü session token önerilir.
+- UI şimdilik tek konuşma penceresi; çoklu conversation/session history sonraki iterasyon.
 
 ## GitHub Senkronizasyonu
 - Repo: `https://github.com/kadircicek34/SMART-AI`

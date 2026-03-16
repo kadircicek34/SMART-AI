@@ -61,6 +61,8 @@
 - `GET /v1/mcp/health/:serverId` → tek MCP sunucusu health detayı
 - `POST /v1/mcp/reset` → circuit reset
 - `POST /v1/mcp/flush` → health snapshot’ını diskte flush etme
+- `GET /ui/dashboard` → control dashboard (web)
+- `GET /ui/chat` → kullanıcı chatbot arayüzü (web)
 
 ## Tool plane updates
 - `qmd_search` aracı eklendi (VPS'teki kurulu `qmd` CLI ile lokal repo doküman araması)
