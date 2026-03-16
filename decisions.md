@@ -265,3 +265,29 @@ Memory retrieval kalitesinde recency/frequency etkisi ve operasyonel görünürl
 ### Etki
 - Sık ve güncel memory kayıtları daha doğru sıralanıyor.
 - `/v1/memory/stats` üzerinden retrieval davranışı izlenebiliyor.
+
+---
+
+## 2026-03-16 — Financial provider fallback kararı (OpenBB pattern)
+### Problem
+`financial_deep_search` tek source davranışında kırılgan kalıyor; provider hatasında finansal cevap kalitesi düşüyor.
+
+### Seçenekler
+- A: Stooq + web arama ile devam etmek
+- B: OpenBB tarzı provider registry/fallback yaklaşımını finansal tool'a uyarlamak
+
+### Karar
+**B seçildi:**
+- Finansal quote için çok provider fallback eklendi (`stooq` + `alpha_vantage`)
+- Çok provider çıktısı için harmonization + spread analizi eklendi
+- Query parser çoklu sembol desteği ile güçlendirildi
+
+### Gerekçe
+- OpenBB’de provider soyutlama ve fetcher lifecycle tasarımı sahada kendini kanıtlıyor.
+- Tek kaynağa bağımlılık yerine fallback zinciri üretim dayanıklılığını artırır.
+- Finansal sonuçları kaynaklar arası kıyaslayarak güvenilirlik sinyali üretir.
+
+### Etki
+- Finansal tool cevaplarında hata toleransı arttı.
+- Provider farklılıkları kullanıcıya şeffaf raporlanabilir oldu (spread).
+- Finansal tool test kapsamı genişledi.

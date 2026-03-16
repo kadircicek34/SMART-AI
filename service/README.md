@@ -22,6 +22,7 @@
 - `RESEARCH_MAX_CONCURRENT_UNITS` (varsayılan: 2)
 - Tenant-specific keys via `/v1/keys/openrouter`
 - `BRAVE_API_KEY` (web_search aracı için Brave Search API)
+- `ALPHA_VANTAGE_API_KEY` (financial_deep_search için ek quote provider)
 - `RAG_STORE_FILE` (tenant bazlı bilgi tabanı dosyası)
 - `MEMORY_STORE_FILE` (tenant bazlı memory katmanı dosyası)
 - `MEMORY_DEFAULT_CATEGORY` (varsayılan: `note`)
@@ -49,4 +50,5 @@
 
 ## Tool plane updates
 - `qmd_search` aracı eklendi (VPS'teki kurulu `qmd` CLI ile lokal repo doküman araması)
+- `financial_deep_search` artık OpenBB-pattern fallback ile `stooq + alpha_vantage` kaynaklarını harmonize ediyor
 - `deep_research` akışı artık tenant memory + QMD + RAG + web/wiki kaynaklarını birleştiriyor

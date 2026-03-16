@@ -56,6 +56,7 @@ export const config = {
   tools: {
     exaApiKey: process.env.EXA_API_KEY,
     financialDatasetsApiKey: process.env.FINANCIAL_DATASETS_API_KEY,
+    alphaVantageApiKey: process.env.ALPHA_VANTAGE_API_KEY,
     braveApiKey: process.env.BRAVE_API_KEY,
     braveApiBaseUrl: process.env.BRAVE_API_BASE_URL ?? 'https://api.search.brave.com/res/v1/web/search',
     qmdEnabled: (process.env.QMD_ENABLED ?? 'true').toLowerCase() === 'true',

@@ -5,7 +5,8 @@
 - ✅ v0.5 teslim edildi: orchestrator quality gates + deep-research hardening
 - ✅ v0.6 teslim edildi: tenant memory layer + pre-retrieval decision + memory_search tool
 - ✅ v0.7 teslim edildi: qmd_search entegrasyonu + memory hotness/retrieval telemetry
-- ✅ Test paketi 36/36 yeşil
+- ✅ v0.8 teslim edildi: OpenBB-inspired financial provider fallback + quote harmonization
+- ✅ Test paketi 39/39 yeşil
 
 ## Faz 1 — Foundation (Hafta 1)
 ### Hedef

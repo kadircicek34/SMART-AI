@@ -26,6 +26,7 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - **Tenant Memory Layer** (memorizasyon + retrieval + auto-capture)
 - **QMD Local Search entegrasyonu** (VPS'teki kurulu `qmd` ile proje doküman araması)
 - **Memory hotness scoring + retrieval telemetry** (OpenViking pattern)
+- **OpenBB-inspired financial provider fallback** (Stooq + AlphaVantage quote harmonization)
 
 ## Klasörler
 - `contracts/` → API sözleşmeleri
@@ -159,3 +160,4 @@ curl http://127.0.0.1:8080/v1/jobs/<job_id> \
 - OpenClaw (qmd process/manager + fallback safety pattern)
 - Cognee (memory graph retrieval/memify patternleri)
 - QMD (lokal markdown index + hızlı arama)
+- OpenBB (provider registry/fetcher lifecycle ile finansal tool hardening)

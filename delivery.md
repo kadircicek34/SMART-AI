@@ -1,37 +1,38 @@
-# DELIVERY — SMART-AI v0.7 (OpenViking/OpenClaw/Cognee/QMD pattern integration)
+# DELIVERY — SMART-AI v0.8 (OpenBB analysis + Financial Runtime Hardening)
 
 ## Özet
-Bu koşumda `mcporter` ile (`github-readonly` + `repomix`) OpenViking, OpenClaw, Cognee ve QMD analiz edilerek SMART-AI'a üretim seviyesinde iki ana güçlendirme alındı:
-1. **QMD local search tool plane**
-2. **Memory hotness + retrieval telemetry**
+Bu koşumda `mcporter` üzerinden `github-readonly + repomix` kullanılarak `OpenBB-finance/OpenBB` analiz edildi ve SMART-AI finansal tool runtime’ına yüksek ROI pattern’ler uygulandı.
 
-## Teslim Edilen Ana Bileşenler
-1. **QMD Entegrasyonu**
-   - `service/tools/qmd-search.ts` (yeni)
-   - `service/tools/router.ts`, `service/tools/types.ts`
-   - `service/orchestrator/planner.ts`, `thinking-loop.ts`, `verifier.ts`
-   - `service/tools/deep-research.ts` (QMD source birleşimi)
-2. **Memory Hardening (OpenViking pattern)**
-   - `service/memory/types.ts` (retrieval metrics)
-   - `service/memory/store.ts` (tenantMetrics persistence)
-   - `service/memory/service.ts` (hotness scoring + metrics update)
-3. **Ops / Config Surface**
-   - `service/config.ts`, `service/.env.example`
-   - QMD env parametreleri + memory hotness tuning
-4. **Analiz Artefaktı**
-   - `analysis-openviking-openclaw-cognee-qmd-2026-03-16.md`
+## Analiz Özeti
+- Repo: `OpenBB-finance/OpenBB`
+- Son commit: `1788e77fe16fd1af84c1ff7e645340b31dfceb67`
+- Focus repomix: `1180 file`, `2498841 token`
+- Öne çıkan patternler: provider registry, fetcher lifecycle, standart model normalizasyonu, error modeling
+
+## Uygulanan Değişiklikler
+1. `financial_deep_search` hardening
+   - Stooq + AlphaVantage provider fallback
+   - Çoklu ticker parser (alias + explicit ticker)
+   - Provider harmonization + spread analizi
+   - Kısa TTL quote cache
+2. Config/Ops güncellemeleri
+   - `ALPHA_VANTAGE_API_KEY` env desteği
+3. Test kapsamı
+   - `service/tests/tools/financial.test.ts` eklendi
+4. Analiz artefaktı
+   - `analysis-openbb-2026-03-16.md`
 
 ## Verification Özeti
 | İddia | Kanıt | Sonuç |
 |---|---|---|
 | Kod derleniyor | `npm run typecheck` | ✅ |
-| Testler geçiyor | `npm test` (36/36) | ✅ |
+| Testler geçiyor | `npm test` (39/39) | ✅ |
 | Güvenlik bağımlılık taraması temiz | `npm audit --omit=dev` | ✅ |
-| Teslim kapıları geçildi | `scripts/delivery-gate.sh <project-dir>` | ✅ |
+| Teslim kapıları geçildi | `scripts/delivery-gate.sh` | ✅ |
 
 ## Bilinen Sınırlar
-- QMD tarafında `query` (LLM rerank) default açılmadı; stabilite için `search` modu kullanılıyor.
-- Memory scoring lexical+heuristic+hotness; embedding/hybrid ranker bir sonraki adım.
+- AlphaVantage ücretsiz/demo limitleri provider availability’i etkileyebilir.
+- Finansal veri doğrulama için üçüncü bağımsız provider daha eklenebilir.
 
 ## GitHub Senkronizasyonu
 - Repo: `https://github.com/kadircicek34/SMART-AI`
