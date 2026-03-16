@@ -20,6 +20,13 @@ function looksLikeKnowledgeBaseQuery(query: string | undefined): boolean {
   );
 }
 
+function looksLikeMemoryQuery(query: string | undefined): boolean {
+  if (!query) return false;
+  return /\b(remember|recall|memory|previous|past|before|history|hatırla|hafıza|önceki|geçmiş|tercih|alışkanlık|hakkımda|profilim|benim)\b/i.test(
+    query
+  );
+}
+
 function citationSourceKey(citation: string): string {
   if (!citation) return 'unknown';
 
@@ -47,6 +54,15 @@ function countDistinctCitationSources(results: ToolResult[]): number {
 
 export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string): VerificationResult {
   if (results.length === 0) {
+    if (looksLikeMemoryQuery(query) && !plan.tools.includes('memory_search')) {
+      return {
+        sufficient: false,
+        confidence: 0,
+        reason: 'No evidence yet. Query looks memory-focused, prioritize memory_search.',
+        suggestedTool: 'memory_search'
+      };
+    }
+
     if (looksLikeKnowledgeBaseQuery(query) && !plan.tools.includes('rag_search')) {
       return {
         sufficient: false,
@@ -68,6 +84,7 @@ export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string
   const distinctSources = countDistinctCitationSources(results);
   const hasSummary = hasMeaningfulSummary(results);
   const hasRagEvidence = results.some((r) => r.tool === 'rag_search' && r.citations.length > 0);
+  const hasMemoryEvidence = results.some((r) => r.tool === 'memory_search' && r.citations.length > 0);
 
   let confidence = 0;
   if (hasSummary) confidence += 0.35;
@@ -75,16 +92,26 @@ export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string
   if (distinctSources >= config.verifier.minSourceDomains) confidence += 0.2;
   if (results.length >= 2) confidence += 0.15;
   if (hasRagEvidence) confidence += 0.15;
+  if (hasMemoryEvidence) confidence += 0.1;
 
-  const citationFloorMet = citationCount >= config.verifier.minCitations;
+  const citationFloorMet = citationCount >= config.verifier.minCitations || hasMemoryEvidence;
   const sourceDiversityMet = distinctSources >= config.verifier.minSourceDomains;
-  const qualityFloorMet = citationFloorMet && (sourceDiversityMet || hasRagEvidence);
+  const qualityFloorMet = citationFloorMet && (sourceDiversityMet || hasRagEvidence || hasMemoryEvidence);
 
   if (confidence >= 0.65 && qualityFloorMet) {
     return {
       sufficient: true,
       confidence,
       reason: `Evidence sufficient (confidence=${confidence.toFixed(2)}, citations=${citationCount}, sources=${distinctSources}).`
+    };
+  }
+
+  if (looksLikeMemoryQuery(query) && !plan.tools.includes('memory_search')) {
+    return {
+      sufficient: false,
+      confidence,
+      reason: 'Confidence low for memory-focused query, adding memory_search pass.',
+      suggestedTool: 'memory_search'
     };
   }
 
@@ -97,7 +124,7 @@ export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string
     };
   }
 
-  if (!sourceDiversityMet && !plan.tools.includes('web_search')) {
+  if (!sourceDiversityMet && !plan.tools.includes('web_search') && !looksLikeMemoryQuery(query)) {
     return {
       sufficient: false,
       confidence,
