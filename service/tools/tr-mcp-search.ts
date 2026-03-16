@@ -1,7 +1,9 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { config } from '../config.js';
+import { canCallMcp, getMcpAdaptiveTimeout, recordMcpFailure, recordMcpSuccess } from '../mcp-health/index.js';
 import type { ToolAdapter, ToolInput, ToolResult } from './types.js';
+import type { McpServerId } from '../mcp-health/types.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -85,32 +87,50 @@ async function callMcpTool(
     serverUrl: string;
     toolName: string;
     args: JsonObject;
-  }
+  },
+  serverId: McpServerId
 ): Promise<{
   ok: boolean;
   parsed: unknown;
   error?: string;
   raw: string;
   stderr: string;
+  circuitOpen?: boolean;
 }> {
+  if (!canCallMcp(serverId)) {
+    return {
+      ok: false,
+      parsed: null,
+      error: `MCP sunucusu "${serverId}" şu anda devre dışı (circuit open). Lütfen daha sonra tekrar deneyin.`,
+      raw: '',
+      stderr: '',
+      circuitOpen: true
+    };
+  }
+
+  const adaptiveTimeout = getMcpAdaptiveTimeout(serverId);
   const callArgs = [
     'call',
     `${params.serverUrl}.${params.toolName}`,
     '--timeout',
-    String(config.tools.mcporterTimeoutMs),
+    String(Math.min(adaptiveTimeout, config.tools.mcporterTimeoutMs)),
     '--args',
     JSON.stringify(params.args),
     '--output',
     'json'
   ];
 
+  const startTime = Date.now();
+
   try {
     const { stdout, stderr } = await runner(callArgs);
+    const latencyMs = Date.now() - startTime;
     const parsed = parseJsonIfPossible(stdout);
 
     if (parsed && typeof parsed === 'object' && parsed !== null) {
       const maybeError = (parsed as JsonObject).error;
       if (typeof maybeError === 'string' && maybeError.trim()) {
+        recordMcpFailure(serverId, maybeError, latencyMs);
         return {
           ok: false,
           parsed,
@@ -120,6 +140,7 @@ async function callMcpTool(
         };
       }
 
+      recordMcpSuccess(serverId, latencyMs);
       return {
         ok: true,
         parsed,
@@ -130,6 +151,7 @@ async function callMcpTool(
 
     const pseudoError = parsePseudoError(stdout);
     if (pseudoError) {
+      recordMcpFailure(serverId, pseudoError, latencyMs);
       return {
         ok: false,
         parsed,
@@ -139,18 +161,23 @@ async function callMcpTool(
       };
     }
 
+    const parseError = `MCP yanıtı parse edilemedi: ${truncate(stdout || stderr || 'empty response', 400)}`;
+    recordMcpFailure(serverId, parseError, latencyMs);
     return {
       ok: false,
       parsed,
-      error: `MCP yanıtı parse edilemedi: ${truncate(stdout || stderr || 'empty response', 400)}`,
+      error: parseError,
       raw: stdout,
       stderr
     };
   } catch (error) {
+    const latencyMs = Date.now() - startTime;
+    const errorMessage = toMessage(error);
+    recordMcpFailure(serverId, errorMessage, latencyMs);
     return {
       ok: false,
       parsed: null,
-      error: toMessage(error),
+      error: errorMessage,
       raw: '',
       stderr: ''
     };
@@ -203,15 +230,29 @@ async function executeMevzuatMcpSearch(
 ): Promise<ToolResult> {
   const query = input.query.trim();
   const toolName = /\b(tebliğ|teblig)\b/i.test(query) ? 'search_teblig' : 'search_kanun';
+  const serverId: McpServerId = 'mevzuat';
 
-  const call = await callMcpTool(runner, {
-    serverUrl: config.tools.mevzuatMcpUrl,
-    toolName,
-    args: {
-      aranacak_ifade: query,
-      page_size: config.tools.mcpMaxResults
-    }
-  });
+  const call = await callMcpTool(
+    runner,
+    {
+      serverUrl: config.tools.mevzuatMcpUrl,
+      toolName,
+      args: {
+        aranacak_ifade: query,
+        page_size: config.tools.mcpMaxResults
+      }
+    },
+    serverId
+  );
+
+  if (call.circuitOpen) {
+    return {
+      tool: 'mevzuat_mcp_search',
+      summary: call.error ?? 'Mevzuat MCP devre dışı',
+      citations: [config.tools.mevzuatMcpUrl],
+      raw: { circuitOpen: true, serverId }
+    };
+  }
 
   if (!call.ok || !call.parsed || typeof call.parsed !== 'object') {
     return {
@@ -269,16 +310,30 @@ async function executeBorsaMcpSearch(
 ): Promise<ToolResult> {
   const query = input.query.trim();
   const market = marketFromQuery(query);
+  const serverId: McpServerId = 'borsa';
 
-  const searchCall = await callMcpTool(runner, {
-    serverUrl: config.tools.borsaMcpUrl,
-    toolName: 'search_symbol',
-    args: {
-      query,
-      market,
-      limit: config.tools.mcpMaxResults
-    }
-  });
+  const searchCall = await callMcpTool(
+    runner,
+    {
+      serverUrl: config.tools.borsaMcpUrl,
+      toolName: 'search_symbol',
+      args: {
+        query,
+        market,
+        limit: config.tools.mcpMaxResults
+      }
+    },
+    serverId
+  );
+
+  if (searchCall.circuitOpen) {
+    return {
+      tool: 'borsa_mcp_search',
+      summary: searchCall.error ?? 'Borsa MCP devre dışı',
+      citations: [config.tools.borsaMcpUrl],
+      raw: { circuitOpen: true, serverId }
+    };
+  }
 
   if (!searchCall.ok || !searchCall.parsed || typeof searchCall.parsed !== 'object') {
     return {
@@ -310,14 +365,18 @@ async function executeBorsaMcpSearch(
   let profileRaw: unknown = null;
 
   if (topSymbol && ['bist', 'us', 'fund'].includes(market)) {
-    const profileCall = await callMcpTool(runner, {
-      serverUrl: config.tools.borsaMcpUrl,
-      toolName: 'get_profile',
-      args: {
-        symbol: topSymbol,
-        market
-      }
-    });
+    const profileCall = await callMcpTool(
+      runner,
+      {
+        serverUrl: config.tools.borsaMcpUrl,
+        toolName: 'get_profile',
+        args: {
+          symbol: topSymbol,
+          market
+        }
+      },
+      serverId
+    );
 
     if (profileCall.ok && profileCall.parsed && typeof profileCall.parsed === 'object') {
       profileRaw = profileCall.parsed;
@@ -355,15 +414,20 @@ async function executeYargiMcpSearch(
   runner: McpRunner
 ): Promise<ToolResult> {
   const query = input.query.trim();
+  const serverId: McpServerId = 'yargi';
 
-  const primaryCall = await callMcpTool(runner, {
-    serverUrl: config.tools.yargiMcpUrl,
-    toolName: 'search_emsal_detailed_decisions',
-    args: {
-      keyword: query,
-      page_number: 1
-    }
-  });
+  const primaryCall = await callMcpTool(
+    runner,
+    {
+      serverUrl: config.tools.yargiMcpUrl,
+      toolName: 'search_emsal_detailed_decisions',
+      args: {
+        keyword: query,
+        page_number: 1
+      }
+    },
+    serverId
+  );
 
   let parsed: JsonObject | null = null;
   let toolUsed = 'search_emsal_detailed_decisions';
@@ -375,14 +439,18 @@ async function executeYargiMcpSearch(
   const primaryDecisions = parsed ? asArray<EmsalDecision>(parsed.decisions) : [];
 
   if ((!parsed || primaryDecisions.length === 0) && config.tools.yargiMcpFallbackEnabled) {
-    const fallbackCall = await callMcpTool(runner, {
-      serverUrl: config.tools.yargiMcpUrl,
-      toolName: 'search_bedesten_unified',
-      args: {
-        phrase: query,
-        pageNumber: 1
-      }
-    });
+    const fallbackCall = await callMcpTool(
+      runner,
+      {
+        serverUrl: config.tools.yargiMcpUrl,
+        toolName: 'search_bedesten_unified',
+        args: {
+          phrase: query,
+          pageNumber: 1
+        }
+      },
+      serverId
+    );
 
     if (fallbackCall.ok && fallbackCall.parsed && typeof fallbackCall.parsed === 'object') {
       parsed = fallbackCall.parsed as JsonObject;
@@ -400,6 +468,15 @@ async function executeYargiMcpSearch(
         }
       };
     }
+  }
+
+  if (primaryCall.circuitOpen) {
+    return {
+      tool: 'yargi_mcp_search',
+      summary: primaryCall.error ?? 'Yargı MCP devre dışı',
+      citations: [config.tools.yargiMcpUrl],
+      raw: { circuitOpen: true, serverId }
+    };
   }
 
   if (!parsed) {

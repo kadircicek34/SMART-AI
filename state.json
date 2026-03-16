@@ -1,16 +1,16 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "v0.9 saidsurucu MCP integrations (mevzuat/borsa/yargı) production seviyede tamamlandı",
+  "current_task": "v0.10 MCP resilience: circuit breaker + adaptive timeout + health endpoints",
   "next_actions": [
-    "MCP health telemetry + circuit breaker",
-    "MCP retry budget ve adaptive timeout",
+    "MCP health metriklerini Prometheus/OTEL'e export et",
+    "MCP retry budget'i circuit state'e göre policy-driven hale getir",
     "Memory retrieval için embedding/hybrid ranker",
     "Memory/RAG encrypt-at-rest (KMS)"
   ],
   "risks": [
-    "Remote MCP sunucularında anlık availability düşüşleri tool yanıt sürelerini etkileyebilir",
-    "Yargı/bedesten kaynakları dönemsel boş sonuç döndürebilir",
+    "MCP health/circuit metrikleri process-memory tabanlı; restart sonrası sıfırlanır",
+    "Remote MCP sunucularında anlık availability düşüşleri tamamen engellenemez",
     "MASTER_KEY env yönetimi production'da secret manager gerektirir"
   ],
   "decisions": [
@@ -19,29 +19,20 @@
     "QMD: local CLI tabanlı qmd_search tool entegrasyonu",
     "Memory: pre-retrieval decision + hotness + retrieval telemetry",
     "Financial: OpenBB-style provider fallback (stooq + alpha_vantage)",
-    "Türk domain MCP: mevzuat/borsa/yargı remote MCP entegrasyonu"
+    "Türk domain MCP: mevzuat/borsa/yargı remote MCP entegrasyonu",
+    "MCP resilience: circuit breaker + adaptive timeout + health endpointleri"
   ],
   "artifacts": [
     "README.md",
-    "analysis-repo-findings-2026-03-16.md",
-    "analysis-memu-2026-03-16.md",
-    "analysis-openviking-openclaw-cognee-qmd-2026-03-16.md",
-    "analysis-openbb-2026-03-16.md",
-    "analysis-saidsurucu-mcps-2026-03-16.md",
-    "contracts/openai-compatible.yaml",
-    "contracts/platform-extensions.yaml",
-    "service/api",
-    "service/rag",
-    "service/memory",
-    "service/orchestrator",
-    "service/tools",
-    "service/security",
-    "service/tests",
-    "service/.env.example",
-    "service/package.json",
+    "decisions.md",
+    "delivery.md",
     "test-report.md",
     "security-report.md",
-    "delivery.md"
+    "service/mcp-health",
+    "service/api/routes/mcp-health.ts",
+    "service/tools/tr-mcp-search.ts",
+    "service/tests/mcp-health/circuit-breaker.test.ts",
+    "service/tests/contract/mcp-health.test.ts"
   ],
-  "updated_at": "2026-03-16T12:57:02+03:00"
+  "updated_at": "2026-03-16T15:34:01+03:00"
 }

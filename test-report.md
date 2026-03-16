@@ -1,4 +1,4 @@
-# TEST REPORT — SMART-AI v0.9 (saidsurucu MCP Integrations)
+# TEST REPORT — SMART-AI v0.10 (MCP Resilience & Health Observability)
 
 ## Test Stratejisi
 - Contract tests: OpenAI-compatible + RAG + Memory endpointleri
@@ -9,28 +9,25 @@
 | Komut | Sonuç | Kanıt |
 |---|---|---|
 | `npm run typecheck` | ✅ | TS hata yok |
-| `npm test` | ✅ | **46/46 test geçti** |
+| `npm test` | ✅ | **50/50 test geçti** |
 | `npm audit --omit=dev` | ✅ | 0 vulnerability |
 | `scripts/delivery-gate.sh <project-dir>` | ✅ | PASS |
 
 ## Bu Koşumdaki Yeni Testler
-- `service/tests/tools/tr-mcp-search.test.ts` ✅
-  - inspect-format error parse
-  - mevzuat_mcp_search özetleme
-  - borsa_mcp_search search+profile birleşimi
-  - yargi_mcp_search primary→fallback davranışı
-- `service/tests/orchestrator/verifier.test.ts` ✅ güncellendi
-  - mevzuat/yargı/borsa query için tool önerileri
-- `service/tests/security/policy.test.ts` ✅ güncellendi
-  - yeni mcp tool allowlist doğrulaması
-- `service/tests/tools/deep-research.test.ts` ✅ güncellendi
-  - deep_research içinde yeni mcp kaynak birleşimi
+- `service/tests/mcp-health/circuit-breaker.test.ts` ✅ (yeni)
+  - failure threshold sonrası circuit-open
+  - adaptif timeout aralığı ve artış davranışı
+- `service/tests/contract/mcp-health.test.ts` ✅ (yeni)
+  - `/v1/mcp/health` agregasyon doğrulaması
+  - `/v1/mcp/reset` enum validation + başarılı reset
+- `service/tests/tools/tr-mcp-search.test.ts` ✅ regresyon
+  - mevzuat/borsa/yargı MCP özetleme akışı korunuyor
 
 ## Regresyon Durumu
 - OpenRouter retry/backoff regresyonu yok
 - RAG + Memory + QMD regresyonu yok
 - Financial provider fallback regresyonu yok
-- Yeni MCP adapter katmanı testte stabil
+- Yeni MCP adapter + circuit-breaker katmanı testte stabil
 
 ## Sonuç
 MCP entegrasyonları üretim çizgisinde testten geçti; orchestrator/tool plane güvenli şekilde genişletildi.
