@@ -30,6 +30,27 @@ test('deep_research continues when one source fails and dedupes citations', asyn
           citations: ['qmd://SMART-AI/README.md']
         })
       },
+      mevzuatMcpSearch: {
+        execute: async () => ({
+          tool: 'mevzuat_mcp_search',
+          summary: 'mevzuat: ilgili kanun kayıtları bulundu',
+          citations: ['https://mevzuat.surucu.dev/mcp']
+        })
+      },
+      yargiMcpSearch: {
+        execute: async () => ({
+          tool: 'yargi_mcp_search',
+          summary: 'yargi: emsal kararlar bulundu',
+          citations: ['https://yargimcp.fastmcp.app/mcp']
+        })
+      },
+      borsaMcpSearch: {
+        execute: async () => ({
+          tool: 'borsa_mcp_search',
+          summary: 'borsa: bist eşleşmeleri bulundu',
+          citations: ['https://borsamcp.fastmcp.app/mcp']
+        })
+      },
       ragSearch: {
         execute: async () => {
           throw new Error('rag backend unavailable');
@@ -65,6 +86,9 @@ test('deep_research continues when one source fails and dedupes citations', asyn
   assert.equal(result.tool, 'deep_research');
   assert.match(result.summary, /Tenant Memory:/);
   assert.match(result.summary, /QMD Local Search:/);
+  assert.match(result.summary, /Mevzuat MCP:/);
+  assert.match(result.summary, /Yargı MCP:/);
+  assert.match(result.summary, /Borsa MCP:/);
   assert.match(result.summary, /Tenant RAG: hata/);
   assert.match(result.summary, /Web: hata \(temporary web failure\)/);
   assert.ok(result.citations.includes('https://example.com/shared'));

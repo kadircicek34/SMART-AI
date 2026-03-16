@@ -5,6 +5,7 @@ import { wikipediaTool } from './wikipedia.js';
 import { ragSearchTool } from './rag-search.js';
 import { memorySearchTool } from './memory-search.js';
 import { qmdSearchTool } from './qmd-search.js';
+import { borsaMcpSearchTool, mevzuatMcpSearchTool, yargiMcpSearchTool } from './tr-mcp-search.js';
 import type { ToolAdapter, ToolName, ToolResult } from './types.js';
 
 const tools: Record<ToolName, ToolAdapter> = {
@@ -14,7 +15,10 @@ const tools: Record<ToolName, ToolAdapter> = {
   financial_deep_search: financialDeepSearchTool,
   rag_search: ragSearchTool,
   memory_search: memorySearchTool,
-  qmd_search: qmdSearchTool
+  qmd_search: qmdSearchTool,
+  mevzuat_mcp_search: mevzuatMcpSearchTool,
+  borsa_mcp_search: borsaMcpSearchTool,
+  yargi_mcp_search: yargiMcpSearchTool
 };
 
 export function getTool(name: ToolName): ToolAdapter {

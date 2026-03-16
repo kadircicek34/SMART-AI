@@ -5,7 +5,10 @@ export type ToolName =
   | 'financial_deep_search'
   | 'rag_search'
   | 'memory_search'
-  | 'qmd_search';
+  | 'qmd_search'
+  | 'mevzuat_mcp_search'
+  | 'borsa_mcp_search'
+  | 'yargi_mcp_search';
 
 export type PolicyContext = {
   tenantId: string;
@@ -26,7 +29,10 @@ const DEFAULT_ALLOWED_TOOLS: ToolName[] = [
   'financial_deep_search',
   'rag_search',
   'memory_search',
-  'qmd_search'
+  'qmd_search',
+  'mevzuat_mcp_search',
+  'borsa_mcp_search',
+  'yargi_mcp_search'
 ];
 
 function tenantSpecificTools(tenantId: string): ToolName[] | null {

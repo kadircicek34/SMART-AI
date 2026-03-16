@@ -3,6 +3,7 @@ import type { ToolAdapter, ToolInput, ToolResult } from './types.js';
 import { ragSearchTool } from './rag-search.js';
 import { memorySearchTool } from './memory-search.js';
 import { qmdSearchTool } from './qmd-search.js';
+import { borsaMcpSearchTool, mevzuatMcpSearchTool, yargiMcpSearchTool } from './tr-mcp-search.js';
 import { webSearchTool } from './web-search.js';
 import { wikipediaTool } from './wikipedia.js';
 
@@ -12,6 +13,9 @@ type ResearchDependencies = {
   ragSearch: Pick<ToolAdapter, 'execute'>;
   memorySearch: Pick<ToolAdapter, 'execute'>;
   qmdSearch: Pick<ToolAdapter, 'execute'>;
+  mevzuatMcpSearch: Pick<ToolAdapter, 'execute'>;
+  borsaMcpSearch: Pick<ToolAdapter, 'execute'>;
+  yargiMcpSearch: Pick<ToolAdapter, 'execute'>;
 };
 
 type ResearchLimits = {
@@ -114,6 +118,33 @@ async function executeDeepResearch(
     }
 
     try {
+      const mevzuat = await deps.mevzuatMcpSearch.execute({ query: input.query, tenantId: input.tenantId });
+      notes.push('Mevzuat MCP:');
+      notes.push(mevzuat.summary);
+      citations.push(...mevzuat.citations);
+    } catch (error) {
+      notes.push(`Mevzuat MCP: hata (${toErrorMessage(error)})`);
+    }
+
+    try {
+      const yargi = await deps.yargiMcpSearch.execute({ query: input.query, tenantId: input.tenantId });
+      notes.push('Yargı MCP:');
+      notes.push(yargi.summary);
+      citations.push(...yargi.citations);
+    } catch (error) {
+      notes.push(`Yargı MCP: hata (${toErrorMessage(error)})`);
+    }
+
+    try {
+      const borsa = await deps.borsaMcpSearch.execute({ query: input.query, tenantId: input.tenantId });
+      notes.push('Borsa MCP:');
+      notes.push(borsa.summary);
+      citations.push(...borsa.citations);
+    } catch (error) {
+      notes.push(`Borsa MCP: hata (${toErrorMessage(error)})`);
+    }
+
+    try {
       const rag = await deps.ragSearch.execute({ query: input.query, tenantId: input.tenantId });
       notes.push('Tenant RAG:');
       notes.push(rag.summary);
@@ -187,7 +218,10 @@ export const deepResearchTool: ToolAdapter = {
         wikipedia: wikipediaTool,
         ragSearch: ragSearchTool,
         memorySearch: memorySearchTool,
-        qmdSearch: qmdSearchTool
+        qmdSearch: qmdSearchTool,
+        mevzuatMcpSearch: mevzuatMcpSearchTool,
+        borsaMcpSearch: borsaMcpSearchTool,
+        yargiMcpSearch: yargiMcpSearchTool
       },
       {
         maxQueries: config.research.maxQueries,

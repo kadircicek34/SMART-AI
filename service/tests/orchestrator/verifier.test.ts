@@ -108,3 +108,48 @@ test('verifier suggests memory_search for memory-focused queries without evidenc
   assert.equal(result.sufficient, false);
   assert.equal(result.suggestedTool, 'memory_search');
 });
+
+test('verifier suggests mevzuat_mcp_search for legislation queries without evidence', () => {
+  const result = verifyEvidence(
+    {
+      objective: 'kanun query',
+      tools: ['web_search'],
+      reasoning: 'test'
+    },
+    [],
+    'İş Kanunu kapsamında kıdem tazminatı düzenlemesi nedir?'
+  );
+
+  assert.equal(result.sufficient, false);
+  assert.equal(result.suggestedTool, 'mevzuat_mcp_search');
+});
+
+test('verifier suggests yargi_mcp_search for case-law queries without evidence', () => {
+  const result = verifyEvidence(
+    {
+      objective: 'emsal query',
+      tools: ['web_search'],
+      reasoning: 'test'
+    },
+    [],
+    'Yargıtay emsal kararlarıyla iş sözleşmesi feshi örnekleri neler?'
+  );
+
+  assert.equal(result.sufficient, false);
+  assert.equal(result.suggestedTool, 'yargi_mcp_search');
+});
+
+test('verifier suggests borsa_mcp_search for BIST queries without evidence', () => {
+  const result = verifyEvidence(
+    {
+      objective: 'bist query',
+      tools: ['web_search'],
+      reasoning: 'test'
+    },
+    [],
+    'BIST tarafında GARAN hissesi ve XU100 için güncel durum nedir?'
+  );
+
+  assert.equal(result.sufficient, false);
+  assert.equal(result.suggestedTool, 'borsa_mcp_search');
+});
