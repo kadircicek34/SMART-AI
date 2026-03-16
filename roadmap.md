@@ -6,7 +6,8 @@
 - ✅ v0.6 teslim edildi: tenant memory layer + pre-retrieval decision + memory_search tool
 - ✅ v0.7 teslim edildi: qmd_search entegrasyonu + memory hotness/retrieval telemetry
 - ✅ v0.8 teslim edildi: OpenBB-inspired financial provider fallback + quote harmonization
-- ✅ Test paketi 39/39 yeşil
+- ✅ v0.9 teslim edildi: saidsurucu MCP entegrasyonu (mevzuat/borsa/yargı) + planner/verifier/deep-research route güncellemesi
+- ✅ Test paketi 46/46 yeşil
 
 ## Faz 1 — Foundation (Hafta 1)
 ### Hedef
@@ -96,7 +97,7 @@ Prod-ready kalite eşiğine çıkmak.
 - OpenAI-compatible chat API
 - 4-rol orkestrasyon
 - temel thinking-loop
-- 7 tool adapter (web/wiki/deep-research/financial/rag/memory/qmd)
+- 10 tool adapter (web/wiki/deep-research/financial/rag/memory/qmd + mevzuat/borsa/yargı MCP)
 - async long-job desteği
 
 ### V1 dışı (V2+)

@@ -1,40 +1,42 @@
-# DELIVERY — SMART-AI v0.8 (OpenBB analysis + Financial Runtime Hardening)
+# DELIVERY — SMART-AI v0.9 (Mevzuat/Borsa/Yargı MCP Integration)
 
 ## Özet
-Bu koşumda `mcporter` üzerinden `github-readonly + repomix` kullanılarak `OpenBB-finance/OpenBB` analiz edildi ve SMART-AI finansal tool runtime’ına yüksek ROI pattern’ler uygulandı.
+Bu koşumda `mcporter` + `github-readonly` + `repomix` ile üç domain MCP repo analiz edilip SMART-AI tool plane’e production seviyesinde entegre edildi:
+- `saidsurucu/mevzuat-mcp`
+- `saidsurucu/borsa-mcp`
+- `saidsurucu/yargi-mcp`
 
-## Analiz Özeti
-- Repo: `OpenBB-finance/OpenBB`
-- Son commit: `1788e77fe16fd1af84c1ff7e645340b31dfceb67`
-- Focus repomix: `1180 file`, `2498841 token`
-- Öne çıkan patternler: provider registry, fetcher lifecycle, standart model normalizasyonu, error modeling
-
-## Uygulanan Değişiklikler
-1. `financial_deep_search` hardening
-   - Stooq + AlphaVantage provider fallback
-   - Çoklu ticker parser (alias + explicit ticker)
-   - Provider harmonization + spread analizi
-   - Kısa TTL quote cache
-2. Config/Ops güncellemeleri
-   - `ALPHA_VANTAGE_API_KEY` env desteği
-3. Test kapsamı
-   - `service/tests/tools/financial.test.ts` eklendi
-4. Analiz artefaktı
-   - `analysis-openbb-2026-03-16.md`
+## Teslim Edilen Ana Bileşenler
+1. **MCP Adapter Layer**
+   - `service/tools/tr-mcp-search.ts` (yeni)
+   - Tool’lar:
+     - `mevzuat_mcp_search`
+     - `borsa_mcp_search`
+     - `yargi_mcp_search`
+2. **Orchestrator Route Update**
+   - `planner.ts`, `thinking-loop.ts`, `verifier.ts`
+   - Domain query’lerde MCP tool seçimi
+3. **Deep Research Enrichment**
+   - `deep_research` akışı artık mevzuat/yargı/borsa MCP kaynaklarını da birleştiriyor
+4. **Config/Ops Surface**
+   - `.env.example`, `config.ts` MCP URL/timeout/limit ayarları
+5. **Analiz Artefaktı**
+   - `analysis-saidsurucu-mcps-2026-03-16.md`
 
 ## Verification Özeti
 | İddia | Kanıt | Sonuç |
 |---|---|---|
 | Kod derleniyor | `npm run typecheck` | ✅ |
-| Testler geçiyor | `npm test` (39/39) | ✅ |
+| Testler geçiyor | `npm test` (46/46) | ✅ |
 | Güvenlik bağımlılık taraması temiz | `npm audit --omit=dev` | ✅ |
 | Teslim kapıları geçildi | `scripts/delivery-gate.sh` | ✅ |
 
 ## Bilinen Sınırlar
-- AlphaVantage ücretsiz/demo limitleri provider availability’i etkileyebilir.
-- Finansal veri doğrulama için üçüncü bağımsız provider daha eklenebilir.
+- Remote MCP availability dış servis uptime’ına bağlı.
+- Bazı domain tool’lar (özellikle yargı/bedesten) kaynak sistemde anlık boş veri döndürebilir.
+- MCP health check/telemetry paneli bu iterasyonda minimal seviyede.
 
 ## GitHub Senkronizasyonu
 - Repo: `https://github.com/kadircicek34/SMART-AI`
 - Branch: `main`
-- Push: MCP (`github-work.push_files`) ile bu koşumda yapıldı
+- Push: MCP (`github-work.push_files`) ile bu koşumda yapılacak

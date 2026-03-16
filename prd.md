@@ -34,7 +34,8 @@ Tek başına LLM API çağrısı çoğu görevde yetersiz kalıyor:
    - financial deep search,
    - tenant-isolated RAG search,
    - tenant-isolated memory search,
-   - local QMD search (VPS qmd binary)
+   - local QMD search (VPS qmd binary),
+   - remote domain MCP search (Mevzuat MCP, Borsa MCP, Yargı MCP)
 5. RAG data plane:
    - tenant bazlı belge ingest (text/url),
    - chunking + retrieval API,
@@ -120,6 +121,9 @@ Tek başına LLM API çağrısı çoğu görevde yetersiz kalıyor:
    - rag_search
    - memory_search
    - qmd_search
+   - mevzuat_mcp_search
+   - borsa_mcp_search
+   - yargi_mcp_search
 5. **RAG Data Plane**
    - belge ingest (text/url)
    - chunk store + retrieval

@@ -27,12 +27,13 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - **QMD Local Search entegrasyonu** (VPS'teki kurulu `qmd` ile proje doküman araması)
 - **Memory hotness scoring + retrieval telemetry** (OpenViking pattern)
 - **OpenBB-inspired financial provider fallback** (Stooq + AlphaVantage quote harmonization)
+- **Türk domain MCP entegrasyonu** (Mevzuat MCP + Borsa MCP + Yargı MCP via mcporter)
 
 ## Klasörler
 - `contracts/` → API sözleşmeleri
 - `service/api/` → gateway, middleware, routes
 - `service/orchestrator/` → planner/executor/verifier/synthesizer
-- `service/tools/` → web/wiki/deep-research/financial/rag/memory/qmd adapters
+- `service/tools/` → web/wiki/deep-research/financial/rag/memory/qmd/mcp adapters
 - `service/rag/` → ingest/chunk/retrieval/runtime store
 - `service/memory/` → memory ingest/retrieve/decision/auto-capture
 - `service/security/` → key-store, policy, budget
@@ -161,3 +162,6 @@ curl http://127.0.0.1:8080/v1/jobs/<job_id> \
 - Cognee (memory graph retrieval/memify patternleri)
 - QMD (lokal markdown index + hızlı arama)
 - OpenBB (provider registry/fetcher lifecycle ile finansal tool hardening)
+- saidsurucu/mevzuat-mcp (Türk mevzuat MCP entegrasyonu)
+- saidsurucu/borsa-mcp (BIST/TEFAS/KAP MCP entegrasyonu)
+- saidsurucu/yargi-mcp (Türk yargı/emsal karar MCP entegrasyonu)

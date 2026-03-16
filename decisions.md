@@ -291,3 +291,33 @@ Memory retrieval kalitesinde recency/frequency etkisi ve operasyonel görünürl
 - Finansal tool cevaplarında hata toleransı arttı.
 - Provider farklılıkları kullanıcıya şeffaf raporlanabilir oldu (spread).
 - Finansal tool test kapsamı genişledi.
+
+---
+
+## 2026-03-16 — Türk domain MCP entegrasyon kararı (Mevzuat/Borsa/Yargı)
+### Problem
+Türkiye odaklı hukuk/finans sorgularında genel web arama yeterli kaynak doğruluğu ve yapısallık sağlamıyor.
+
+### Seçenekler
+- A: Sadece mevcut web/RAG akışında kalmak
+- B: saidsurucu MCP sunucularını remote tool plane’e bağlamak
+
+### Karar
+**B seçildi:**
+- `mevzuat_mcp_search`, `borsa_mcp_search`, `yargi_mcp_search` tool’ları eklendi.
+- Entegrasyon `mcporter` üzerinden remote MCP call modeliyle yapıldı.
+- Yargı tarafına empty-result için fallback eklendi (`search_emsal_detailed_decisions` → `search_bedesten_unified`).
+
+### Gerekçe
+- Mevzuat MCP: kanun/mevzuat sorgularında domain-specific precision sağlar.
+- Borsa MCP: BIST/TEFAS/KAP odaklı local market coverage sağlar.
+- Yargı MCP: emsal karar ve mahkeme içtihatlarına doğrudan erişim sağlar.
+
+### Etki
+- Planner/verifier artık hukuk/finans Türkiye bağlamında doğrudan MCP route edebiliyor.
+- Deep research akışı domain MCP kaynaklarını da birleştiriyor.
+- Tool plane kapsamı genişledi ama policy allowlist ile kontrol korunuyor.
+
+### Bilinçli Olarak Ertelenenler
+- MCP health check ve circuit-breaker telemetry paneli
+- MCP credentials/headers için tenant bazlı gizli yönetim katmanı
