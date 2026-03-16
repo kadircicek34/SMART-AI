@@ -1,51 +1,38 @@
-# DELIVERY — SMART-AI v0.3 (RAG + Brave)
+# DELIVERY — SMART-AI v0.4 (OpenRouter Retry Hardening)
 
 ## Özet
-İstenen genişletme teslim edildi:
-- **RAG data plane** (tenant-isolated ingest + retrieval)
-- **Brave Search entegrasyonu** (`web_search` içinde, DuckDuckGo fallback ile)
-- Orchestrator’da RAG-aware planning/verifier iyileştirmeleri
-- Yeni contract + unit + security testleri
+Bu koşumda tek günlük en yüksek etkili iyileştirme olarak **OpenRouter çağrı dayanıklılığı** geliştirildi:
+- 429 ve geçici 5xx hatalarında kontrollü retry
+- `Retry-After` header uyumluluğu
+- Exponential backoff + jitter
+- Retry davranışı için yeni birim testleri ve env tabanlı ayarlanabilirlik
 
 ## Teslim Edilen Ana Bileşenler
-1. **RAG Core**
-   - `service/rag/types.ts`
-   - `service/rag/store.ts`
-   - `service/rag/service.ts`
-2. **RAG API**
-   - `POST /v1/rag/documents`
-   - `POST /v1/rag/search`
-   - `GET /v1/rag/documents`
-   - `DELETE /v1/rag/documents/:documentId`
-   - Dosya: `service/api/routes/rag.ts`
-3. **Tooling**
-   - `service/tools/rag-search.ts`
-   - `service/tools/web-search.ts` (Brave + fallback)
-   - `service/tools/deep-research.ts` (RAG sinyali ile birleştirme)
-4. **Orchestrator & Policy**
-   - `planner.ts`, `thinking-loop.ts`, `verifier.ts`, `run.ts`, `executor.ts`
-   - `policy-engine.ts` (`rag_search` allowlist)
-5. **Contracts & Docs**
-   - `contracts/platform-extensions.yaml`
-   - `README.md`, `service/README.md`, `.env.example`
-6. **Testler**
-   - contract/security/unit toplam 16 test
+1. **LLM Client Hardening**
+   - `service/llm/openrouter-client.ts`
+   - Retryable status kodları + gecikme stratejisi
+2. **Test Kapsamı Genişletme**
+   - `service/tests/llm/openrouter-client.test.ts` (yeni)
+3. **Konfigürasyon / DX**
+   - `service/config.ts` (retry env değerleri)
+   - `service/.env.example`
+   - `service/README.md`
+4. **Operasyon Raporları**
+   - `decisions.md`, `test-report.md`, `security-report.md`, `state.json`
 
 ## Verification Özeti
 | İddia | Kanıt | Sonuç |
 |---|---|---|
 | Kod derleniyor | `npm run typecheck` | ✅ |
-| Testler geçiyor | `npm test` (16/16) | ✅ |
-| RAG endpointleri çalışıyor | `tests/contract/rag.test.ts` | ✅ |
-| Tenant izolasyonu çalışıyor | `tests/rag/rag-service.test.ts` | ✅ |
-| Brave entegrasyonu çalışıyor | `tests/tools/web-search.test.ts` | ✅ |
+| Testler geçiyor | `npm test` (19/19) | ✅ |
+| Güvenlik bağımlılık taraması temiz | `npm audit --omit=dev` | ✅ |
+| Retry davranışı doğru | `tests/llm/openrouter-client.test.ts` | ✅ |
 
 ## Bilinen Sınırlar
-- RAG retrieval lexical scoring tabanlıdır (ilk sürüm); vector backend bir sonraki iterasyona uygundur.
-- URL ingest dış ağa bağlıdır; erişim kalitesi upstream’e bağlıdır.
+- Retry katmanı tek çağrı düzeyinde; henüz circuit breaker/telemetry yok.
+- Upstream uzun süreli kesintilerde kullanıcı hatası kaçınılmaz (beklenen davranış).
 
 ## GitHub Senkronizasyonu
 - Repo: `https://github.com/kadircicek34/SMART-AI`
 - Branch: `main`
-- Push: **tamamlandı** (commit hash aşağıda)
-- Commit: `git rev-parse --short HEAD` çıktısı (push edilen son commit)
+- Push: bu koşum sonunda yapıldı

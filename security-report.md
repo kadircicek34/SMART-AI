@@ -1,4 +1,4 @@
-# SECURITY REPORT — SMART-AI v0.3
+# SECURITY REPORT — SMART-AI v0.4
 
 ## Kapsam
 Bu iterasyonda kontrol edilen güvenlik yüzeyleri:
@@ -7,7 +7,8 @@ Bu iterasyonda kontrol edilen güvenlik yüzeyleri:
 - Input validation (zod)
 - Secret management (AES-256-GCM)
 - Rate limit + runtime/tool budget
-- Dış arama sağlayıcısı (Brave) fallback davranışı
+- LLM provider dayanıklılığı (OpenRouter retry policy)
+- Dependency güvenliği (`npm audit`)
 
 ## Kontrol Sonuçları
 | Alan | Durum | Not |
@@ -17,20 +18,19 @@ Bu iterasyonda kontrol edilen güvenlik yüzeyleri:
 | Secrets | ✅ | tenant OpenRouter key encrypted-at-rest |
 | Tenant Isolation | ✅ | RAG doküman/chunk erişimi tenant scope ile sınırlandı |
 | Abuse Guard | ✅ | rate-limit + max step/tool/runtime bütçesi |
-| Dependencies | ✅ | `npm audit` kritik açık: 0 |
-| External Search Resilience | ✅ | Brave başarısızsa DuckDuckGo fallback |
+| OpenRouter Transient Error Handling | ✅ | 429/5xx için kontrollü retry, non-retryable 4xx fail-fast |
+| Dependencies | ✅ | `npm audit --omit=dev` sonucu: 0 vulnerability |
 
-## RAG Güvenlik Notları
-- RAG ingest tenant zorunluluğu ile çalışır.
-- URL ingest yalnızca `http/https` kabul eder.
-- Ingest boyut limitleri uygulanır (doküman ve toplam içerik sınırı).
-- RAG store tek dosyada tutulsa da erişim katmanı tenant filtreli çalışır.
+## Yeni Güvenlik/Dayanıklılık Notu
+- Retry mekanizması yalnızca retryable status kodlarında çalışır (408/409/425/429/5xx).
+- `Retry-After` başlığı varsa önceliklendirilir; yoksa exponential backoff + jitter kullanılır.
+- Retry ayarları env değişkenleri ile sınırlandırılabilir (`OPENROUTER_MAX_RETRIES`, `OPENROUTER_RETRY_*`).
 
 ## Kalan İyileştirme Alanları
-1. RAG store için dosya seviyesinde imza / checksum doğrulama
+1. Circuit breaker + retry telemetry (SLO takibi)
 2. RAG URL ingest için allowlist / SSRF sertleştirme katmanı
 3. Merkezi (Redis) distributed rate-limit ve queue
 4. KMS entegrasyonu (env master key yerine)
 
 ## Sonuç
-Sistem production-leaning güvenlik tabanı ile çalışır durumda. Yeni RAG + Brave entegrasyonu mevcut güvenlik çizgisini koruyacak şekilde uygulanmıştır.
+Sistem güvenlik tabanı korunarak LLM katmanında üretim dayanıklılığı artırıldı; yeni retry davranışı testlerle doğrulandı.

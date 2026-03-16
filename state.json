@@ -1,15 +1,15 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "v0.3 RAG + Brave entegrasyonu production seviyede tamamlandı",
+  "current_task": "v0.4 OpenRouter retry/backoff hardening production seviyede tamamlandı",
   "next_actions": [
-    "RAG retrieval için optional vector backend (pgvector/qdrant) eklenmesi",
+    "OpenRouter katmanına circuit breaker + telemetry eklenmesi",
     "RAG URL ingest için allowlist + SSRF hardening",
     "Redis tabanlı dağıtık rate-limit ve job queue"
   ],
   "risks": [
-    "RAG retrieval şu an lexical scoring tabanlı; domain büyüdükçe vector ranking ihtiyacı artabilir",
-    "URL ingest dış ağ erişimine bağımlıdır",
+    "Uzun süreli upstream kesintilerinde retry kapasitesi yetersiz kalabilir",
+    "Retry metriği henüz gözlemlenmediği için operasyonel trend analizi sınırlı",
     "MASTER_KEY env yönetimi production'da secret manager gerektirir"
   ],
   "decisions": [
@@ -17,7 +17,8 @@
     "Pattern-level sentez yaklaşımı",
     "RAG: tenant-izole dosya tabanlı store + API",
     "Web search: Brave primary + DuckDuckGo fallback",
-    "OpenRouter default model: deepseek/deepseek-chat-v3.1"
+    "OpenRouter default model: deepseek/deepseek-chat-v3.1",
+    "OpenRouter: Retry-After destekli exponential backoff + jitter retry"
   ],
   "artifacts": [
     "README.md",
@@ -30,11 +31,12 @@
     "service/security",
     "service/worker",
     "service/tests",
+    "service/llm/openrouter-client.ts",
     "service/.env.example",
     "service/package.json",
     "test-report.md",
     "security-report.md",
     "delivery.md"
   ],
-  "updated_at": "2026-03-16T06:36:20+03:00"
+  "updated_at": "2026-03-16T07:08:00+03:00"
 }

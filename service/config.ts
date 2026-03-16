@@ -36,7 +36,10 @@ export const config = {
   openRouter: {
     baseUrl: process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1',
     defaultModel: process.env.OPENROUTER_DEFAULT_MODEL ?? 'deepseek/deepseek-chat-v3.1',
-    globalApiKey: process.env.OPENROUTER_API_KEY
+    globalApiKey: process.env.OPENROUTER_API_KEY,
+    maxRetries: Number(process.env.OPENROUTER_MAX_RETRIES ?? 2),
+    retryBaseDelayMs: Number(process.env.OPENROUTER_RETRY_BASE_DELAY_MS ?? 400),
+    retryMaxDelayMs: Number(process.env.OPENROUTER_RETRY_MAX_DELAY_MS ?? 4_000)
   },
   tools: {
     exaApiKey: process.env.EXA_API_KEY,
