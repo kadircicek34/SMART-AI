@@ -12,24 +12,25 @@ function scorePlan(query: string, plan: Plan): number {
   if ((q.includes('kim') || q.includes('nedir') || q.includes('history') || q.includes('what is')) && plan.tools.includes('wikipedia')) {
     score += 2;
   }
-  if ((q.includes('deep') || q.includes('araştır') || q.includes('analysis')) && plan.tools.includes('deep_research')) {
+  if ((q.includes('deep') || q.includes('araştır') || q.includes('analysis') || q.includes('karşılaştır')) && plan.tools.includes('deep_research')) {
     score += 3;
+  }
+  if ((q.includes('doküman') || q.includes('documentation') || q.includes('repo') || q.includes('knowledge') || q.includes('rag')) && plan.tools.includes('rag_search')) {
+    score += 2.5;
   }
   if (plan.tools.includes('web_search')) {
     score += 1;
   }
 
   // small penalty for too many tools
-  score -= Math.max(0, plan.tools.length - 3) * 0.5;
+  score -= Math.max(0, plan.tools.length - 4) * 0.5;
   return score;
 }
 
 function generateCandidates(query: string): Plan[] {
   const base = planForQuery(query);
 
-  const aggressiveTools = [
-    ...new Set<ToolName>([...base.tools, 'deep_research', 'wikipedia', 'web_search'])
-  ].slice(0, 4);
+  const aggressiveTools = [...new Set<ToolName>([...base.tools, 'deep_research', 'rag_search', 'wikipedia', 'web_search'])].slice(0, 5);
 
   const aggressive: Plan = {
     ...base,
@@ -39,7 +40,7 @@ function generateCandidates(query: string): Plan[] {
 
   const conservative: Plan = {
     ...base,
-    tools: base.tools.slice(0, 2),
+    tools: base.tools.slice(0, 3),
     reasoning: `${base.reasoning} | conservative refinement`
   };
 
@@ -49,5 +50,5 @@ function generateCandidates(query: string): Plan[] {
 export function chooseBestPlan(query: string): Plan {
   const candidates = generateCandidates(query);
   const sorted = [...candidates].sort((a, b) => scorePlan(query, b) - scorePlan(query, a));
-  return sorted[0];
+  return sorted[0] ?? candidates[0];
 }

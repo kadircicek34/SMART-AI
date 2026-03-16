@@ -12,20 +12,56 @@ function hasMeaningfulSummary(results: ToolResult[]): boolean {
   return results.some((r) => r.summary && r.summary.length > 60 && !r.summary.includes('failed'));
 }
 
-export function verifyEvidence(plan: Plan, results: ToolResult[]): VerificationResult {
+function looksLikeKnowledgeBaseQuery(query: string | undefined): boolean {
+  if (!query) return false;
+  return /\b(docs?|documentation|knowledge\s?base|kb|rag|repo|codebase|api|spec|readme|dok[üu]man|iç\s?bilgi|bilgi\s?taban[ıi]|projede)\b/i.test(
+    query
+  );
+}
+
+export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string): VerificationResult {
+  if (results.length === 0) {
+    if (looksLikeKnowledgeBaseQuery(query) && !plan.tools.includes('rag_search')) {
+      return {
+        sufficient: false,
+        confidence: 0,
+        reason: 'No evidence yet. Query looks internal/knowledge-base focused, prioritize RAG search.',
+        suggestedTool: 'rag_search'
+      };
+    }
+
+    return {
+      sufficient: false,
+      confidence: 0,
+      reason: 'No evidence yet. Need at least one retrieval pass.',
+      suggestedTool: plan.tools.includes('deep_research') ? undefined : 'deep_research'
+    };
+  }
+
   const citationCount = results.reduce((acc, r) => acc + r.citations.length, 0);
   const hasSummary = hasMeaningfulSummary(results);
+  const hasRagEvidence = results.some((r) => r.tool === 'rag_search' && r.citations.length > 0);
 
   let confidence = 0;
-  if (hasSummary) confidence += 0.45;
-  if (citationCount >= 2) confidence += 0.35;
+  if (hasSummary) confidence += 0.4;
+  if (citationCount >= 2) confidence += 0.3;
   if (results.length >= 2) confidence += 0.2;
+  if (hasRagEvidence) confidence += 0.15;
 
   if (confidence >= 0.65) {
     return {
       sufficient: true,
       confidence,
       reason: `Evidence sufficient (confidence=${confidence.toFixed(2)}).`
+    };
+  }
+
+  if (looksLikeKnowledgeBaseQuery(query) && !plan.tools.includes('rag_search')) {
+    return {
+      sufficient: false,
+      confidence,
+      reason: 'Confidence low for internal query, adding rag_search pass.',
+      suggestedTool: 'rag_search'
     };
   }
 
