@@ -60,6 +60,11 @@ npm run dev
 - Tool adaptörleri dış ağ/API kalitesine bağımlı.
 - KMS/Redis/WAF entegrasyonu hardening backlog’unda.
 
+## GitHub Senkronizasyonu
+- Repo: `https://github.com/kadircicek34/SMART-AI`
+- MCP üzerinden push tamamlandı (`main` branch)
+- Son commitlerden biri: `5cca51db099e677bebe46865a0765580b564fc59`
+
 ## Sonraki Sürüm Önerileri
 1. Redis tabanlı dağıtık rate-limit + job queue
 2. Provider-native streaming passthrough
