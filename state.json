@@ -1,22 +1,22 @@
 {
   "project": "openrouter-agentic-intelligence-api",
-  "status": "build",
-  "current_task": "Chunk 2: API auth + tenant isolation + gerçek key encryption katmanını implemente etmek",
+  "status": "done",
+  "current_task": "SMART-AI OpenRouter Agentic Intelligence API v0.2 product teslimi tamamlandı",
   "next_actions": [
-    "Auth middleware ve tenant boundary enforcement eklemek",
-    "Key-store'u KMS/encrypted persistence yaklaşımına geçirmek",
-    "Contract testlerini otomatikleştirip red-green döngüsüne almak"
+    "KMS tabanlı key yönetimine geçiş",
+    "Redis tabanlı dağıtık rate-limit ve job queue",
+    "Provider-native token streaming passthrough"
   ],
   "risks": [
-    "Auth/policy gecikirse endpointler erken açılmış olur",
-    "Provider timeout/fallback davranışı netleşmeden latency artabilir",
-    "Tool policy yeterince sıkı olmazsa overreach riski oluşur",
-    "SSE/streaming hatlarında abuse guard eksik kalabilir"
+    "Dış tool kaynakları ağ/API limitlerinden etkilenebilir",
+    "Stream şu an chunked synthesis modeliyle çalışır; provider-native streaming değildir",
+    "MASTER_KEY env yönetimi production operasyonunda güvenli secret manager gerektirir"
   ],
   "decisions": [
     "Mimari: Modüler monolith + async worker",
     "Reuse: Kör kopya yerine pattern-level sentez",
-    "Contract-first geliştirme yaklaşımı"
+    "Contract-first geliştirme yaklaşımı",
+    "OpenRouter default model: deepseek/deepseek-chat-v3.1"
   ],
   "artifacts": [
     "prd.md",
@@ -24,11 +24,23 @@
     "state.json",
     "decisions.md",
     "roadmap.md",
-    "contracts/openai-compatible.yaml",
-    "service/*",
+    "delivery.md",
     "test-report.md",
     "security-report.md",
-    "delivery.md"
+    "README.md",
+    "contracts/openai-compatible.yaml",
+    "contracts/platform-extensions.yaml",
+    "service/api",
+    "service/orchestrator",
+    "service/tools",
+    "service/security",
+    "service/worker",
+    "service/llm",
+    "service/tests",
+    "service/package.json",
+    "service/tsconfig.json",
+    "service/.env.example",
+    "service/Dockerfile"
   ],
-  "updated_at": "2026-03-16T04:05:00+03:00"
+  "updated_at": "2026-03-16T04:32:00+03:00"
 }
