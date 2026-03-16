@@ -1,4 +1,4 @@
-export type ToolName = 'web_search' | 'wikipedia' | 'deep_research' | 'financial_deep_search';
+export type ToolName = 'web_search' | 'wikipedia' | 'deep_research' | 'financial_deep_search' | 'rag_search';
 
 export type PolicyContext = {
   tenantId: string;
@@ -12,12 +12,7 @@ export type PolicyDecision = {
   maxToolCalls: number;
 };
 
-const DEFAULT_ALLOWED_TOOLS: ToolName[] = [
-  'web_search',
-  'wikipedia',
-  'deep_research',
-  'financial_deep_search'
-];
+const DEFAULT_ALLOWED_TOOLS: ToolName[] = ['web_search', 'wikipedia', 'deep_research', 'financial_deep_search', 'rag_search'];
 
 function tenantSpecificTools(tenantId: string): ToolName[] | null {
   const raw = process.env.TENANT_TOOL_POLICIES_JSON;

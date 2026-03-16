@@ -1,46 +1,40 @@
 {
-  "project": "openrouter-agentic-intelligence-api",
+  "project": "SMART-AI",
   "status": "done",
-  "current_task": "SMART-AI OpenRouter Agentic Intelligence API v0.2 product teslimi tamamlandı",
+  "current_task": "v0.3 RAG + Brave entegrasyonu production seviyede tamamlandı",
   "next_actions": [
-    "KMS tabanlı key yönetimine geçiş",
-    "Redis tabanlı dağıtık rate-limit ve job queue",
-    "Provider-native token streaming passthrough"
+    "RAG retrieval için optional vector backend (pgvector/qdrant) eklenmesi",
+    "RAG URL ingest için allowlist + SSRF hardening",
+    "Redis tabanlı dağıtık rate-limit ve job queue"
   ],
   "risks": [
-    "Dış tool kaynakları ağ/API limitlerinden etkilenebilir",
-    "Stream şu an chunked synthesis modeliyle çalışır; provider-native streaming değildir",
-    "MASTER_KEY env yönetimi production operasyonunda güvenli secret manager gerektirir"
+    "RAG retrieval şu an lexical scoring tabanlı; domain büyüdükçe vector ranking ihtiyacı artabilir",
+    "URL ingest dış ağ erişimine bağımlıdır",
+    "MASTER_KEY env yönetimi production'da secret manager gerektirir"
   ],
   "decisions": [
     "Mimari: Modüler monolith + async worker",
-    "Reuse: Kör kopya yerine pattern-level sentez",
-    "Contract-first geliştirme yaklaşımı",
+    "Pattern-level sentez yaklaşımı",
+    "RAG: tenant-izole dosya tabanlı store + API",
+    "Web search: Brave primary + DuckDuckGo fallback",
     "OpenRouter default model: deepseek/deepseek-chat-v3.1"
   ],
   "artifacts": [
-    "prd.md",
-    "task.md",
-    "state.json",
-    "decisions.md",
-    "roadmap.md",
-    "delivery.md",
-    "test-report.md",
-    "security-report.md",
     "README.md",
     "contracts/openai-compatible.yaml",
     "contracts/platform-extensions.yaml",
     "service/api",
+    "service/rag",
     "service/orchestrator",
     "service/tools",
     "service/security",
     "service/worker",
-    "service/llm",
     "service/tests",
-    "service/package.json",
-    "service/tsconfig.json",
     "service/.env.example",
-    "service/Dockerfile"
+    "service/package.json",
+    "test-report.md",
+    "security-report.md",
+    "delivery.md"
   ],
-  "updated_at": "2026-03-16T04:32:00+03:00"
+  "updated_at": "2026-03-16T06:36:20+03:00"
 }

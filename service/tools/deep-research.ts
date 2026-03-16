@@ -1,4 +1,5 @@
 import type { ToolAdapter, ToolInput, ToolResult } from './types.js';
+import { ragSearchTool } from './rag-search.js';
 import { webSearchTool } from './web-search.js';
 import { wikipediaTool } from './wikipedia.js';
 
@@ -28,11 +29,19 @@ export const deepResearchTool: ToolAdapter = {
     const notes: string[] = [];
     const citations: string[] = [];
 
+    if (input.tenantId) {
+      try {
+        const rag = await ragSearchTool.execute({ query: input.query, tenantId: input.tenantId });
+        notes.push('Tenant RAG:');
+        notes.push(rag.summary);
+        citations.push(...rag.citations);
+      } catch {
+        // optional path, continue with public sources
+      }
+    }
+
     for (const q of researchQueries) {
-      const [web, wiki] = await Promise.all([
-        webSearchTool.execute({ query: q }),
-        wikipediaTool.execute({ query: q })
-      ]);
+      const [web, wiki] = await Promise.all([webSearchTool.execute({ query: q }), wikipediaTool.execute({ query: q })]);
 
       notes.push(`Sorgu: ${q}`);
       notes.push(`Web:\n${web.summary}`);
@@ -44,7 +53,7 @@ export const deepResearchTool: ToolAdapter = {
     return {
       tool: 'deep_research',
       summary: notes.join('\n\n'),
-      citations: dedupe(citations).slice(0, 20),
+      citations: dedupe(citations).slice(0, 24),
       raw: { researchQueries }
     };
   }

@@ -1,5 +1,12 @@
 # TASKS — OpenRouter Agentic Intelligence API
 
+## v0.3 Delta (RAG + Brave) — Tamamlandı
+- [x] `web_search` aracı Brave API ile genişletildi (fallback: DuckDuckGo)
+- [x] Tenant izole RAG data-plane eklendi (`service/rag/*`)
+- [x] RAG endpointleri eklendi (`/v1/rag/documents`, `/v1/rag/search`, list/delete)
+- [x] Planner/Verifier/Routing akışı `rag_search` ile güncellendi
+- [x] Contract + unit + security testleri güncellendi (16/16)
+
 ## Yürütme Notu
 - Bu proje yüksek kapsamlıdır; **design → plan → build → review → test → security → delivery** akışı zorunludur.
 - Her chunk bağımsız doğrulanabilir olmalıdır.

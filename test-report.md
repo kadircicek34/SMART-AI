@@ -1,35 +1,33 @@
-# TEST REPORT — OpenRouter Agentic Intelligence API
+# TEST REPORT — SMART-AI v0.3 (RAG + Brave)
 
 ## Test Stratejisi
-- Contract tests: OpenAI-compatible endpoint shape ve auth davranışı
-- Security tests: key-store encryption + policy
-- Integration smoke: local server + curl ile gerçek endpoint doğrulaması
-
-## RED / GREEN Notları
-| Davranış | Why TDD applicable? | Failing test kanıtı | Passing kanıtı | Not |
-|---|---|---|---|---|
-| `/v1/models` auth enforcement | Kritik security kontratı | Yetkisiz çağrıda 401 beklenir | Test geçti | Otomatik |
-| `/v1/chat/completions` body validation | API güvenilirliği | Hatalı payload 400 döner | Test geçti | Otomatik |
-| Key-store roundtrip | Secret güvenliği | Geçersiz key reddi | Set/get/delete geçti | Otomatik |
+- Contract tests: OpenAI-compatible endpoint shape + yeni RAG endpointleri
+- Security tests: key-store encryption + policy allowlist
+- Unit tests: verifier davranışı, RAG service tenant izolasyonu, web-search provider/fallback
 
 ## Çalıştırılan Verification Komutları
-| Komut | Sonuç | Kanıt / Not |
+| Komut | Sonuç | Kanıt |
 |---|---|---|
 | `npm run typecheck` | ✅ | TS hata yok |
-| `npm test` | ✅ | 7/7 test geçti |
-| `npm run dev` + `curl /health` | ✅ | `ok: true` |
-| `curl /v1/models` | ✅ | model listesi döndü |
-| `curl POST /v1/keys/openrouter` | ✅ | key status true döndü |
-| `curl POST /v1/chat/completions` | ✅ | OpenAI benzeri response döndü |
-| `curl POST /v1/jobs/research` + `GET /v1/jobs/:id` | ✅ | queued -> completed akışı doğrulandı |
+| `npm test` | ✅ | **16/16 test geçti** |
+| `npm install` | ✅ | audit sonucu: 0 vulnerability |
 
-## Kanıt Özeti
-- Otomatik test çıktısı: `tests 7 / pass 7 / fail 0`
-- Manuel smoke: health, models, key-store, chat, async job başarılı
+## Otomatik Test Kapsamı
+- `tests/contract/chat-completions.test.ts`
+- `tests/contract/models.test.ts`
+- `tests/contract/rag.test.ts`
+- `tests/security/key-store.test.ts`
+- `tests/security/policy.test.ts`
+- `tests/orchestrator/verifier.test.ts`
+- `tests/rag/rag-service.test.ts`
+- `tests/tools/web-search.test.ts`
 
-## Bulunan Sorunlar
-- Dış tool sağlayıcıları ağ/API limitlerinden etkilenebilir (beklenen operasyonel risk).
-- Stream akışı chunked final text üretir; provider-native token streaming değildir.
+## Öne Çıkan Doğrulamalar
+- `/v1/rag/documents` ingest çalışıyor
+- `/v1/rag/search` tenant izolasyonu çalışıyor
+- `web_search` BRAVE_API_KEY varken Brave kullanıyor
+- Brave hatasında DuckDuckGo fallback çalışıyor
+- Verifier internal-doc query için `rag_search` önerebiliyor
 
 ## Sonuç
-Bu iterasyon **yüksek güven** seviyesinde kabul edildi (contract + security + integration doğrulanmış).
+Bu sürümde eklenen RAG + Brave desteği için contract/security/unit testleri yeşil. Regression gözlenmedi.
