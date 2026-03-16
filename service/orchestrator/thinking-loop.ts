@@ -1,0 +1,53 @@
+import { planForQuery } from './planner.js';
+import type { ToolName } from '../tools/types.js';
+import type { Plan } from './types.js';
+
+function scorePlan(query: string, plan: Plan): number {
+  const q = query.toLowerCase();
+  let score = 0;
+
+  if ((q.includes('finans') || q.includes('stock') || q.includes('hisse')) && plan.tools.includes('financial_deep_search')) {
+    score += 3;
+  }
+  if ((q.includes('kim') || q.includes('nedir') || q.includes('history') || q.includes('what is')) && plan.tools.includes('wikipedia')) {
+    score += 2;
+  }
+  if ((q.includes('deep') || q.includes('araştır') || q.includes('analysis')) && plan.tools.includes('deep_research')) {
+    score += 3;
+  }
+  if (plan.tools.includes('web_search')) {
+    score += 1;
+  }
+
+  // small penalty for too many tools
+  score -= Math.max(0, plan.tools.length - 3) * 0.5;
+  return score;
+}
+
+function generateCandidates(query: string): Plan[] {
+  const base = planForQuery(query);
+
+  const aggressiveTools = [
+    ...new Set<ToolName>([...base.tools, 'deep_research', 'wikipedia', 'web_search'])
+  ].slice(0, 4);
+
+  const aggressive: Plan = {
+    ...base,
+    tools: aggressiveTools,
+    reasoning: `${base.reasoning} | aggressive refinement`
+  };
+
+  const conservative: Plan = {
+    ...base,
+    tools: base.tools.slice(0, 2),
+    reasoning: `${base.reasoning} | conservative refinement`
+  };
+
+  return [base, aggressive, conservative];
+}
+
+export function chooseBestPlan(query: string): Plan {
+  const candidates = generateCandidates(query);
+  const sorted = [...candidates].sort((a, b) => scorePlan(query, b) - scorePlan(query, a));
+  return sorted[0];
+}
