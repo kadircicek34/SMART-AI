@@ -1,5 +1,14 @@
 # TASKS — OpenRouter Agentic Intelligence API
 
+## v0.6 Delta (Memory Layer + memU Pattern Integration) — Tamamlandı
+- [x] Tenant memory data plane eklendi (`service/memory/*`)
+- [x] Memory endpointleri eklendi (`/v1/memory/items`, `/v1/memory/search`, `/v1/memory/stats`)
+- [x] `memory_search` tool adapter eklendi ve orchestrator plan/verifier akışına bağlandı
+- [x] Chat completions tarafına auto-capture (memory-worthy user message) eklendi
+- [x] memU’den alınan pre-retrieval decision pattern’i decision/rewrite akışına uyarlandı
+- [x] Yeni testler eklendi (memory service/contract/tool)
+- [x] Fresh verification: typecheck + test + audit + delivery-gate
+
 ## v0.5 Delta (Quality Gates + Deep Research Hardening) — Tamamlandı
 - [x] Verifier kalite kapısı eklendi (minimum citation + source diversity)
 - [x] Orchestrator repeated tool-pass loop guard eklendi
@@ -29,7 +38,8 @@
 | API sözleşmesi | `contracts/openai-compatible.yaml` | OpenAI schema uyumlu endpoint sözleşmesi |
 | API katmanı | `service/api/*` | Auth, validation, endpointler |
 | Orchestrator | `service/orchestrator/*` | Planner/Executor/Verifier/Synthesizer |
-| Tool adapters | `service/tools/*` | web/wiki/deepresearch/financial adapterları |
+| Tool adapters | `service/tools/*` | web/wiki/deepresearch/financial/rag/memory adapterları |
+| Memory plane | `service/memory/*` | memory ingest/retrieve/decision/auto-capture |
 | Worker | `service/worker/*` | Uzun araştırma işleri ve event stream |
 | Security | `service/security/*` | BYOK, policy, budget guard |
 | Testler | `service/tests/*` | Contract, integration, security testleri |

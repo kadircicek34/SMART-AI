@@ -1,15 +1,16 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "v0.5 orchestrator quality gates + deep research hardening production seviyede tamamlandı",
+  "current_task": "v0.6 memory layer + memU pattern integration production seviyede tamamlandı",
   "next_actions": [
-    "OpenRouter + orchestrator katmanına circuit breaker ve merkezi telemetry",
+    "Memory/RAG store için encrypt-at-rest data key + KMS entegrasyonu",
+    "Memory retrieval için embedding/hybrid ranker",
     "RAG URL ingest için allowlist + SSRF hardening",
-    "Redis tabanlı dağıtık rate-limit ve job queue"
+    "Redis tabanlı distributed rate-limit ve job queue"
   ],
   "risks": [
-    "Uzun süreli upstream kesintilerinde retry+heuristic loop guard tek başına yeterli olmayabilir",
-    "Kaynak çeşitliliği kapısı aktif olsa da kaynak güvenilirlik skoru henüz domain reputation ile zenginleştirilmedi",
+    "Memory scoring şu an lexical + heuristic; uzun içeriklerde semantic ranking sınırlı",
+    "Dosya tabanlı memory store yüksek tenant/hacimde operasyonel darboğaz oluşturabilir",
     "MASTER_KEY env yönetimi production'da secret manager gerektirir"
   ],
   "decisions": [
@@ -19,15 +20,18 @@
     "Web search: Brave primary + DuckDuckGo fallback",
     "OpenRouter: Retry-After destekli exponential backoff + jitter retry",
     "Orchestrator: source diversity gate + repeated tool-pass loop guard",
-    "Deep research: query budget + max concurrent research units"
+    "Deep research: query budget + max concurrent research units",
+    "Memory: pre-retrieval decision + tenant memory plane + memory_search tool"
   ],
   "artifacts": [
     "README.md",
     "analysis-repo-findings-2026-03-16.md",
+    "analysis-memu-2026-03-16.md",
     "contracts/openai-compatible.yaml",
     "contracts/platform-extensions.yaml",
     "service/api",
     "service/rag",
+    "service/memory",
     "service/orchestrator",
     "service/tools",
     "service/security",
@@ -39,5 +43,5 @@
     "security-report.md",
     "delivery.md"
   ],
-  "updated_at": "2026-03-16T07:24:07+03:00"
+  "updated_at": "2026-03-16T07:45:59+03:00"
 }

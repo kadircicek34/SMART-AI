@@ -16,6 +16,13 @@ test('deep_research continues when one source fails and dedupes citations', asyn
       tenantId: 'tenant-test'
     },
     {
+      memorySearch: {
+        execute: async () => ({
+          tool: 'memory_search',
+          summary: 'memory: kullanıcı geçmiş tercihi bulundu',
+          citations: ['memory://tenant-test/mem_1']
+        })
+      },
       ragSearch: {
         execute: async () => {
           throw new Error('rag backend unavailable');
@@ -49,6 +56,7 @@ test('deep_research continues when one source fails and dedupes citations', asyn
   );
 
   assert.equal(result.tool, 'deep_research');
+  assert.match(result.summary, /Tenant Memory:/);
   assert.match(result.summary, /Tenant RAG: hata/);
   assert.match(result.summary, /Web: hata \(temporary web failure\)/);
   assert.ok(result.citations.includes('https://example.com/shared'));

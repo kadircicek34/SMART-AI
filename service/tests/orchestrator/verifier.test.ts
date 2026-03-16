@@ -68,3 +68,18 @@ test('verifier keeps evidence insufficient when citations come from a single sou
   assert.equal(result.sufficient, false);
   assert.equal(result.suggestedTool, 'deep_research');
 });
+
+test('verifier suggests memory_search for memory-focused queries without evidence', () => {
+  const result = verifyEvidence(
+    {
+      objective: 'user preference query',
+      tools: ['web_search'],
+      reasoning: 'test'
+    },
+    [],
+    'Benim geçen seferki tercihim neydi, hatırlıyor musun?'
+  );
+
+  assert.equal(result.sufficient, false);
+  assert.equal(result.suggestedTool, 'memory_search');
+});

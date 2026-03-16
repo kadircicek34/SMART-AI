@@ -1,6 +1,7 @@
 import { config } from '../config.js';
 import type { ToolAdapter, ToolInput, ToolResult } from './types.js';
 import { ragSearchTool } from './rag-search.js';
+import { memorySearchTool } from './memory-search.js';
 import { webSearchTool } from './web-search.js';
 import { wikipediaTool } from './wikipedia.js';
 
@@ -8,6 +9,7 @@ type ResearchDependencies = {
   webSearch: Pick<ToolAdapter, 'execute'>;
   wikipedia: Pick<ToolAdapter, 'execute'>;
   ragSearch: Pick<ToolAdapter, 'execute'>;
+  memorySearch: Pick<ToolAdapter, 'execute'>;
 };
 
 type ResearchLimits = {
@@ -92,6 +94,15 @@ async function executeDeepResearch(
 
   if (input.tenantId) {
     try {
+      const memory = await deps.memorySearch.execute({ query: input.query, tenantId: input.tenantId });
+      notes.push('Tenant Memory:');
+      notes.push(memory.summary);
+      citations.push(...memory.citations);
+    } catch (error) {
+      notes.push(`Tenant Memory: hata (${toErrorMessage(error)})`);
+    }
+
+    try {
       const rag = await deps.ragSearch.execute({ query: input.query, tenantId: input.tenantId });
       notes.push('Tenant RAG:');
       notes.push(rag.summary);
@@ -163,7 +174,8 @@ export const deepResearchTool: ToolAdapter = {
       {
         webSearch: webSearchTool,
         wikipedia: wikipediaTool,
-        ragSearch: ragSearchTool
+        ragSearch: ragSearchTool,
+        memorySearch: memorySearchTool
       },
       {
         maxQueries: config.research.maxQueries,

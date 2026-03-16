@@ -1,4 +1,10 @@
-export type ToolName = 'web_search' | 'wikipedia' | 'deep_research' | 'financial_deep_search' | 'rag_search';
+export type ToolName =
+  | 'web_search'
+  | 'wikipedia'
+  | 'deep_research'
+  | 'financial_deep_search'
+  | 'rag_search'
+  | 'memory_search';
 
 export type ToolInput = {
   query: string;
