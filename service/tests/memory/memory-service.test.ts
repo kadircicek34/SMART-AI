@@ -4,8 +4,10 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../../config.js';
 import {
+  __private__,
   autoCaptureUserMemory,
   deleteTenantMemory,
+  getTenantMemoryStats,
   listTenantMemories,
   memorizeForTenant,
   searchTenantMemories
@@ -95,4 +97,43 @@ test('auto capture stores user message when memory-worthy', async () => {
 
   const listed = await listTenantMemories({ tenantId: 'tenant-memory-auto', limit: 5 });
   assert.ok(listed.length >= 1);
+});
+
+test('memory stats track retrieval metrics', async () => {
+  await memorizeForTenant({
+    tenantId: 'tenant-metrics',
+    items: [{ content: 'Ben her sabah önce task.md dosyasını kontrol ederim.', category: 'habit' }]
+  });
+
+  await searchTenantMemories({
+    tenantId: 'tenant-metrics',
+    query: 'Benim sabah alışkanlığımı hatırla',
+    forceRetrieve: true
+  });
+
+  const stats = await getTenantMemoryStats('tenant-metrics');
+  assert.ok(stats.retrieval.totalQueries >= 1);
+  assert.ok(stats.retrieval.totalResults >= 1);
+  assert.ok(stats.retrieval.avgLatencyMs >= 0);
+});
+
+test('hotness score increases with retrieval count and recency', () => {
+  const now = Date.now();
+  const recentHot = __private__.computeHotnessScore({
+    retrievalCount: 30,
+    updatedAt: now - 60 * 60 * 1000,
+    nowMs: now,
+    halfLifeDays: 7
+  });
+
+  const oldCold = __private__.computeHotnessScore({
+    retrievalCount: 1,
+    updatedAt: now - 40 * 24 * 60 * 60 * 1000,
+    nowMs: now,
+    halfLifeDays: 7
+  });
+
+  assert.ok(recentHot > oldCold);
+  assert.ok(recentHot <= 1);
+  assert.ok(oldCold >= 0);
 });

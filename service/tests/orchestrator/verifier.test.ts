@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { verifyEvidence } from '../../orchestrator/verifier.js';
 
-test('verifier suggests rag_search for internal documentation queries when evidence is missing', () => {
+test('verifier suggests qmd_search for project-doc queries when evidence is missing', () => {
   const result = verifyEvidence(
     {
       objective: 'SMART-AI docs',
@@ -13,7 +13,7 @@ test('verifier suggests rag_search for internal documentation queries when evide
     'Bu projede API docs endpointleri neler?'
   );
 
-  assert.equal(result.suggestedTool, 'rag_search');
+  assert.equal(result.suggestedTool, 'qmd_search');
   assert.equal(result.sufficient, false);
 });
 
@@ -41,6 +41,31 @@ test('verifier marks response sufficient when strong evidence exists', () => {
 
   assert.equal(result.sufficient, true);
   assert.ok(result.confidence >= 0.65);
+});
+
+test('verifier accepts qmd evidence for project-doc query', () => {
+  const result = verifyEvidence(
+    {
+      objective: 'smart-ai project docs',
+      tools: ['qmd_search', 'deep_research'],
+      reasoning: 'test'
+    },
+    [
+      {
+        tool: 'qmd_search',
+        summary: 'Q'.repeat(150),
+        citations: ['qmd://SMART-AI/README.md', 'qmd://SMART-AI/prd.md']
+      },
+      {
+        tool: 'deep_research',
+        summary: 'R'.repeat(130),
+        citations: ['https://example.com/a', 'https://another-example.com/b']
+      }
+    ],
+    'Bu projede memory endpointleri nasıl?'
+  );
+
+  assert.equal(result.sufficient, true);
 });
 
 test('verifier keeps evidence insufficient when citations come from a single source', () => {

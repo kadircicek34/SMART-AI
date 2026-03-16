@@ -4,7 +4,8 @@ export type ToolName =
   | 'deep_research'
   | 'financial_deep_search'
   | 'rag_search'
-  | 'memory_search';
+  | 'memory_search'
+  | 'qmd_search';
 
 export type PolicyContext = {
   tenantId: string;
@@ -24,7 +25,8 @@ const DEFAULT_ALLOWED_TOOLS: ToolName[] = [
   'deep_research',
   'financial_deep_search',
   'rag_search',
-  'memory_search'
+  'memory_search',
+  'qmd_search'
 ];
 
 function tenantSpecificTools(tenantId: string): ToolName[] | null {

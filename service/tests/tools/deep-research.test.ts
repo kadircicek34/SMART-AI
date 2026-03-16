@@ -23,6 +23,13 @@ test('deep_research continues when one source fails and dedupes citations', asyn
           citations: ['memory://tenant-test/mem_1']
         })
       },
+      qmdSearch: {
+        execute: async () => ({
+          tool: 'qmd_search',
+          summary: 'qmd: local proje doküman eşleşmesi bulundu',
+          citations: ['qmd://SMART-AI/README.md']
+        })
+      },
       ragSearch: {
         execute: async () => {
           throw new Error('rag backend unavailable');
@@ -57,6 +64,7 @@ test('deep_research continues when one source fails and dedupes citations', asyn
 
   assert.equal(result.tool, 'deep_research');
   assert.match(result.summary, /Tenant Memory:/);
+  assert.match(result.summary, /QMD Local Search:/);
   assert.match(result.summary, /Tenant RAG: hata/);
   assert.match(result.summary, /Web: hata \(temporary web failure\)/);
   assert.ok(result.citations.includes('https://example.com/shared'));

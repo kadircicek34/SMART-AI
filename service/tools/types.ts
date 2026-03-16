@@ -4,7 +4,8 @@ export type ToolName =
   | 'deep_research'
   | 'financial_deep_search'
   | 'rag_search'
-  | 'memory_search';
+  | 'memory_search'
+  | 'qmd_search';
 
 export type ToolInput = {
   query: string;

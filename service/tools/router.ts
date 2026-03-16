@@ -4,6 +4,7 @@ import { webSearchTool } from './web-search.js';
 import { wikipediaTool } from './wikipedia.js';
 import { ragSearchTool } from './rag-search.js';
 import { memorySearchTool } from './memory-search.js';
+import { qmdSearchTool } from './qmd-search.js';
 import type { ToolAdapter, ToolName, ToolResult } from './types.js';
 
 const tools: Record<ToolName, ToolAdapter> = {
@@ -12,7 +13,8 @@ const tools: Record<ToolName, ToolAdapter> = {
   deep_research: deepResearchTool,
   financial_deep_search: financialDeepSearchTool,
   rag_search: ragSearchTool,
-  memory_search: memorySearchTool
+  memory_search: memorySearchTool,
+  qmd_search: qmdSearchTool
 };
 
 export function getTool(name: ToolName): ToolAdapter {

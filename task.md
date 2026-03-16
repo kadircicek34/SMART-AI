@@ -1,5 +1,15 @@
 # TASKS — OpenRouter Agentic Intelligence API
 
+## v0.7 Delta (QMD Search + OpenViking/OpenClaw/Cognee pattern integration) — Tamamlandı
+- [x] `qmd_search` tool adapter eklendi (VPS'teki kurulu qmd binary kullanımı)
+- [x] QMD collection auto-bootstrap eklendi (`collection list/add --name`)
+- [x] Planner/thinking/verifier akışı qmd-aware hale getirildi
+- [x] Deep research akışına QMD local source entegre edildi
+- [x] Memory hotness scoring eklendi (OpenViking pattern)
+- [x] Tenant retrieval telemetry eklendi (`/v1/memory/stats` içinde retrieval metrikleri)
+- [x] Yeni testler eklendi (`tests/tools/qmd-search.test.ts`, memory telemetry/hotness testleri)
+- [x] Fresh verification: typecheck + test + audit + delivery-gate
+
 ## v0.6 Delta (Memory Layer + memU Pattern Integration) — Tamamlandı
 - [x] Tenant memory data plane eklendi (`service/memory/*`)
 - [x] Memory endpointleri eklendi (`/v1/memory/items`, `/v1/memory/search`, `/v1/memory/stats`)
@@ -38,7 +48,7 @@
 | API sözleşmesi | `contracts/openai-compatible.yaml` | OpenAI schema uyumlu endpoint sözleşmesi |
 | API katmanı | `service/api/*` | Auth, validation, endpointler |
 | Orchestrator | `service/orchestrator/*` | Planner/Executor/Verifier/Synthesizer |
-| Tool adapters | `service/tools/*` | web/wiki/deepresearch/financial/rag/memory adapterları |
+| Tool adapters | `service/tools/*` | web/wiki/deepresearch/financial/rag/memory/qmd adapterları |
 | Memory plane | `service/memory/*` | memory ingest/retrieve/decision/auto-capture |
 | Worker | `service/worker/*` | Uzun araştırma işleri ve event stream |
 | Security | `service/security/*` | BYOK, policy, budget guard |

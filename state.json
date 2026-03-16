@@ -1,32 +1,32 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "v0.6 memory layer + memU pattern integration production seviyede tamamlandı",
+  "current_task": "v0.7 qmd search + memory hotness/retrieval telemetry production seviyede tamamlandı",
   "next_actions": [
-    "Memory/RAG store için encrypt-at-rest data key + KMS entegrasyonu",
+    "QMD index health için scheduled update/maintenance job",
     "Memory retrieval için embedding/hybrid ranker",
-    "RAG URL ingest için allowlist + SSRF hardening",
-    "Redis tabanlı distributed rate-limit ve job queue"
+    "Memory/RAG store encrypt-at-rest (data key + KMS)",
+    "RAG URL ingest için allowlist + SSRF hardening"
   ],
   "risks": [
-    "Memory scoring şu an lexical + heuristic; uzun içeriklerde semantic ranking sınırlı",
-    "Dosya tabanlı memory store yüksek tenant/hacimde operasyonel darboğaz oluşturabilir",
+    "QMD search index güncelliği otomatik scheduler olmadan manuel update'e bağlı kalabilir",
+    "Memory scoring lexical+heuristic temelli olduğu için çok uzun içerikte semantic kalite sınırlı kalabilir",
     "MASTER_KEY env yönetimi production'da secret manager gerektirir"
   ],
   "decisions": [
     "Mimari: Modüler monolith + async worker",
     "Pattern-level sentez yaklaşımı",
     "RAG: tenant-izole dosya tabanlı store + API",
-    "Web search: Brave primary + DuckDuckGo fallback",
-    "OpenRouter: Retry-After destekli exponential backoff + jitter retry",
-    "Orchestrator: source diversity gate + repeated tool-pass loop guard",
-    "Deep research: query budget + max concurrent research units",
-    "Memory: pre-retrieval decision + tenant memory plane + memory_search tool"
+    "Memory: pre-retrieval decision + tenant memory plane + memory_search tool",
+    "QMD: local CLI tabanlı qmd_search tool entegrasyonu",
+    "Memory ranking: hotness score (retrieval_count + recency decay)",
+    "OpenRouter: Retry-After destekli exponential backoff + jitter retry"
   ],
   "artifacts": [
     "README.md",
     "analysis-repo-findings-2026-03-16.md",
     "analysis-memu-2026-03-16.md",
+    "analysis-openviking-openclaw-cognee-qmd-2026-03-16.md",
     "contracts/openai-compatible.yaml",
     "contracts/platform-extensions.yaml",
     "service/api",
@@ -35,7 +35,6 @@
     "service/orchestrator",
     "service/tools",
     "service/security",
-    "service/worker",
     "service/tests",
     "service/.env.example",
     "service/package.json",
@@ -43,5 +42,5 @@
     "security-report.md",
     "delivery.md"
   ],
-  "updated_at": "2026-03-16T07:45:59+03:00"
+  "updated_at": "2026-03-16T10:05:24+03:00"
 }

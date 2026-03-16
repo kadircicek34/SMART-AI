@@ -2,6 +2,7 @@ import { config } from '../config.js';
 import type { ToolAdapter, ToolInput, ToolResult } from './types.js';
 import { ragSearchTool } from './rag-search.js';
 import { memorySearchTool } from './memory-search.js';
+import { qmdSearchTool } from './qmd-search.js';
 import { webSearchTool } from './web-search.js';
 import { wikipediaTool } from './wikipedia.js';
 
@@ -10,6 +11,7 @@ type ResearchDependencies = {
   wikipedia: Pick<ToolAdapter, 'execute'>;
   ragSearch: Pick<ToolAdapter, 'execute'>;
   memorySearch: Pick<ToolAdapter, 'execute'>;
+  qmdSearch: Pick<ToolAdapter, 'execute'>;
 };
 
 type ResearchLimits = {
@@ -103,6 +105,15 @@ async function executeDeepResearch(
     }
 
     try {
+      const qmd = await deps.qmdSearch.execute({ query: input.query, tenantId: input.tenantId });
+      notes.push('QMD Local Search:');
+      notes.push(qmd.summary);
+      citations.push(...qmd.citations);
+    } catch (error) {
+      notes.push(`QMD Local Search: hata (${toErrorMessage(error)})`);
+    }
+
+    try {
       const rag = await deps.ragSearch.execute({ query: input.query, tenantId: input.tenantId });
       notes.push('Tenant RAG:');
       notes.push(rag.summary);
@@ -175,7 +186,8 @@ export const deepResearchTool: ToolAdapter = {
         webSearch: webSearchTool,
         wikipedia: wikipediaTool,
         ragSearch: ragSearchTool,
-        memorySearch: memorySearchTool
+        memorySearch: memorySearchTool,
+        qmdSearch: qmdSearchTool
       },
       {
         maxQueries: config.research.maxQueries,
