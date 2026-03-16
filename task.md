@@ -1,5 +1,15 @@
 # TASKS — OpenRouter Agentic Intelligence API
 
+## v0.9 Delta (saidsurucu MCP Integrations: mevzuat/borsa/yargı) — Tamamlandı
+- [x] `saidsurucu/mevzuat-mcp`, `saidsurucu/borsa-mcp`, `saidsurucu/yargi-mcp` repo analizleri `github-readonly + repomix` ile tamamlandı
+- [x] MCP adapter katmanı eklendi (`service/tools/tr-mcp-search.ts`)
+- [x] Yeni tool'lar: `mevzuat_mcp_search`, `borsa_mcp_search`, `yargi_mcp_search`
+- [x] Planner/thinking/verifier akışları domain-MCP route kararlarıyla güncellendi
+- [x] Deep research akışına mevzuat/borsa/yargı MCP kaynakları eklendi
+- [x] Policy allowlist + env config yüzeyi güncellendi (MCP URL/timeout/limit)
+- [x] Yeni testler eklendi (`service/tests/tools/tr-mcp-search.test.ts` + verifier/policy/deep-research güncellemeleri)
+- [x] Fresh verification: typecheck + test + audit + delivery-gate
+
 ## v0.8 Delta (OpenBB Financial Runtime Hardening) — Tamamlandı
 - [x] OpenBB repo `github-readonly + repomix` ile analiz edildi
 - [x] `financial_deep_search` provider fallback modeline geçirildi (Stooq + AlphaVantage)
@@ -56,7 +66,7 @@
 | API sözleşmesi | `contracts/openai-compatible.yaml` | OpenAI schema uyumlu endpoint sözleşmesi |
 | API katmanı | `service/api/*` | Auth, validation, endpointler |
 | Orchestrator | `service/orchestrator/*` | Planner/Executor/Verifier/Synthesizer |
-| Tool adapters | `service/tools/*` | web/wiki/deepresearch/financial/rag/memory/qmd adapterları |
+| Tool adapters | `service/tools/*` | web/wiki/deepresearch/financial/rag/memory/qmd + mevzuat/borsa/yargı mcp adapterları |
 | Memory plane | `service/memory/*` | memory ingest/retrieve/decision/auto-capture |
 | Worker | `service/worker/*` | Uzun araştırma işleri ve event stream |
 | Security | `service/security/*` | BYOK, policy, budget guard |
