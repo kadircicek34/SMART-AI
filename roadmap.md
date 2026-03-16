@@ -4,7 +4,8 @@
 - ✅ v0.3 teslim edildi: Brave web-search + tenant-isolated RAG (ingest/search/list/delete)
 - ✅ v0.5 teslim edildi: orchestrator quality gates + deep-research hardening
 - ✅ v0.6 teslim edildi: tenant memory layer + pre-retrieval decision + memory_search tool
-- ✅ Test paketi 30/30 yeşil
+- ✅ v0.7 teslim edildi: qmd_search entegrasyonu + memory hotness/retrieval telemetry
+- ✅ Test paketi 36/36 yeşil
 
 ## Faz 1 — Foundation (Hafta 1)
 ### Hedef
@@ -94,7 +95,7 @@ Prod-ready kalite eşiğine çıkmak.
 - OpenAI-compatible chat API
 - 4-rol orkestrasyon
 - temel thinking-loop
-- 6 tool adapter (web/wiki/deep-research/financial/rag/memory)
+- 7 tool adapter (web/wiki/deep-research/financial/rag/memory/qmd)
 - async long-job desteği
 
 ### V1 dışı (V2+)

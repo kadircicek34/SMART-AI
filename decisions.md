@@ -215,3 +215,53 @@ Kullanıcı geçmişi, tercihleri ve profile dair sorular için yalnızca web/RA
 - Embedding tabanlı advanced memory ranker (şu an lexical + heuristic scoring)
 - Memory encryption-at-rest için ayrı KMS katmanı
 - Cross-tenant/global memory federasyonu
+
+---
+
+## 2026-03-16 — QMD local search entegrasyon kararı (OpenClaw + QMD pattern)
+### Problem
+Proje içi dokümanları (README/PRD/Task/Decision vb.) web aramaya göndermeden lokal ve hızlı aramak gerekiyor.
+
+### Seçenekler
+- A: Sadece mevcut `rag_search` ile ilerlemek
+- B: QMD MCP/CLI ekleyip local docs arama katmanı açmak
+- C: Harici hosted search servis bağımlılığı
+
+### Karar
+**B seçildi:** VPS'te kurulu `qmd` binary ile çalışan `qmd_search` tool eklendi.
+
+### Gerekçe
+- OpenClaw’daki qmd manager/process pattern’i güvenli CLI wrapper yaklaşımını doğruluyor.
+- QMD'nin `search --json` çıktısı deterministik ve düşük gecikmeli.
+- Lokal docs sorgularında dış web bağımlılığı azalıyor.
+
+### Etki
+- Planner/Verifier/Deep-Research pipeline artık `qmd_search` kullanabiliyor.
+- Proje içi sorgularda cevap kalitesi ve kaynak doğrulanabilirliği artıyor.
+
+### Bilinçli Olarak Ertelenenler
+- `qmd query` (LLM rerank) default açılımı — şu an performans/stabilite için `qmd search` varsayılan.
+- QMD index health için ayrı cron/scheduler otomasyonu.
+
+---
+
+## 2026-03-16 — Memory hotness + retrieval telemetry kararı (OpenViking pattern)
+### Problem
+Memory retrieval kalitesinde recency/frequency etkisi ve operasyonel görünürlük eksik kalıyordu.
+
+### Seçenekler
+- A: Sadece lexical skorla devam etmek
+- B: Hotness scoring + retrieval metrikleri eklemek
+
+### Karar
+**B seçildi:**
+- Hotness scoring (retrieval_count + recency half-life)
+- Tenant retrieval telemetry (`totalQueries`, `avgLatencyMs`, `zeroResultQueries`)
+
+### Gerekçe
+- OpenViking’deki memory lifecycle yaklaşımı pratik ve düşük riskli.
+- Telemetry olmadan retrieval kalitesini üretimde değerlendirmek zor.
+
+### Etki
+- Sık ve güncel memory kayıtları daha doğru sıralanıyor.
+- `/v1/memory/stats` üzerinden retrieval davranışı izlenebiliyor.

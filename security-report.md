@@ -1,41 +1,38 @@
-# SECURITY REPORT — SMART-AI v0.6
+# SECURITY REPORT — SMART-AI v0.7
 
 ## Kapsam
 Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
 - AuthN/AuthZ (Bearer API key + tenant header)
-- Tenant isolation (key-store + RAG + Memory data plane)
+- Tenant isolation (key-store + RAG + Memory)
 - Input validation (zod)
-- Secret management (AES-256-GCM tenant key store)
-- Rate limit + runtime/tool budget
+- Secret management (AES-256-GCM)
+- Rate-limit + runtime/tool budget
 - Provider resilience (OpenRouter retry policy)
-- Evidence quality gate (citation + source diversity)
-- Tool loop guard (repeated pass breaker)
+- Tool safety (policy allowlist + loop guard)
+- QMD CLI entegrasyon güvenliği (timeout + controlled args)
 - Dependency güvenliği (`npm audit`)
 
 ## Kontrol Sonuçları
 | Alan | Durum | Not |
 |---|---|---|
-| Auth / Authorization | ✅ | `/v1/*` auth zorunlu; tenant id zorunlu |
-| Validation | ✅ | Chat + RAG + Memory endpoint body validation aktif |
-| Secrets | ✅ | tenant OpenRouter key encrypted-at-rest |
-| Tenant Isolation | ✅ | RAG ve Memory kayıtları tenant scope ile sınırlandı |
-| Abuse Guard | ✅ | rate-limit + max step/tool/runtime bütçesi |
-| Provider Resilience | ✅ | 429/5xx kontrollü retry, non-retryable 4xx fail-fast |
-| Evidence Quality Gate | ✅ | min citation + source diversity kontrolü |
-| Loop Guard | ✅ | tekrarlayan tool-pass imzası tespitinde kırma |
-| Dependencies | ✅ | `npm audit --omit=dev` sonucu: 0 vulnerability |
+| Auth / Authorization | ✅ | `/v1/*` auth zorunlu + tenant scope zorunlu |
+| Validation | ✅ | Chat + RAG + Memory body validation aktif |
+| Tenant Isolation | ✅ | Memory/RAG sorguları tenant sınırını koruyor |
+| Tool Policy | ✅ | `qmd_search` allowlist'e kontrollü eklendi |
+| CLI Safety | ✅ | QMD aracı sabit komut seti + timeout + JSON parse fallback kullanıyor |
+| Provider Resilience | ✅ | OpenRouter retry/backoff korunuyor |
+| Dependencies | ✅ | `npm audit --omit=dev` sonucu 0 vuln |
 
-## Memory-Specific Güvenlik Notları
-- Memory store tenant bazlı ve path-level tek dosyada tutuluyor (`MEMORY_STORE_FILE`).
-- Cross-tenant memoryId çakışmasında yazma engelleniyor.
-- Memory retrieval karar katmanı (`RETRIEVE`/`NO_RETRIEVE`) gereksiz data erişimini azaltıyor.
-- Auto-capture sadece memory-worthy mesajlarda çalışıyor; küçük konuşma mesajları ingest edilmiyor.
+## QMD Özel Güvenlik Notu
+- QMD entegrasyonu shell interpolation kullanmıyor (`execFile` arg listesi).
+- Komut parametreleri sabit şablonla geçiliyor (`search`, `collection list/add`).
+- Çıktı boyutu/timeouts sınırlı.
 
 ## Kalan İyileştirme Alanları
-1. Memory/RAG dosya store için encrypt-at-rest katmanı (ayrı data key)
-2. RAG URL ingest için SSRF allowlist/hardening
-3. Circuit breaker + merkezi telemetry
-4. Redis tabanlı distributed rate-limit / queue
+1. QMD için command allowlist + binary integrity check (sha256) katmanı
+2. Memory/RAG store encryption-at-rest (data key/KMS)
+3. RAG URL ingest SSRF hardening
+4. Circuit breaker + merkezi telemetry
 
 ## Sonuç
-Memory katmanı eklenmesine rağmen tenant izolasyonu ve güvenlik tabanı korunarak sistem üretim dayanıklılığıyla çalışır halde doğrulandı.
+QMD entegrasyonu sistemin güvenlik tabanını bozmadan eklendi; tenant izolasyonu ve operasyonel guardrail’ler korunuyor.

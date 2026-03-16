@@ -24,12 +24,14 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - **Loop guard** (tekrarlayan tool-pass kırıcı)
 - **Deep research budget/concurrency kontrolleri**
 - **Tenant Memory Layer** (memorizasyon + retrieval + auto-capture)
+- **QMD Local Search entegrasyonu** (VPS'teki kurulu `qmd` ile proje doküman araması)
+- **Memory hotness scoring + retrieval telemetry** (OpenViking pattern)
 
 ## Klasörler
 - `contracts/` → API sözleşmeleri
 - `service/api/` → gateway, middleware, routes
 - `service/orchestrator/` → planner/executor/verifier/synthesizer
-- `service/tools/` → web/wiki/deep-research/financial/rag adapters
+- `service/tools/` → web/wiki/deep-research/financial/rag/memory/qmd adapters
 - `service/rag/` → ingest/chunk/retrieval/runtime store
 - `service/memory/` → memory ingest/retrieve/decision/auto-capture
 - `service/security/` → key-store, policy, budget
@@ -110,6 +112,14 @@ curl -X POST http://127.0.0.1:8080/v1/memory/search \
   -d '{"query":"Benim toplantı tercihim neydi, hatırla"}'
 ```
 
+## QMD Collection Bootstrap (opsiyonel manuel)
+```bash
+# service dizininden bir üstte proje kökü varsayılır
+cd ..
+qmd collection add . --name SMART-AI
+qmd search "memory endpoint" -c SMART-AI --json -n 5
+```
+
 ## Chat Completion
 ```bash
 curl -X POST http://127.0.0.1:8080/v1/chat/completions \
@@ -144,4 +154,8 @@ curl http://127.0.0.1:8080/v1/jobs/<job_id> \
 - Open Deep Research (workflow + araştırma akışı yaklaşımı)
 - Qwen-Agent (tool-call + runtime patternleri)
 - Deer-Flow (stability middleware patternleri)
-- memU (memory/retrieval scoring yaklaşımı)
+- memU (memory/retrieval decision yaklaşımı)
+- OpenViking (memory hotness + retrieval stats pattern)
+- OpenClaw (qmd process/manager + fallback safety pattern)
+- Cognee (memory graph retrieval/memify patternleri)
+- QMD (lokal markdown index + hızlı arama)
