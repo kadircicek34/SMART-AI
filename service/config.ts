@@ -68,6 +68,21 @@ export const config = {
     defaultChunkSize: Number(process.env.RAG_DEFAULT_CHUNK_SIZE ?? 1_200),
     defaultChunkOverlap: Number(process.env.RAG_DEFAULT_CHUNK_OVERLAP ?? 180)
   },
+  memory: {
+    storeFile: process.env.MEMORY_STORE_FILE ?? path.resolve(process.cwd(), '.data', 'memory-store.json'),
+    defaultCategory: (process.env.MEMORY_DEFAULT_CATEGORY ?? 'note') as
+      | 'profile'
+      | 'preference'
+      | 'habit'
+      | 'goal'
+      | 'todo'
+      | 'event'
+      | 'knowledge'
+      | 'relationship'
+      | 'note',
+    maxItemsPerTenant: Number(process.env.MEMORY_MAX_ITEMS_PER_TENANT ?? 2500),
+    autoCaptureUserMessages: (process.env.MEMORY_AUTO_CAPTURE_USER_MESSAGES ?? 'true').toLowerCase() === 'true'
+  },
   security: {
     masterKey: getMasterKey()
   }

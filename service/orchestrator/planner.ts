@@ -37,6 +37,25 @@ const RAG_KEYWORDS = [
   'internal'
 ];
 
+const MEMORY_KEYWORDS = [
+  'remember',
+  'recall',
+  'memory',
+  'previous',
+  'past',
+  'before',
+  'history',
+  'my preference',
+  'about me',
+  'hatırla',
+  'hafıza',
+  'önceki',
+  'geçmiş',
+  'benim tercihim',
+  'hakkımda',
+  'alışkanlığım'
+];
+
 function hasKeyword(text: string, keywords: string[]): boolean {
   const lower = text.toLowerCase();
   return keywords.some((k) => lower.includes(k));
@@ -51,6 +70,13 @@ function shouldUseRag(query: string): boolean {
   if (hasKeyword(normalized, RAG_KEYWORDS)) return true;
 
   return /(bizim|internal|tenant|dok[uü]man|repo|code|sözleşme|spec)/i.test(query) && /\?/i.test(query);
+}
+
+function shouldUseMemory(query: string): boolean {
+  const normalized = query.toLowerCase();
+  if (hasKeyword(normalized, MEMORY_KEYWORDS)) return true;
+
+  return /(benim|hakkımda|tercih|alışkanlık|geçen|önceki|hatırlıyor|profilim|hafıza)/i.test(query);
 }
 
 export function planForQuery(query: string): Plan {
@@ -70,6 +96,10 @@ export function planForQuery(query: string): Plan {
 
   if (shouldUseRag(query)) {
     tools.push('rag_search');
+  }
+
+  if (shouldUseMemory(query)) {
+    tools.push('memory_search');
   }
 
   const qLen = query.trim().length;

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { config } from '../../config.js';
 import { runOrchestrator } from '../../orchestrator/run.js';
 import { getTenantOpenRouterKey } from '../../security/key-store.js';
+import { autoCaptureUserMemory } from '../../memory/service.js';
 
 const MessageSchema = z.object({
   role: z.enum(['system', 'user', 'assistant', 'tool']),
@@ -65,6 +66,17 @@ export async function registerChatCompletionsRoute(app: FastifyInstance) {
       maxTokens: input.max_tokens,
       stream: input.stream
     });
+
+    const latestUserMessage = [...input.messages].reverse().find((message) => message.role === 'user')?.content;
+    if (latestUserMessage) {
+      void autoCaptureUserMemory({
+        tenantId,
+        message: latestUserMessage,
+        source: 'chat-completions-auto-capture'
+      }).catch((error) => {
+        req.log.warn({ err: error }, 'memory auto-capture failed');
+      });
+    }
 
     const now = Math.floor(Date.now() / 1000);
     const completionId = `chatcmpl_${crypto.randomUUID().replace(/-/g, '')}`;

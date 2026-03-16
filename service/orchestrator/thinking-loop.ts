@@ -18,6 +18,9 @@ function scorePlan(query: string, plan: Plan): number {
   if ((q.includes('doküman') || q.includes('documentation') || q.includes('repo') || q.includes('knowledge') || q.includes('rag')) && plan.tools.includes('rag_search')) {
     score += 2.5;
   }
+  if ((q.includes('hatırla') || q.includes('hafıza') || q.includes('önceki') || q.includes('geçmiş') || q.includes('about me') || q.includes('my preference')) && plan.tools.includes('memory_search')) {
+    score += 2.5;
+  }
   if (plan.tools.includes('web_search')) {
     score += 1;
   }
@@ -30,7 +33,9 @@ function scorePlan(query: string, plan: Plan): number {
 function generateCandidates(query: string): Plan[] {
   const base = planForQuery(query);
 
-  const aggressiveTools = [...new Set<ToolName>([...base.tools, 'deep_research', 'rag_search', 'wikipedia', 'web_search'])].slice(0, 5);
+  const aggressiveTools = [
+    ...new Set<ToolName>([...base.tools, 'deep_research', 'rag_search', 'memory_search', 'wikipedia', 'web_search'])
+  ].slice(0, 5);
 
   const aggressive: Plan = {
     ...base,
