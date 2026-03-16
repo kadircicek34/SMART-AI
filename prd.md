@@ -28,12 +28,17 @@ Tek başına LLM API çağrısı çoğu görevde yetersiz kalıyor:
 2. AgentFlow tarzı 4-rol orkestrasyon (Planner/Executor/Verifier/Synthesizer)
 3. Poetiq tarzı düşünme rafinesi (candidate → evaluate → refine)
 4. Tool plane:
-   - web search,
+   - web search (Brave primary + DuckDuckGo fallback),
    - wikipedia,
    - deep-research,
-   - financial deep search
-5. Multi-tenant güvenlik (BYOK OpenRouter key + policy + rate limit)
-6. Audit/log/metrics
+   - financial deep search,
+   - tenant-isolated RAG search
+5. RAG data plane:
+   - tenant bazlı belge ingest (text/url),
+   - chunking + retrieval API,
+   - chat akışında `rag_search` tool entegrasyonu
+6. Multi-tenant güvenlik (BYOK OpenRouter key + policy + rate limit)
+7. Audit/log/metrics
 
 ### Dahil Değil (MVP dışı)
 - RL training pipeline (Flow-GRPO eğitim hattı)
@@ -102,18 +107,23 @@ Tek başına LLM API çağrısı çoğu görevde yetersiz kalıyor:
    - değerlendirme
    - refine loop
 4. **Tool Runtime**
-   - web_search
+   - web_search (Brave + fallback)
    - wikipedia
    - deep_research
    - financial_deep_search
-5. **Async Research Worker**
+   - rag_search
+5. **RAG Data Plane**
+   - belge ingest (text/url)
+   - chunk store + retrieval
+   - tenant-isolated knowledge API
+6. **Async Research Worker**
    - uzun görev yürütme
    - event stream
-6. **Security & Policy**
+7. **Security & Policy**
    - BYOK key vault
    - tool allowlist / denylist
    - budget guard (step/time/token)
-7. **Observability**
+8. **Observability**
    - tracing
    - audit
    - error analytics

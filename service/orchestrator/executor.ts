@@ -6,10 +6,12 @@ export async function executePlan(params: {
   plan: Plan;
   query: string;
   maxToolCalls: number;
+  tenantId: string;
 }): Promise<ToolResult[]> {
   return runTools({
     toolNames: params.plan.tools,
     query: params.query,
-    maxCalls: params.maxToolCalls
+    maxCalls: params.maxToolCalls,
+    tenantId: params.tenantId
   });
 }

@@ -1,72 +1,51 @@
-# DELIVERY — OpenRouter Agentic Intelligence API
+# DELIVERY — SMART-AI v0.3 (RAG + Brave)
 
 ## Özet
-İstenen sistemin **çalışan product sürümü (v0.2)** teslim edildi:
-- OpenAI-compatible API facade
-- Agentic orchestration (Planner/Executor/Verifier/Synthesizer)
-- Poetiq-style thinking/refine seçimi
-- Web + Wikipedia + Deep Research + Financial tool plane
-- Tenant bazlı güvenlik, key yönetimi, rate-limit, budget guard
-- Async research jobs
+İstenen genişletme teslim edildi:
+- **RAG data plane** (tenant-isolated ingest + retrieval)
+- **Brave Search entegrasyonu** (`web_search` içinde, DuckDuckGo fallback ile)
+- Orchestrator’da RAG-aware planning/verifier iyileştirmeleri
+- Yeni contract + unit + security testleri
 
 ## Teslim Edilen Ana Bileşenler
-1. API Gateway
-   - `GET /v1/models`
-   - `POST /v1/chat/completions` (stream/non-stream)
-   - `POST/GET/DELETE /v1/keys/openrouter*`
-   - `POST /v1/jobs/research`, `GET /v1/jobs/:id`
-2. Orchestrator
-   - `planner.ts`, `thinking-loop.ts`, `executor.ts`, `verifier.ts`, `synthesizer.ts`, `run.ts`
-3. Security
-   - `auth` middleware
-   - `rate-limit` middleware
-   - `key-store` (AES-256-GCM)
-   - `policy-engine`, `budget-guard`
-4. Tooling
-   - `web-search`, `wikipedia`, `deep-research`, `financial`
-5. Test & Ops
-   - Contract/security testleri
-   - Dockerfile
-   - .env.example
-
-## Çalıştırma
-```bash
-cd service
-cp .env.example .env
-npm install
-npm run typecheck
-npm test
-npm run dev
-```
+1. **RAG Core**
+   - `service/rag/types.ts`
+   - `service/rag/store.ts`
+   - `service/rag/service.ts`
+2. **RAG API**
+   - `POST /v1/rag/documents`
+   - `POST /v1/rag/search`
+   - `GET /v1/rag/documents`
+   - `DELETE /v1/rag/documents/:documentId`
+   - Dosya: `service/api/routes/rag.ts`
+3. **Tooling**
+   - `service/tools/rag-search.ts`
+   - `service/tools/web-search.ts` (Brave + fallback)
+   - `service/tools/deep-research.ts` (RAG sinyali ile birleştirme)
+4. **Orchestrator & Policy**
+   - `planner.ts`, `thinking-loop.ts`, `verifier.ts`, `run.ts`, `executor.ts`
+   - `policy-engine.ts` (`rag_search` allowlist)
+5. **Contracts & Docs**
+   - `contracts/platform-extensions.yaml`
+   - `README.md`, `service/README.md`, `.env.example`
+6. **Testler**
+   - contract/security/unit toplam 16 test
 
 ## Verification Özeti
 | İddia | Kanıt | Sonuç |
 |---|---|---|
 | Kod derleniyor | `npm run typecheck` | ✅ |
-| Testler geçiyor | `npm test` (7/7) | ✅ |
-| API health çalışıyor | `GET /health` | ✅ |
-| OpenAI compatible endpointler çalışıyor | `/v1/models`, `/v1/chat/completions` | ✅ |
-| Key saklama/geri okuma çalışıyor | `/v1/keys/openrouter` + test | ✅ |
-| Async job lifecycle çalışıyor | `/v1/jobs/research` + `/v1/jobs/:id` | ✅ |
-
-## Güvenlik Özeti
-- API auth + tenant isolation aktif
-- Key’ler plaintext tutulmuyor (encrypted-at-rest)
-- Rate-limit + budget guard aktif
-- Kritik güvenlik açığı tespit edilmedi
+| Testler geçiyor | `npm test` (16/16) | ✅ |
+| RAG endpointleri çalışıyor | `tests/contract/rag.test.ts` | ✅ |
+| Tenant izolasyonu çalışıyor | `tests/rag/rag-service.test.ts` | ✅ |
+| Brave entegrasyonu çalışıyor | `tests/tools/web-search.test.ts` | ✅ |
 
 ## Bilinen Sınırlar
-- Stream yanıtı provider-native token stream değil, chunked synthesis stream.
-- Tool adaptörleri dış ağ/API kalitesine bağımlı.
-- KMS/Redis/WAF entegrasyonu hardening backlog’unda.
+- RAG retrieval lexical scoring tabanlıdır (ilk sürüm); vector backend bir sonraki iterasyona uygundur.
+- URL ingest dış ağa bağlıdır; erişim kalitesi upstream’e bağlıdır.
 
 ## GitHub Senkronizasyonu
 - Repo: `https://github.com/kadircicek34/SMART-AI`
-- MCP üzerinden push tamamlandı (`main` branch)
-- Son commitlerden biri: `5cca51db099e677bebe46865a0765580b564fc59`
-
-## Sonraki Sürüm Önerileri
-1. Redis tabanlı dağıtık rate-limit + job queue
-2. Provider-native streaming passthrough
-3. SIEM/audit pipeline
-4. Tool kalite benchmarkı (domain bazlı scoring)
+- Branch: `main`
+- Push: **tamamlandı** (commit hash aşağıda)
+- Commit: `git rev-parse --short HEAD` çıktısı (push edilen son commit)

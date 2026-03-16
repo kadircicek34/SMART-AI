@@ -81,3 +81,49 @@ Bu proje hızlı teslim + ürünleşebilir kalite + uzun görev desteğini aynı
 
 ### Tekrar Değerlendirme Tetikleri
 - İstemci tarafı yeni endpoint ihtiyaçları doğurursa
+
+---
+
+## 2026-03-16 — RAG aktif etme kararı
+### Problem
+İç bilgi tabanı sorularında web tabanlı cevaplar yetersiz kalıyor, tenant-specific bilgi geri çağrımı gerekiyor.
+
+### Seçenekler
+- A: RAG yok, sadece web/wiki
+- B: Tam external vector platform bağımlılığı
+- C: Tenant izole, dosya tabanlı RAG çekirdeği + API
+
+### Karar
+**C seçildi:** Tenant izole, dosya tabanlı RAG çekirdeği + API endpointleri.
+
+### Gerekçe
+- Hızlı ürünleşme ve düşük operasyonel bağımlılık
+- Güvenlikte tenant boundary'nin net korunması
+- Sonraki sürümde vector backend'e evrilebilir mimari
+
+### Etki
+- İç doküman sorgularında kalite artışı
+- Orchestrator plan/verifier akışına `rag_search` eklenmesi
+
+---
+
+## 2026-03-16 — Web search provider kararı (Brave + fallback)
+### Problem
+Web aramada kalite ve deterministik sonuç ihtiyacı var; tek sağlayıcıya bağımlılık kırılmalı.
+
+### Seçenekler
+- A: Sadece DuckDuckGo
+- B: Sadece Brave
+- C: Brave primary + DuckDuckGo fallback
+
+### Karar
+**C seçildi:** Brave primary, hata durumunda DuckDuckGo fallback.
+
+### Gerekçe
+- Brave ile daha zengin sonuç formatı
+- Fallback ile çalışma sürekliliği
+- Operasyonel kesinti riskini azaltma
+
+### Etki
+- `web_search` aracı dayanıklılığı arttı
+- BRAVE_API_KEY olmayan ortamlarda mevcut davranış korunuyor

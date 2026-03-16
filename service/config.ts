@@ -40,11 +40,18 @@ export const config = {
   },
   tools: {
     exaApiKey: process.env.EXA_API_KEY,
-    financialDatasetsApiKey: process.env.FINANCIAL_DATASETS_API_KEY
+    financialDatasetsApiKey: process.env.FINANCIAL_DATASETS_API_KEY,
+    braveApiKey: process.env.BRAVE_API_KEY,
+    braveApiBaseUrl: process.env.BRAVE_API_BASE_URL ?? 'https://api.search.brave.com/res/v1/web/search'
   },
   storage: {
     root: process.env.DATA_DIR ?? path.resolve(process.cwd(), '.data'),
     keyStoreFile: process.env.KEY_STORE_FILE ?? path.resolve(process.cwd(), '.data', 'tenant-keys.json')
+  },
+  rag: {
+    storeFile: process.env.RAG_STORE_FILE ?? path.resolve(process.cwd(), '.data', 'rag-store.json'),
+    defaultChunkSize: Number(process.env.RAG_DEFAULT_CHUNK_SIZE ?? 1_200),
+    defaultChunkOverlap: Number(process.env.RAG_DEFAULT_CHUNK_OVERLAP ?? 180)
   },
   security: {
     masterKey: getMasterKey()

@@ -2,12 +2,40 @@ import type { Plan } from './types.js';
 import type { ToolName } from '../tools/types.js';
 
 const FINANCIAL_KEYWORDS = [
-  'stock', 'finance', 'financial', 'earnings', 'revenue', 'balance sheet', 'cash flow',
-  'hisse', 'finans', 'gelir', 'bilanço', 'nakit akış', 'borsa'
+  'stock',
+  'finance',
+  'financial',
+  'earnings',
+  'revenue',
+  'balance sheet',
+  'cash flow',
+  'hisse',
+  'finans',
+  'gelir',
+  'bilanço',
+  'nakit akış',
+  'borsa'
 ];
 
 const WIKI_KEYWORDS = ['who is', 'what is', 'history', 'nedir', 'kimdir', 'tarihçe', 'wikipedia'];
 const RESEARCH_KEYWORDS = ['deep', 'research', 'analyze', 'analysis', 'araştır', 'detay', 'karşılaştır'];
+const RAG_KEYWORDS = [
+  'docs',
+  'documentation',
+  'knowledge base',
+  'kb',
+  'rag',
+  'readme',
+  'api spec',
+  'contract',
+  'repo',
+  'codebase',
+  'doküman',
+  'döküman',
+  'bilgi tabanı',
+  'projede',
+  'internal'
+];
 
 function hasKeyword(text: string, keywords: string[]): boolean {
   const lower = text.toLowerCase();
@@ -16,6 +44,13 @@ function hasKeyword(text: string, keywords: string[]): boolean {
 
 function dedupe<T>(arr: T[]): T[] {
   return [...new Set(arr)];
+}
+
+function shouldUseRag(query: string): boolean {
+  const normalized = query.toLowerCase();
+  if (hasKeyword(normalized, RAG_KEYWORDS)) return true;
+
+  return /(bizim|internal|tenant|dok[uü]man|repo|code|sözleşme|spec)/i.test(query) && /\?/i.test(query);
 }
 
 export function planForQuery(query: string): Plan {
@@ -33,6 +68,10 @@ export function planForQuery(query: string): Plan {
     tools.push('deep_research');
   }
 
+  if (shouldUseRag(query)) {
+    tools.push('rag_search');
+  }
+
   const qLen = query.trim().length;
   const isSmallTalk = /^(selam|merhaba|hi|hello|hey|nasılsın|naber)[!.?\s]*$/i.test(query.trim());
 
@@ -40,7 +79,7 @@ export function planForQuery(query: string): Plan {
     tools.push('web_search');
   }
 
-  const normalizedTools = dedupe(tools).slice(0, 4);
+  const normalizedTools = dedupe(tools).slice(0, 5);
 
   return {
     objective: query,

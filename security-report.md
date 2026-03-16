@@ -1,48 +1,36 @@
-# SECURITY REPORT — OpenRouter Agentic Intelligence API
+# SECURITY REPORT — SMART-AI v0.3
 
 ## Kapsam
 Bu iterasyonda kontrol edilen güvenlik yüzeyleri:
 - AuthN/AuthZ (Bearer API key + tenant header)
-- Tenant isolation (tenant bazlı key ve job erişimi)
+- Tenant isolation (key-store + job + RAG data plane)
 - Input validation (zod)
-- Secret management (AES-256-GCM encrypted-at-rest)
-- Rate limit (tenant bazlı fixed window)
-- Budget guard (step/tool/runtime)
-
-## Güven Sınırları
-- Kullanıcı girdisi: `/v1/*` endpoint body + headers
-- İç sistem yüzeyi: key-store dosya erişimi, worker memory queue
-- Üçüncü taraf servisler: OpenRouter, web/wikipedia/financial dış kaynakları
+- Secret management (AES-256-GCM)
+- Rate limit + runtime/tool budget
+- Dış arama sağlayıcısı (Brave) fallback davranışı
 
 ## Kontrol Sonuçları
 | Alan | Durum | Not |
 |---|---|---|
 | Auth / Authorization | ✅ | `/v1/*` auth zorunlu; tenant id zorunlu |
-| Validation | ✅ | request body zod doğrulaması aktif |
-| Secrets | ✅ | tenant OpenRouter key AES-256-GCM ile şifreli saklanıyor |
-| Dependencies | ✅ | npm audit: 0 vulnerability |
-| Logging | ⚠️ | yapılandırılmış log var, production log-redaction eklenebilir |
-| Abuse Guard | ✅ | rate-limit + runtime/tool budget guard |
-| Tenant Isolation | ✅ | key/job erişimi tenant bazlı sınırlandı |
+| Validation | ✅ | Chat ve RAG endpoint body validation aktif |
+| Secrets | ✅ | tenant OpenRouter key encrypted-at-rest |
+| Tenant Isolation | ✅ | RAG doküman/chunk erişimi tenant scope ile sınırlandı |
+| Abuse Guard | ✅ | rate-limit + max step/tool/runtime bütçesi |
+| Dependencies | ✅ | `npm audit` kritik açık: 0 |
+| External Search Resilience | ✅ | Brave başarısızsa DuckDuckGo fallback |
 
-## Abuse / Failure Senaryoları
-- Senaryo: Yetkisiz çağrı
-  - Etki: API abuse
-  - Azaltma: Bearer auth + tenant zorunluluğu + rate-limit
+## RAG Güvenlik Notları
+- RAG ingest tenant zorunluluğu ile çalışır.
+- URL ingest yalnızca `http/https` kabul eder.
+- Ingest boyut limitleri uygulanır (doküman ve toplam içerik sınırı).
+- RAG store tek dosyada tutulsa da erişim katmanı tenant filtreli çalışır.
 
-- Senaryo: Key-store dosyasına erişim
-  - Etki: key sızıntısı
-  - Azaltma: encrypted-at-rest + dosya izinlerinin sıkı tutulması + KMS önerisi
-
-- Senaryo: Tool timeout
-  - Etki: gecikme/yanıt kalitesi düşüşü
-  - Azaltma: AbortSignal timeout + verifier fallback
-
-## Kalan Açıklar / İyileştirme Önerileri
-1. Master key’in KMS/HSM üzerinden yönetilmesi (şu an env tabanlı)
-2. Prod ortamda merkezi rate-limit (Redis) ve WAF entegrasyonu
-3. Stream endpoint için abuse-aware connection throttling
-4. Security event audit trail’i dış SIEM’e akıtma
+## Kalan İyileştirme Alanları
+1. RAG store için dosya seviyesinde imza / checksum doğrulama
+2. RAG URL ingest için allowlist / SSRF sertleştirme katmanı
+3. Merkezi (Redis) distributed rate-limit ve queue
+4. KMS entegrasyonu (env master key yerine)
 
 ## Sonuç
-Sistem production-leaning güvenlik tabanı ile çalışır durumda. Kritik güvenlik kontrolleri aktif, kalan maddeler hardening backlog’una alındı.
+Sistem production-leaning güvenlik tabanı ile çalışır durumda. Yeni RAG + Brave entegrasyonu mevcut güvenlik çizgisini koruyacak şekilde uygulanmıştır.

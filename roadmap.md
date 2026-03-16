@@ -1,5 +1,10 @@
 # ROADMAP — OpenRouter Agentic Intelligence API
 
+## Durum Güncellemesi (2026-03-16)
+- ✅ v0.3 teslim edildi: Brave web-search + tenant-isolated RAG (ingest/search/list/delete)
+- ✅ Orchestrator RAG-aware plan/verifier güncellemesi tamamlandı
+- ✅ Test paketi 16/16 yeşil
+
 ## Faz 1 — Foundation (Hafta 1)
 ### Hedef
 OpenAI-compatible API katmanı + güvenlik temel çizgisi + contract test altyapısı.

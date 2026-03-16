@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: SMART-AI Platform Extensions
-  version: 0.2.0
+  version: 0.3.0
 paths:
   /v1/keys/openrouter/status:
     get:
@@ -54,3 +54,68 @@ paths:
       responses:
         '200':
           description: Job payload
+  /v1/rag/documents:
+    post:
+      summary: Ingest tenant documents or URL into RAG knowledge base
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                documents:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      document_id:
+                        type: string
+                      title:
+                        type: string
+                      content:
+                        type: string
+                      source:
+                        type: string
+                url:
+                  type: string
+                title:
+                  type: string
+                chunk_size:
+                  type: integer
+                chunk_overlap:
+                  type: integer
+    get:
+      summary: List tenant RAG documents
+      responses:
+        '200':
+          description: Document list
+  /v1/rag/search:
+    post:
+      summary: Search tenant RAG knowledge base
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query:
+                  type: string
+                limit:
+                  type: integer
+                min_score:
+                  type: number
+  /v1/rag/documents/{documentId}:
+    delete:
+      summary: Delete tenant RAG document
+      parameters:
+        - in: path
+          name: documentId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deletion result

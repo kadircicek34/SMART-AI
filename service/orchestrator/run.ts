@@ -1,6 +1,6 @@
 import { createBudget, assertWithinRuntime } from '../security/budget-guard.js';
 import { enforceToolPolicy } from '../security/policy-engine.js';
-import type { ToolName } from '../tools/types.js';
+import type { ToolName, ToolResult } from '../tools/types.js';
 import { executePlan } from './executor.js';
 import { chooseBestPlan } from './thinking-loop.js';
 import { synthesizeAnswer } from './synthesizer.js';
@@ -11,6 +11,14 @@ function normalizePlanTools(plan: Plan, allowed: ToolName[]): Plan {
   return {
     ...plan,
     tools: plan.tools.filter((t) => allowed.includes(t))
+  };
+}
+
+function addSuggestedTool(plan: Plan, suggestedTool: ToolName): Plan {
+  if (plan.tools.includes(suggestedTool)) return plan;
+  return {
+    ...plan,
+    tools: [...plan.tools, suggestedTool]
   };
 }
 
@@ -49,33 +57,43 @@ export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
 
   plan = normalizePlanTools(plan, policy.allowed);
 
-  assertWithinRuntime(startedAt, budget);
+  let allResults: ToolResult[] = [];
+  let verification = verifyEvidence(plan, allResults, query);
 
-  const firstPassResults = await executePlan({
-    plan,
-    query,
-    maxToolCalls: Math.min(policy.maxToolCalls, budget.maxToolCalls)
-  });
+  const stepLimit = Math.max(1, Math.min(policy.maxSteps, 4));
+  let step = 0;
 
-  let allResults = [...firstPassResults];
-  let verification = verifyEvidence(plan, allResults);
+  while (step < stepLimit) {
+    const toolsToRun: ToolName[] =
+      step === 0
+        ? [...plan.tools]
+        : verification.suggestedTool && !allResults.some((r) => r.tool === verification.suggestedTool)
+          ? [verification.suggestedTool]
+          : [];
 
-  if (!verification.sufficient && verification.suggestedTool) {
+    if (toolsToRun.length === 0) break;
+
     assertWithinRuntime(startedAt, budget);
 
-    if (!plan.tools.includes(verification.suggestedTool)) {
-      plan = {
-        ...plan,
-        tools: [...plan.tools, verification.suggestedTool]
-      };
-      const secondPassResults = await executePlan({
-        plan: { ...plan, tools: [verification.suggestedTool] },
-        query,
-        maxToolCalls: 1
-      });
-      allResults = [...allResults, ...secondPassResults];
-      verification = verifyEvidence(plan, allResults);
+    const passResults = await executePlan({
+      plan: { ...plan, tools: toolsToRun },
+      query,
+      maxToolCalls: Math.min(policy.maxToolCalls, budget.maxToolCalls, toolsToRun.length),
+      tenantId: input.tenantId
+    });
+
+    allResults = [...allResults, ...passResults];
+
+    if (verification.suggestedTool) {
+      plan = addSuggestedTool(plan, verification.suggestedTool);
     }
+
+    verification = verifyEvidence(plan, allResults, query);
+    if (verification.sufficient || !verification.suggestedTool) {
+      break;
+    }
+
+    step += 1;
   }
 
   const synthesized = await synthesizeAnswer({
