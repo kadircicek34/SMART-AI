@@ -20,6 +20,13 @@ function looksLikeKnowledgeBaseQuery(query: string | undefined): boolean {
   );
 }
 
+function looksLikeProjectDocsQuery(query: string | undefined): boolean {
+  if (!query) return false;
+  return /\b(smart-ai|project docs?|repo içinde|task\.md|prd\.md|decisions\.md|delivery\.md|roadmap|state\.json|bu projede)\b/i.test(
+    query
+  );
+}
+
 function looksLikeMemoryQuery(query: string | undefined): boolean {
   if (!query) return false;
   return /\b(remember|recall|memory|previous|past|before|history|hatırla|hafıza|önceki|geçmiş|tercih|alışkanlık|hakkımda|profilim|benim)\b/i.test(
@@ -63,6 +70,15 @@ export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string
       };
     }
 
+    if ((looksLikeProjectDocsQuery(query) || looksLikeKnowledgeBaseQuery(query)) && !plan.tools.includes('qmd_search')) {
+      return {
+        sufficient: false,
+        confidence: 0,
+        reason: 'No evidence yet. Query looks project-doc focused, prioritize qmd_search.',
+        suggestedTool: 'qmd_search'
+      };
+    }
+
     if (looksLikeKnowledgeBaseQuery(query) && !plan.tools.includes('rag_search')) {
       return {
         sufficient: false,
@@ -85,6 +101,7 @@ export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string
   const hasSummary = hasMeaningfulSummary(results);
   const hasRagEvidence = results.some((r) => r.tool === 'rag_search' && r.citations.length > 0);
   const hasMemoryEvidence = results.some((r) => r.tool === 'memory_search' && r.citations.length > 0);
+  const hasQmdEvidence = results.some((r) => r.tool === 'qmd_search' && r.citations.length > 0);
 
   let confidence = 0;
   if (hasSummary) confidence += 0.35;
@@ -93,10 +110,11 @@ export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string
   if (results.length >= 2) confidence += 0.15;
   if (hasRagEvidence) confidence += 0.15;
   if (hasMemoryEvidence) confidence += 0.1;
+  if (hasQmdEvidence) confidence += 0.12;
 
-  const citationFloorMet = citationCount >= config.verifier.minCitations || hasMemoryEvidence;
+  const citationFloorMet = citationCount >= config.verifier.minCitations || hasMemoryEvidence || hasQmdEvidence;
   const sourceDiversityMet = distinctSources >= config.verifier.minSourceDomains;
-  const qualityFloorMet = citationFloorMet && (sourceDiversityMet || hasRagEvidence || hasMemoryEvidence);
+  const qualityFloorMet = citationFloorMet && (sourceDiversityMet || hasRagEvidence || hasMemoryEvidence || hasQmdEvidence);
 
   if (confidence >= 0.65 && qualityFloorMet) {
     return {
@@ -112,6 +130,15 @@ export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string
       confidence,
       reason: 'Confidence low for memory-focused query, adding memory_search pass.',
       suggestedTool: 'memory_search'
+    };
+  }
+
+  if ((looksLikeProjectDocsQuery(query) || looksLikeKnowledgeBaseQuery(query)) && !plan.tools.includes('qmd_search')) {
+    return {
+      sufficient: false,
+      confidence,
+      reason: 'Confidence low for project-doc query, adding qmd_search pass.',
+      suggestedTool: 'qmd_search'
     };
   }
 

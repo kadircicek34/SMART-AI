@@ -36,8 +36,21 @@ export type MemoryItemRecord = {
   retrievalCount: number;
 };
 
+export type MemoryRetrievalMetrics = {
+  totalQueries: number;
+  totalResults: number;
+  zeroResultQueries: number;
+  totalLatencyMs: number;
+  maxLatencyMs: number;
+  decisions: {
+    RETRIEVE: number;
+    NO_RETRIEVE: number;
+  };
+};
+
 export type MemoryStorePayload = {
   items: Record<string, MemoryItemRecord>;
+  tenantMetrics: Record<string, MemoryRetrievalMetrics>;
 };
 
 export type MemorySearchDecision = {

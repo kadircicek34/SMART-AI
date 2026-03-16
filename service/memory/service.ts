@@ -5,6 +5,7 @@ import type {
   MemoryCategory,
   MemoryItemInput,
   MemoryItemRecord,
+  MemoryRetrievalMetrics,
   MemorySearchDecision,
   MemorySearchHit,
   MemoryStorePayload
@@ -105,6 +106,74 @@ function tokenize(value: string): string[] {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function sigmoid(value: number): number {
+  return 1 / (1 + Math.exp(-value));
+}
+
+function computeHotnessScore(params: {
+  retrievalCount: number;
+  updatedAt?: number;
+  nowMs?: number;
+  halfLifeDays?: number;
+}): number {
+  const nowMs = params.nowMs ?? Date.now();
+  const updatedAt = params.updatedAt;
+  if (!updatedAt) return 0;
+
+  const frequency = sigmoid(Math.log1p(Math.max(0, params.retrievalCount)));
+  const ageDays = Math.max(0, (nowMs - updatedAt) / 86_400_000);
+  const halfLifeDays = Math.max(0.25, params.halfLifeDays ?? config.memory.hotnessHalfLifeDays);
+  const decay = Math.exp((-Math.log(2) * ageDays) / halfLifeDays);
+
+  return clamp(frequency * decay, 0, 1);
+}
+
+function defaultRetrievalMetrics(): MemoryRetrievalMetrics {
+  return {
+    totalQueries: 0,
+    totalResults: 0,
+    zeroResultQueries: 0,
+    totalLatencyMs: 0,
+    maxLatencyMs: 0,
+    decisions: {
+      RETRIEVE: 0,
+      NO_RETRIEVE: 0
+    }
+  };
+}
+
+function ensureTenantMetrics(store: MemoryStorePayload, tenantId: string): MemoryRetrievalMetrics {
+  if (!store.tenantMetrics[tenantId]) {
+    store.tenantMetrics[tenantId] = defaultRetrievalMetrics();
+  }
+
+  return store.tenantMetrics[tenantId];
+}
+
+function updateRetrievalMetrics(params: {
+  metrics: MemoryRetrievalMetrics;
+  decision: MemorySearchDecision['decision'];
+  resultCount: number;
+  latencyMs: number;
+}) {
+  const { metrics, decision, resultCount, latencyMs } = params;
+
+  metrics.totalQueries += 1;
+  metrics.totalResults += Math.max(0, resultCount);
+  if (resultCount === 0) {
+    metrics.zeroResultQueries += 1;
+  }
+
+  metrics.totalLatencyMs += Math.max(0, latencyMs);
+  metrics.maxLatencyMs = Math.max(metrics.maxLatencyMs, latencyMs);
+
+  if (decision === 'RETRIEVE') {
+    metrics.decisions.RETRIEVE += 1;
+  } else {
+    metrics.decisions.NO_RETRIEVE += 1;
+  }
 }
 
 function ensureTenantIsolation(tenantId: string) {
@@ -211,13 +280,18 @@ function computeMemoryScore(params: {
   const ageDays = Math.max(0, (Date.now() - item.updatedAt) / 86_400_000);
   const recencyBoost = Math.max(0, 0.2 - ageDays * 0.01);
   const salienceBoost = clamp(item.salience, 0, 1) * 0.2;
+  const hotnessBoost = computeHotnessScore({
+    retrievalCount: item.retrievalCount,
+    updatedAt: item.updatedAt,
+    halfLifeDays: config.memory.hotnessHalfLifeDays
+  }) * 0.2;
 
   let categoryBoost = 0;
   if (queryWantsPreference(queryRaw) && item.category === 'preference') categoryBoost += 0.18;
   if (queryWantsProfile(queryRaw) && item.category === 'profile') categoryBoost += 0.18;
   if (queryWantsTodo(queryRaw) && item.category === 'todo') categoryBoost += 0.18;
 
-  return rawScore + coverageBoost + phraseBoost + recencyBoost + salienceBoost + categoryBoost;
+  return rawScore + coverageBoost + phraseBoost + recencyBoost + salienceBoost + hotnessBoost + categoryBoost;
 }
 
 export function decideMemoryRetrieval(params: {
@@ -381,6 +455,7 @@ export async function searchTenantMemories(params: {
   forceRetrieve?: boolean;
   conversationContext?: string[];
 }): Promise<{ decision: MemorySearchDecision; hits: MemorySearchHit[] }> {
+  const startedAt = Date.now();
   const tenantId = params.tenantId.trim();
   ensureTenantIsolation(tenantId);
 
@@ -391,18 +466,38 @@ export async function searchTenantMemories(params: {
   });
 
   if (!params.forceRetrieve && decision.decision === 'NO_RETRIEVE') {
-    return {
-      decision,
-      hits: []
-    };
+    return withMemoryStore(async (store) => {
+      const metrics = ensureTenantMetrics(store, tenantId);
+      updateRetrievalMetrics({
+        metrics,
+        decision: decision.decision,
+        resultCount: 0,
+        latencyMs: Date.now() - startedAt
+      });
+
+      return {
+        decision,
+        hits: []
+      };
+    });
   }
 
   const queryTokens = tokenize(decision.rewrittenQuery || query);
   if (queryTokens.length === 0) {
-    return {
-      decision,
-      hits: []
-    };
+    return withMemoryStore(async (store) => {
+      const metrics = ensureTenantMetrics(store, tenantId);
+      updateRetrievalMetrics({
+        metrics,
+        decision: decision.decision,
+        resultCount: 0,
+        latencyMs: Date.now() - startedAt
+      });
+
+      return {
+        decision,
+        hits: []
+      };
+    });
   }
 
   return withMemoryStore(async (store) => {
@@ -415,6 +510,14 @@ export async function searchTenantMemories(params: {
     );
 
     if (scoped.length === 0) {
+      const metrics = ensureTenantMetrics(store, tenantId);
+      updateRetrievalMetrics({
+        metrics,
+        decision: decision.decision,
+        resultCount: 0,
+        latencyMs: Date.now() - startedAt
+      });
+
       return {
         decision,
         hits: []
@@ -438,6 +541,14 @@ export async function searchTenantMemories(params: {
       mutable.lastRetrievedAt = now;
       mutable.retrievalCount += 1;
     }
+
+    const metrics = ensureTenantMetrics(store, tenantId);
+    updateRetrievalMetrics({
+      metrics,
+      decision: decision.decision,
+      resultCount: scored.length,
+      latencyMs: Date.now() - startedAt
+    });
 
     return {
       decision,
@@ -495,7 +606,22 @@ export async function deleteTenantMemory(params: {
   });
 }
 
-export async function getTenantMemoryStats(tenantId: string): Promise<{ items: number; byCategory: Record<string, number> }> {
+export async function getTenantMemoryStats(tenantId: string): Promise<{
+  items: number;
+  byCategory: Record<string, number>;
+  retrieval: {
+    totalQueries: number;
+    totalResults: number;
+    zeroResultQueries: number;
+    avgResultsPerQuery: number;
+    avgLatencyMs: number;
+    maxLatencyMs: number;
+    decisions: {
+      RETRIEVE: number;
+      NO_RETRIEVE: number;
+    };
+  };
+}> {
   const id = tenantId.trim();
   ensureTenantIsolation(id);
 
@@ -507,9 +633,25 @@ export async function getTenantMemoryStats(tenantId: string): Promise<{ items: n
       byCategory[item.category] = (byCategory[item.category] ?? 0) + 1;
     }
 
+    const metrics = store.tenantMetrics[id] ?? defaultRetrievalMetrics();
+    const avgResultsPerQuery = metrics.totalQueries > 0 ? metrics.totalResults / metrics.totalQueries : 0;
+    const avgLatencyMs = metrics.totalQueries > 0 ? metrics.totalLatencyMs / metrics.totalQueries : 0;
+
     return {
       items: items.length,
-      byCategory
+      byCategory,
+      retrieval: {
+        totalQueries: metrics.totalQueries,
+        totalResults: metrics.totalResults,
+        zeroResultQueries: metrics.zeroResultQueries,
+        avgResultsPerQuery: Number(avgResultsPerQuery.toFixed(3)),
+        avgLatencyMs: Number(avgLatencyMs.toFixed(3)),
+        maxLatencyMs: Number(metrics.maxLatencyMs.toFixed(3)),
+        decisions: {
+          RETRIEVE: metrics.decisions.RETRIEVE,
+          NO_RETRIEVE: metrics.decisions.NO_RETRIEVE
+        }
+      }
     };
   });
 }
@@ -567,5 +709,8 @@ export const __private__ = {
   inferMemoryCategory,
   decideMemoryRetrieval,
   shouldAutoCapture,
-  computeMemoryScore
+  computeMemoryScore,
+  computeHotnessScore,
+  defaultRetrievalMetrics,
+  updateRetrievalMetrics
 };

@@ -56,6 +56,24 @@ const MEMORY_KEYWORDS = [
   'alışkanlığım'
 ];
 
+const QMD_KEYWORDS = [
+  'smart-ai',
+  'project docs',
+  'repo içinde',
+  'codebase',
+  'mimari',
+  'task.md',
+  'prd.md',
+  'decisions.md',
+  'state.json',
+  'delivery.md',
+  'roadmap',
+  'runbook',
+  'hangi endpoint',
+  'bu projede',
+  'local docs'
+];
+
 function hasKeyword(text: string, keywords: string[]): boolean {
   const lower = text.toLowerCase();
   return keywords.some((k) => lower.includes(k));
@@ -79,6 +97,13 @@ function shouldUseMemory(query: string): boolean {
   return /(benim|hakkımda|tercih|alışkanlık|geçen|önceki|hatırlıyor|profilim|hafıza)/i.test(query);
 }
 
+function shouldUseQmd(query: string): boolean {
+  const normalized = query.toLowerCase();
+  if (hasKeyword(normalized, QMD_KEYWORDS)) return true;
+
+  return /(projede|repository|repo|dok[üu]man|readme|roadmap|tasarım|architecture|endpoint|contract)/i.test(query);
+}
+
 export function planForQuery(query: string): Plan {
   const tools: ToolName[] = [];
 
@@ -100,6 +125,10 @@ export function planForQuery(query: string): Plan {
 
   if (shouldUseMemory(query)) {
     tools.push('memory_search');
+  }
+
+  if (shouldUseQmd(query)) {
+    tools.push('qmd_search');
   }
 
   const qLen = query.trim().length;

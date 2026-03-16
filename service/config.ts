@@ -57,7 +57,15 @@ export const config = {
     exaApiKey: process.env.EXA_API_KEY,
     financialDatasetsApiKey: process.env.FINANCIAL_DATASETS_API_KEY,
     braveApiKey: process.env.BRAVE_API_KEY,
-    braveApiBaseUrl: process.env.BRAVE_API_BASE_URL ?? 'https://api.search.brave.com/res/v1/web/search'
+    braveApiBaseUrl: process.env.BRAVE_API_BASE_URL ?? 'https://api.search.brave.com/res/v1/web/search',
+    qmdEnabled: (process.env.QMD_ENABLED ?? 'true').toLowerCase() === 'true',
+    qmdCommand: process.env.QMD_COMMAND ?? 'qmd',
+    qmdTimeoutMs: Number(process.env.QMD_TIMEOUT_MS ?? 15_000),
+    qmdCollectionName: process.env.QMD_COLLECTION_NAME?.trim() || 'SMART-AI',
+    qmdCollectionPath: process.env.QMD_COLLECTION_PATH?.trim() || path.resolve(process.cwd(), '..'),
+    qmdCollectionAutoAdd: (process.env.QMD_COLLECTION_AUTO_ADD ?? 'true').toLowerCase() === 'true',
+    qmdMaxResults: Number(process.env.QMD_MAX_RESULTS ?? 6),
+    qmdMaxSnippetChars: Number(process.env.QMD_MAX_SNIPPET_CHARS ?? 260)
   },
   storage: {
     root: process.env.DATA_DIR ?? path.resolve(process.cwd(), '.data'),
@@ -81,7 +89,8 @@ export const config = {
       | 'relationship'
       | 'note',
     maxItemsPerTenant: Number(process.env.MEMORY_MAX_ITEMS_PER_TENANT ?? 2500),
-    autoCaptureUserMessages: (process.env.MEMORY_AUTO_CAPTURE_USER_MESSAGES ?? 'true').toLowerCase() === 'true'
+    autoCaptureUserMessages: (process.env.MEMORY_AUTO_CAPTURE_USER_MESSAGES ?? 'true').toLowerCase() === 'true',
+    hotnessHalfLifeDays: Number(process.env.MEMORY_HOTNESS_HALF_LIFE_DAYS ?? 7)
   },
   security: {
     masterKey: getMasterKey()

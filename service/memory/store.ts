@@ -4,7 +4,8 @@ import { config } from '../config.js';
 import type { MemoryItemRecord, MemoryStorePayload } from './types.js';
 
 const EMPTY_STORE: MemoryStorePayload = {
-  items: {}
+  items: {},
+  tenantMetrics: {}
 };
 
 let queue: Promise<unknown> = Promise.resolve();
@@ -19,7 +20,8 @@ async function readStore(filePath: string): Promise<MemoryStorePayload> {
     const parsed = JSON.parse(raw) as Partial<MemoryStorePayload>;
 
     return {
-      items: parsed.items ?? {}
+      items: parsed.items ?? {},
+      tenantMetrics: parsed.tenantMetrics ?? {}
     };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
