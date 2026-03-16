@@ -182,3 +182,36 @@ Araştırma akışında tekrar eden tool pass'leri, tek kaynaktan aşırı alın
 - Düşük kanıtta otomatik genişletme daha kontrollü çalışır.
 - Tek kaynağa dayalı cevaplar daha temkinli sentezlenir.
 - Üretim yükü ve latency davranışı daha öngörülebilir olur.
+
+---
+
+## 2026-03-16 — Memory Layer kararı (memU pattern integration)
+### Problem
+Kullanıcı geçmişi, tercihleri ve profile dair sorular için yalnızca web/RAG yeterli değil; tenant bazlı konuşma hafızası gerekli.
+
+### Seçenekler
+- A: Memory katmanı eklememek
+- B: Dış memory platformuna tam bağımlılık
+- C: Tenant izole local memory plane + pre-retrieval decision + orchestrator memory tool
+
+### Karar
+**C seçildi:**
+- `service/memory/*` altında tenant-izole memory store
+- `/v1/memory/*` endpointleri
+- `memory_search` tool + planner/verifier entegrasyonu
+- Chat tarafında memory-worthy mesajlar için auto-capture
+
+### Gerekçe
+- memU’daki pre-retrieval decision yaklaşımıyla gereksiz retrieval çağrılarını azaltır.
+- Kullanıcıya dair tercih/profil/habit bilgisini ürün içinde sürekli erişilebilir hale getirir.
+- Dış bağımlılığı minimumda tutarak hızlı ürünleşme sağlar.
+
+### Etki
+- Kişiselleştirilmiş cevap kalitesi artar.
+- Memory retrieval kanıtları (`memory://...`) verifier güvenine katkı sağlar.
+- Tool plane daha güçlü ama policy ve tenant sınırları korunur.
+
+### Bilinçli Olarak Ertelenenler
+- Embedding tabanlı advanced memory ranker (şu an lexical + heuristic scoring)
+- Memory encryption-at-rest için ayrı KMS katmanı
+- Cross-tenant/global memory federasyonu

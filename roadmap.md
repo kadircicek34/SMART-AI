@@ -2,8 +2,9 @@
 
 ## Durum Güncellemesi (2026-03-16)
 - ✅ v0.3 teslim edildi: Brave web-search + tenant-isolated RAG (ingest/search/list/delete)
-- ✅ Orchestrator RAG-aware plan/verifier güncellemesi tamamlandı
-- ✅ Test paketi 16/16 yeşil
+- ✅ v0.5 teslim edildi: orchestrator quality gates + deep-research hardening
+- ✅ v0.6 teslim edildi: tenant memory layer + pre-retrieval decision + memory_search tool
+- ✅ Test paketi 30/30 yeşil
 
 ## Faz 1 — Foundation (Hafta 1)
 ### Hedef
@@ -46,6 +47,8 @@ Domain toolset'in stabil ve güvenli entegrasyonu.
 - wikipedia adapter
 - deep-research adapter
 - financial deep-search adapter
+- rag search adapter
+- memory search adapter
 - unified tool router + audit logs
 
 ### Exit Criteria
@@ -91,7 +94,7 @@ Prod-ready kalite eşiğine çıkmak.
 - OpenAI-compatible chat API
 - 4-rol orkestrasyon
 - temel thinking-loop
-- 4 tool adapter
+- 6 tool adapter (web/wiki/deep-research/financial/rag/memory)
 - async long-job desteği
 
 ### V1 dışı (V2+)

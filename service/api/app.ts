@@ -8,6 +8,7 @@ import { registerJobsRoute } from './routes/jobs.js';
 import { registerKeysRoute } from './routes/keys.js';
 import { registerModelsRoute } from './routes/models.js';
 import { registerRagRoutes } from './routes/rag.js';
+import { registerMemoryRoutes } from './routes/memory.js';
 
 export function buildApp(): FastifyInstance {
   const app = Fastify({ logger: true, bodyLimit: 1_000_000 });
@@ -26,6 +27,7 @@ export function buildApp(): FastifyInstance {
   void registerKeysRoute(app);
   void registerJobsRoute(app);
   void registerRagRoutes(app);
+  void registerMemoryRoutes(app);
 
   return app;
 }

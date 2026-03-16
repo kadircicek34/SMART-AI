@@ -23,6 +23,7 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - **Verifier kalite kapıları** (minimum citation + source diversity)
 - **Loop guard** (tekrarlayan tool-pass kırıcı)
 - **Deep research budget/concurrency kontrolleri**
+- **Tenant Memory Layer** (memorizasyon + retrieval + auto-capture)
 
 ## Klasörler
 - `contracts/` → API sözleşmeleri
@@ -30,6 +31,7 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - `service/orchestrator/` → planner/executor/verifier/synthesizer
 - `service/tools/` → web/wiki/deep-research/financial/rag adapters
 - `service/rag/` → ingest/chunk/retrieval/runtime store
+- `service/memory/` → memory ingest/retrieve/decision/auto-capture
 - `service/security/` → key-store, policy, budget
 - `service/worker/` → async job runtime
 - `service/tests/` → contract + security + unit testleri
@@ -81,6 +83,31 @@ curl -X POST http://127.0.0.1:8080/v1/rag/search \
   -H 'x-tenant-id: tenant-a' \
   -H 'content-type: application/json' \
   -d '{"query":"chat completions endpoint"}'
+```
+
+## Memory Ingest
+```bash
+curl -X POST http://127.0.0.1:8080/v1/memory/items \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a' \
+  -H 'content-type: application/json' \
+  -d '{
+    "items": [
+      {
+        "category": "preference",
+        "content": "Ben toplantıları sabah saatlerinde yapmayı tercih ederim."
+      }
+    ]
+  }'
+```
+
+## Memory Search
+```bash
+curl -X POST http://127.0.0.1:8080/v1/memory/search \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a' \
+  -H 'content-type: application/json' \
+  -d '{"query":"Benim toplantı tercihim neydi, hatırla"}'
 ```
 
 ## Chat Completion

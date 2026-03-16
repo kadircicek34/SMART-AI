@@ -32,13 +32,18 @@ Tek başına LLM API çağrısı çoğu görevde yetersiz kalıyor:
    - wikipedia,
    - deep-research,
    - financial deep search,
-   - tenant-isolated RAG search
+   - tenant-isolated RAG search,
+   - tenant-isolated memory search
 5. RAG data plane:
    - tenant bazlı belge ingest (text/url),
    - chunking + retrieval API,
    - chat akışında `rag_search` tool entegrasyonu
-6. Multi-tenant güvenlik (BYOK OpenRouter key + policy + rate limit)
-7. Audit/log/metrics
+6. Memory data plane:
+   - tenant bazlı memory ingest/retrieve API,
+   - pre-retrieval decision,
+   - chat tarafında memory-worthy auto-capture
+7. Multi-tenant güvenlik (BYOK OpenRouter key + policy + rate limit)
+8. Audit/log/metrics
 
 ### Dahil Değil (MVP dışı)
 - RL training pipeline (Flow-GRPO eğitim hattı)
@@ -112,18 +117,23 @@ Tek başına LLM API çağrısı çoğu görevde yetersiz kalıyor:
    - deep_research
    - financial_deep_search
    - rag_search
+   - memory_search
 5. **RAG Data Plane**
    - belge ingest (text/url)
    - chunk store + retrieval
    - tenant-isolated knowledge API
-6. **Async Research Worker**
+6. **Memory Data Plane**
+   - memory ingest/upsert/list/delete
+   - pre-retrieval decision (RETRIEVE/NO_RETRIEVE)
+   - auto-capture (memory-worthy user messages)
+7. **Async Research Worker**
    - uzun görev yürütme
    - event stream
-7. **Security & Policy**
+8. **Security & Policy**
    - BYOK key vault
    - tool allowlist / denylist
    - budget guard (step/time/token)
-8. **Observability**
+9. **Observability**
    - tracing
    - audit
    - error analytics
@@ -146,6 +156,7 @@ Tek başına LLM API çağrısı çoğu görevde yetersiz kalıyor:
   - `api/` (gateway + schemas + auth)
   - `orchestrator/` (planner/executor/verifier/synthesizer)
   - `tools/` (tool adapters)
+  - `memory/` (memory ingest/retrieve)
   - `worker/` (async jobs)
   - `security/` (policy, key mgmt)
   - `observability/`
@@ -178,9 +189,11 @@ Tek başına LLM API çağrısı çoğu görevde yetersiz kalıyor:
 2. Multi-tool orchestration’da latency artışı
 3. Yanlış policy ile tool overreach riski
 4. Provider limit/timeout kaynaklı kullanıcı deneyimi bozulması
+5. Memory verisinin yanlış sınıflandırma/yanlış retrieval nedeniyle kaliteyi bozması
 
 ## Referanslar
 - https://github.com/lupantech/AgentFlow.git
 - https://github.com/poetiq-ai/poetiq-arc-agi-solver.git
 - https://github.com/virattt/dexter.git
 - https://github.com/Nutlope/open-deep-research.git
+- https://github.com/NevaMind-AI/memU

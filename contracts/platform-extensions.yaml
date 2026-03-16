@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: SMART-AI Platform Extensions
-  version: 0.3.0
+  version: 0.4.0
 paths:
   /v1/keys/openrouter/status:
     get:
@@ -54,6 +54,88 @@ paths:
       responses:
         '200':
           description: Job payload
+  /v1/memory/items:
+    post:
+      summary: Memorize tenant-scoped memory items
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                items:
+                  type: array
+                  items:
+                    type: object
+                    required: [content]
+                    properties:
+                      memory_id:
+                        type: string
+                      content:
+                        type: string
+                      category:
+                        type: string
+                        enum: [profile, preference, habit, goal, todo, event, knowledge, relationship, note]
+                      tags:
+                        type: array
+                        items:
+                          type: string
+                      source:
+                        type: string
+                      salience:
+                        type: number
+                auto_capture:
+                  type: object
+                  properties:
+                    message:
+                      type: string
+    get:
+      summary: List tenant memory items
+      responses:
+        '200':
+          description: Memory list
+  /v1/memory/search:
+    post:
+      summary: Search tenant memory with pre-retrieval decision
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query:
+                  type: string
+                limit:
+                  type: integer
+                min_score:
+                  type: number
+                categories:
+                  type: array
+                  items:
+                    type: string
+                force_retrieve:
+                  type: boolean
+  /v1/memory/stats:
+    get:
+      summary: Get tenant memory stats
+      responses:
+        '200':
+          description: Stats payload
+  /v1/memory/items/{memoryId}:
+    delete:
+      summary: Delete tenant memory item
+      parameters:
+        - in: path
+          name: memoryId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deletion result
   /v1/rag/documents:
     post:
       summary: Ingest tenant documents or URL into RAG knowledge base
