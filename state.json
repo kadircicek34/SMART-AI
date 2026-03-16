@@ -1,0 +1,34 @@
+{
+  "project": "openrouter-agentic-intelligence-api",
+  "status": "build",
+  "current_task": "Chunk 2: API auth + tenant isolation + gerçek key encryption katmanını implemente etmek",
+  "next_actions": [
+    "Auth middleware ve tenant boundary enforcement eklemek",
+    "Key-store'u KMS/encrypted persistence yaklaşımına geçirmek",
+    "Contract testlerini otomatikleştirip red-green döngüsüne almak"
+  ],
+  "risks": [
+    "Auth/policy gecikirse endpointler erken açılmış olur",
+    "Provider timeout/fallback davranışı netleşmeden latency artabilir",
+    "Tool policy yeterince sıkı olmazsa overreach riski oluşur",
+    "SSE/streaming hatlarında abuse guard eksik kalabilir"
+  ],
+  "decisions": [
+    "Mimari: Modüler monolith + async worker",
+    "Reuse: Kör kopya yerine pattern-level sentez",
+    "Contract-first geliştirme yaklaşımı"
+  ],
+  "artifacts": [
+    "prd.md",
+    "task.md",
+    "state.json",
+    "decisions.md",
+    "roadmap.md",
+    "contracts/openai-compatible.yaml",
+    "service/*",
+    "test-report.md",
+    "security-report.md",
+    "delivery.md"
+  ],
+  "updated_at": "2026-03-16T04:05:00+03:00"
+}
