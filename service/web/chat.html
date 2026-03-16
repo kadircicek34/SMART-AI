@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SMART-AI Chat UI</title>
+    <link rel="stylesheet" href="/ui/assets/app.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>SMART-AI Chat UI</h1>
+        <p>Sunucu ayağa kalktıktan sonra tenant bazlı canlı sohbet</p>
+      </div>
+      <nav class="topnav">
+        <a href="/ui/dashboard">Dashboard</a>
+        <a href="/ui/chat" class="active">Chat UI</a>
+      </nav>
+    </header>
+
+    <main class="container chat-layout">
+      <aside class="card settings-panel">
+        <h2>Bağlantı Ayarları</h2>
+        <label>
+          API Base URL
+          <input id="baseUrl" type="text" placeholder="http://127.0.0.1:8080" />
+        </label>
+        <label>
+          API Key
+          <input id="apiKey" type="password" placeholder="Bearer key" />
+        </label>
+        <label>
+          Tenant ID
+          <input id="tenantId" type="text" placeholder="tenant-a" />
+        </label>
+        <label>
+          Model
+          <select id="modelSelect"></select>
+        </label>
+        <div class="actions">
+          <button id="saveSettings">Kaydet</button>
+          <button id="loadModels" class="secondary">Modelleri Yükle</button>
+        </div>
+        <p id="settingsStatus" class="muted"></p>
+      </aside>
+
+      <section class="card chat-panel">
+        <div id="chatMessages" class="chat-messages"></div>
+        <form id="chatForm" class="chat-form">
+          <textarea id="chatInput" rows="4" placeholder="Mesajınızı yazın..."></textarea>
+          <div class="actions">
+            <button type="submit">Gönder</button>
+            <button type="button" id="clearChat" class="secondary">Temizle</button>
+          </div>
+        </form>
+      </section>
+    </main>
+
+    <script type="module" src="/ui/assets/chat.js"></script>
+  </body>
+</html>

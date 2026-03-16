@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SMART-AI Control Dashboard</title>
+    <link rel="stylesheet" href="/ui/assets/app.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>SMART-AI Control Dashboard</h1>
+        <p>Canlı servis durumu, MCP health ve tenant metrikleri</p>
+      </div>
+      <nav class="topnav">
+        <a href="/ui/dashboard" class="active">Dashboard</a>
+        <a href="/ui/chat">Chat UI</a>
+      </nav>
+    </header>
+
+    <main class="container">
+      <section class="card settings-card">
+        <h2>Bağlantı Ayarları</h2>
+        <div class="grid-3">
+          <label>
+            API Base URL
+            <input id="baseUrl" type="text" placeholder="http://127.0.0.1:8080" />
+          </label>
+          <label>
+            API Key
+            <input id="apiKey" type="password" placeholder="Bearer key" />
+          </label>
+          <label>
+            Tenant ID
+            <input id="tenantId" type="text" placeholder="tenant-a" />
+          </label>
+        </div>
+        <div class="actions">
+          <button id="saveSettings">Kaydet</button>
+          <button id="refreshAll" class="secondary">Yenile</button>
+          <button id="flushMcp" class="secondary">MCP Flush</button>
+        </div>
+        <p id="settingsStatus" class="muted"></p>
+      </section>
+
+      <section class="grid-cards">
+        <article class="card metric">
+          <h3>Servis Health</h3>
+          <p id="serviceStatus">—</p>
+        </article>
+        <article class="card metric">
+          <h3>MCP Global</h3>
+          <p id="mcpGlobal">—</p>
+        </article>
+        <article class="card metric">
+          <h3>Memory İstatistik</h3>
+          <p id="memoryStats">—</p>
+        </article>
+        <article class="card metric">
+          <h3>RAG Doküman</h3>
+          <p id="ragStats">—</p>
+        </article>
+      </section>
+
+      <section class="card">
+        <h2>MCP Sunucu Durumları</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Sunucu</th>
+              <th>Circuit</th>
+              <th>Toplam Çağrı</th>
+              <th>Hata</th>
+              <th>Avg / P95 (ms)</th>
+              <th>Son Hata</th>
+            </tr>
+          </thead>
+          <tbody id="mcpTableBody"></tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h2>Son Hatalar / Log</h2>
+        <pre id="logBox" class="log-box">Dashboard başlatıldı.</pre>
+      </section>
+    </main>
+
+    <script type="module" src="/ui/assets/dashboard.js"></script>
+  </body>
+</html>

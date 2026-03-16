@@ -1,31 +1,29 @@
-# TEST REPORT — SMART-AI v0.11 (MCP Health Persistence)
+# TEST REPORT — SMART-AI v1.1 (Control Dashboard + Chatbot UI)
 
 ## Test Stratejisi
-- Contract tests: OpenAI-compatible + RAG + Memory + MCP health endpointleri
+- Contract tests: OpenAI-compatible + RAG + Memory + MCP + UI endpointleri
 - Security tests: key-store + policy allowlist
-- Unit tests: orchestrator/verifier, deep_research, financial runtime, qmd, memory, MCP adapters, MCP circuit/store
+- Unit tests: orchestrator/verifier, deep_research, financial runtime, qmd, memory, MCP circuit/store
 
 ## Çalıştırılan Verification Komutları
 | Komut | Sonuç | Kanıt |
 |---|---|---|
 | `npm run typecheck` | ✅ | TS hata yok |
-| `npm test` | ✅ | **53/53 test geçti** |
+| `npm test` | ✅ | **57/57 test geçti** |
 | `npm audit --omit=dev` | ✅ | 0 vulnerability |
 | `scripts/delivery-gate.sh <project-dir>` | ✅ | PASS |
 
 ## Bu Koşumdaki Yeni Testler
-- `service/tests/mcp-health/store.test.ts` ✅
-  - snapshot read/write roundtrip
-- `service/tests/mcp-health/circuit-breaker.test.ts` ✅ güncellendi
-  - persisted seed ile circuit restore davranışı
-- `service/tests/contract/mcp-health.test.ts` ✅ güncellendi
-  - yeni `POST /v1/mcp/flush` endpoint doğrulaması
+- `service/tests/contract/ui.test.ts` ✅
+  - `/ui/dashboard` HTML serve
+  - `/ui/chat` HTML serve
+  - `/ui/assets/app.css` serve
+  - path traversal bloklama
 
 ## Regresyon Durumu
-- OpenRouter retry/backoff regresyonu yok
-- RAG + Memory + QMD regresyonu yok
-- Financial provider fallback regresyonu yok
+- MCP resilience/persistence regresyonu yok
 - Mevzuat/Borsa/Yargı MCP adapter akışı regresyonsuz
+- RAG + Memory + QMD + Financial akışları regresyonsuz
 
 ## Sonuç
-MCP resilience katmanı restart sonrası kalıcılık kazanacak şekilde olgunlaştırıldı ve tüm test paketi yeşil geçti.
+Control dashboard ve chatbot UI üretim hattına alındı; test paketi tamamen yeşil.

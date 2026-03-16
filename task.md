@@ -1,5 +1,15 @@
 # TASKS — OpenRouter Agentic Intelligence API
 
+## v1.1 Delta (Control Dashboard + Chatbot UI) — Tamamlandı
+- [x] Web control dashboard eklendi (`/ui/dashboard`)
+- [x] Kullanıcı chatbot arayüzü eklendi (`/ui/chat`)
+- [x] UI statik asset route katmanı eklendi (`service/api/routes/ui.ts`)
+- [x] Dashboard metrikleri: health + mcp health + memory stats + rag docs
+- [x] Chat UI: model listesi çekme + tenant bazlı `/v1/chat/completions` canlı mesajlaşma
+- [x] UI güvenliği: path traversal bloklama + /v1 auth modelini koruma
+- [x] Yeni testler eklendi (`service/tests/contract/ui.test.ts`)
+- [x] Fresh verification: typecheck + test + audit + delivery-gate
+
 ## v1.0 Delta (MCP Resilience Persistence + Ops Flush) — Tamamlandı
 - [x] MCP health snapshot persistence eklendi (`service/mcp-health/store.ts`)
 - [x] Circuit-breaker seed restore desteği eklendi (restart sonrası state continuity)

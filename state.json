@@ -1,16 +1,16 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "v0.11 MCP health persistence + flush ops endpoint production seviyede tamamlandı",
+  "current_task": "v1.1 control dashboard + chatbot UI production seviyede tamamlandı",
   "next_actions": [
+    "UI için session/token abstraction (plain API key yerine)",
     "MCP health metriklerini Prometheus/OTEL'e export et",
     "MCP retry budget'i circuit state'e göre policy-driven hale getir",
-    "Memory retrieval için embedding/hybrid ranker",
     "Memory/RAG encrypt-at-rest (KMS)"
   ],
   "risks": [
+    "UI tarafında API key localStorage'da tutuluyor; production'da kısa ömürlü session token önerilir",
     "MCP health persistence local disk tabanlı; multi-instance shared state henüz yok",
-    "Circuit breaker granularity şu an server-bazlı, tool-bazlı ayrıştırma sonraki iterasyon",
     "MASTER_KEY env yönetimi production'da secret manager gerektirir"
   ],
   "decisions": [
@@ -21,7 +21,8 @@
     "Financial: OpenBB-style provider fallback (stooq + alpha_vantage)",
     "Türk domain MCP: mevzuat/borsa/yargı remote MCP entegrasyonu",
     "MCP resilience: circuit breaker + adaptive timeout + health endpointleri",
-    "MCP health persistence: snapshot store + startup restore + ops flush"
+    "MCP health persistence: snapshot store + startup restore + ops flush",
+    "Control dashboard + chatbot UI: server içinden statik route ile teslim"
   ],
   "artifacts": [
     "README.md",
@@ -29,15 +30,13 @@
     "delivery.md",
     "test-report.md",
     "security-report.md",
-    "service/mcp-health/types.ts",
-    "service/mcp-health/circuit-breaker.ts",
-    "service/mcp-health/index.ts",
-    "service/mcp-health/store.ts",
-    "service/api/routes/mcp-health.ts",
-    "service/tools/tr-mcp-search.ts",
-    "service/tests/mcp-health/circuit-breaker.test.ts",
-    "service/tests/mcp-health/store.test.ts",
-    "service/tests/contract/mcp-health.test.ts"
+    "service/api/routes/ui.ts",
+    "service/web/dashboard.html",
+    "service/web/chat.html",
+    "service/web/assets/app.css",
+    "service/web/assets/dashboard.js",
+    "service/web/assets/chat.js",
+    "service/tests/contract/ui.test.ts"
   ],
-  "updated_at": "2026-03-16T15:48:04+03:00"
+  "updated_at": "2026-03-17T02:52:48+03:00"
 }
