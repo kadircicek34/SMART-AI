@@ -36,6 +36,13 @@
 - `QMD_COLLECTION_PATH` (varsayılan: proje kök dizini)
 - `QMD_COLLECTION_AUTO_ADD` (varsayılan: true)
 - `QMD_MAX_RESULTS` (varsayılan: 6)
+- `MCPORTER_COMMAND` (varsayılan: `mcporter`)
+- `MCPORTER_TIMEOUT_MS` (varsayılan: 45000)
+- `MCP_MAX_RESULTS` (varsayılan: 6)
+- `MEVZUAT_MCP_URL` (varsayılan: `https://mevzuat.surucu.dev/mcp`)
+- `BORSA_MCP_URL` (varsayılan: `https://borsamcp.fastmcp.app/mcp`)
+- `YARGI_MCP_URL` (varsayılan: `https://yargimcp.fastmcp.app/mcp`)
+- `YARGI_MCP_FALLBACK_ENABLED` (varsayılan: true)
 
 ## New endpoints
 - `POST /v1/rag/documents` → belge veya URL ingest
@@ -50,5 +57,6 @@
 
 ## Tool plane updates
 - `qmd_search` aracı eklendi (VPS'teki kurulu `qmd` CLI ile lokal repo doküman araması)
+- `mevzuat_mcp_search`, `borsa_mcp_search`, `yargi_mcp_search` araçları eklendi (mcporter üzerinden remote MCP)
 - `financial_deep_search` artık OpenBB-pattern fallback ile `stooq + alpha_vantage` kaynaklarını harmonize ediyor
-- `deep_research` akışı artık tenant memory + QMD + RAG + web/wiki kaynaklarını birleştiriyor
+- `deep_research` akışı artık tenant memory + QMD + RAG + mevzuat/yargi/borsa MCP + web/wiki kaynaklarını birleştiriyor

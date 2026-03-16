@@ -66,7 +66,14 @@ export const config = {
     qmdCollectionPath: process.env.QMD_COLLECTION_PATH?.trim() || path.resolve(process.cwd(), '..'),
     qmdCollectionAutoAdd: (process.env.QMD_COLLECTION_AUTO_ADD ?? 'true').toLowerCase() === 'true',
     qmdMaxResults: Number(process.env.QMD_MAX_RESULTS ?? 6),
-    qmdMaxSnippetChars: Number(process.env.QMD_MAX_SNIPPET_CHARS ?? 260)
+    qmdMaxSnippetChars: Number(process.env.QMD_MAX_SNIPPET_CHARS ?? 260),
+    mcporterCommand: process.env.MCPORTER_COMMAND ?? 'mcporter',
+    mcporterTimeoutMs: Number(process.env.MCPORTER_TIMEOUT_MS ?? 45_000),
+    mcpMaxResults: Number(process.env.MCP_MAX_RESULTS ?? 6),
+    mevzuatMcpUrl: process.env.MEVZUAT_MCP_URL ?? 'https://mevzuat.surucu.dev/mcp',
+    borsaMcpUrl: process.env.BORSA_MCP_URL ?? 'https://borsamcp.fastmcp.app/mcp',
+    yargiMcpUrl: process.env.YARGI_MCP_URL ?? 'https://yargimcp.fastmcp.app/mcp',
+    yargiMcpFallbackEnabled: (process.env.YARGI_MCP_FALLBACK_ENABLED ?? 'true').toLowerCase() === 'true'
   },
   storage: {
     root: process.env.DATA_DIR ?? path.resolve(process.cwd(), '.data'),

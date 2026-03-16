@@ -34,6 +34,23 @@ function looksLikeMemoryQuery(query: string | undefined): boolean {
   );
 }
 
+function looksLikeMevzuatQuery(query: string | undefined): boolean {
+  if (!query) return false;
+  return /(kanun|mevzuat|tebliğ|teblig|resmi gazete|cbk|khk|tüzük|yonetmelik|yönetmelik)/i.test(query);
+}
+
+function looksLikeYargiQuery(query: string | undefined): boolean {
+  if (!query) return false;
+  return /\b(yargıtay|yargitay|danıştay|danistay|emsal|mahkeme kararı|anayasa mahkemesi|sayıştay|kik kararı|kvkk kararı|bddk kararı)\b/i.test(
+    query
+  );
+}
+
+function looksLikeBorsaMcpQuery(query: string | undefined): boolean {
+  if (!query) return false;
+  return /\b(bist|xu100|xbank|tefas|kap haberi|hisse kodu|endeks|borsa istanbul|garan|akbnk|thyao|asels)\b/i.test(query);
+}
+
 function citationSourceKey(citation: string): string {
   if (!citation) return 'unknown';
 
@@ -70,6 +87,33 @@ export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string
       };
     }
 
+    if (looksLikeMevzuatQuery(query) && !plan.tools.includes('mevzuat_mcp_search')) {
+      return {
+        sufficient: false,
+        confidence: 0,
+        reason: 'No evidence yet. Query looks legislation-focused, prioritize mevzuat_mcp_search.',
+        suggestedTool: 'mevzuat_mcp_search'
+      };
+    }
+
+    if (looksLikeYargiQuery(query) && !plan.tools.includes('yargi_mcp_search')) {
+      return {
+        sufficient: false,
+        confidence: 0,
+        reason: 'No evidence yet. Query looks case-law focused, prioritize yargi_mcp_search.',
+        suggestedTool: 'yargi_mcp_search'
+      };
+    }
+
+    if (looksLikeBorsaMcpQuery(query) && !plan.tools.includes('borsa_mcp_search')) {
+      return {
+        sufficient: false,
+        confidence: 0,
+        reason: 'No evidence yet. Query looks BIST/TEFAS focused, prioritize borsa_mcp_search.',
+        suggestedTool: 'borsa_mcp_search'
+      };
+    }
+
     if ((looksLikeProjectDocsQuery(query) || looksLikeKnowledgeBaseQuery(query)) && !plan.tools.includes('qmd_search')) {
       return {
         sufficient: false,
@@ -102,6 +146,9 @@ export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string
   const hasRagEvidence = results.some((r) => r.tool === 'rag_search' && r.citations.length > 0);
   const hasMemoryEvidence = results.some((r) => r.tool === 'memory_search' && r.citations.length > 0);
   const hasQmdEvidence = results.some((r) => r.tool === 'qmd_search' && r.citations.length > 0);
+  const hasMevzuatEvidence = results.some((r) => r.tool === 'mevzuat_mcp_search' && r.citations.length > 0);
+  const hasYargiEvidence = results.some((r) => r.tool === 'yargi_mcp_search' && r.citations.length > 0);
+  const hasBorsaMcpEvidence = results.some((r) => r.tool === 'borsa_mcp_search' && r.citations.length > 0);
 
   let confidence = 0;
   if (hasSummary) confidence += 0.35;
@@ -111,10 +158,21 @@ export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string
   if (hasRagEvidence) confidence += 0.15;
   if (hasMemoryEvidence) confidence += 0.1;
   if (hasQmdEvidence) confidence += 0.12;
+  if (hasMevzuatEvidence) confidence += 0.1;
+  if (hasYargiEvidence) confidence += 0.1;
+  if (hasBorsaMcpEvidence) confidence += 0.1;
 
-  const citationFloorMet = citationCount >= config.verifier.minCitations || hasMemoryEvidence || hasQmdEvidence;
+  const citationFloorMet =
+    citationCount >= config.verifier.minCitations ||
+    hasMemoryEvidence ||
+    hasQmdEvidence ||
+    hasMevzuatEvidence ||
+    hasYargiEvidence ||
+    hasBorsaMcpEvidence;
   const sourceDiversityMet = distinctSources >= config.verifier.minSourceDomains;
-  const qualityFloorMet = citationFloorMet && (sourceDiversityMet || hasRagEvidence || hasMemoryEvidence || hasQmdEvidence);
+  const qualityFloorMet =
+    citationFloorMet &&
+    (sourceDiversityMet || hasRagEvidence || hasMemoryEvidence || hasQmdEvidence || hasMevzuatEvidence || hasYargiEvidence || hasBorsaMcpEvidence);
 
   if (confidence >= 0.65 && qualityFloorMet) {
     return {
@@ -130,6 +188,33 @@ export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string
       confidence,
       reason: 'Confidence low for memory-focused query, adding memory_search pass.',
       suggestedTool: 'memory_search'
+    };
+  }
+
+  if (looksLikeMevzuatQuery(query) && !plan.tools.includes('mevzuat_mcp_search')) {
+    return {
+      sufficient: false,
+      confidence,
+      reason: 'Confidence low for legislation query, adding mevzuat_mcp_search pass.',
+      suggestedTool: 'mevzuat_mcp_search'
+    };
+  }
+
+  if (looksLikeYargiQuery(query) && !plan.tools.includes('yargi_mcp_search')) {
+    return {
+      sufficient: false,
+      confidence,
+      reason: 'Confidence low for case-law query, adding yargi_mcp_search pass.',
+      suggestedTool: 'yargi_mcp_search'
+    };
+  }
+
+  if (looksLikeBorsaMcpQuery(query) && !plan.tools.includes('borsa_mcp_search')) {
+    return {
+      sufficient: false,
+      confidence,
+      reason: 'Confidence low for BIST query, adding borsa_mcp_search pass.',
+      suggestedTool: 'borsa_mcp_search'
     };
   }
 

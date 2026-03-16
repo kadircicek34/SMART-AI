@@ -74,6 +74,52 @@ const QMD_KEYWORDS = [
   'local docs'
 ];
 
+const MEVZUAT_KEYWORDS = [
+  'kanun',
+  'mevzuat',
+  'tebliğ',
+  'teblig',
+  'resmi gazete',
+  'cumhurbaşkanlığı kararnamesi',
+  'cbk',
+  'khk',
+  'tüzük',
+  'yönetmelik',
+  'hukuk metni'
+];
+
+const YARGI_KEYWORDS = [
+  'yargıtay',
+  'yargitay',
+  'danıştay',
+  'danistay',
+  'emsal karar',
+  'mahkeme kararı',
+  'anayasa mahkemesi',
+  'uyuşmazlık mahkemesi',
+  'kik kararı',
+  'sayıştay',
+  'rekabet kurumu',
+  'kvkk kararı',
+  'bddk kararı',
+  'sigorta tahkim'
+];
+
+const BORSA_MCP_KEYWORDS = [
+  'bist',
+  'xu100',
+  'xbank',
+  'tefas',
+  'kap haberi',
+  'fon',
+  'garan',
+  'akbnk',
+  'thyao',
+  'asels',
+  'tüpraş',
+  'tuprs'
+];
+
 function hasKeyword(text: string, keywords: string[]): boolean {
   const lower = text.toLowerCase();
   return keywords.some((k) => lower.includes(k));
@@ -104,6 +150,27 @@ function shouldUseQmd(query: string): boolean {
   return /(projede|repository|repo|dok[üu]man|readme|roadmap|tasarım|architecture|endpoint|contract)/i.test(query);
 }
 
+function shouldUseMevzuatMcp(query: string): boolean {
+  const normalized = query.toLowerCase();
+  if (hasKeyword(normalized, MEVZUAT_KEYWORDS)) return true;
+
+  return /(hukuk|mevzuat|kanun|resmi gazete)/i.test(query);
+}
+
+function shouldUseYargiMcp(query: string): boolean {
+  const normalized = query.toLowerCase();
+  if (hasKeyword(normalized, YARGI_KEYWORDS)) return true;
+
+  return /(mahkeme|emsal|karar metni|yargı|yargi)/i.test(query);
+}
+
+function shouldUseBorsaMcp(query: string): boolean {
+  const normalized = query.toLowerCase();
+  if (hasKeyword(normalized, BORSA_MCP_KEYWORDS)) return true;
+
+  return /(bist|tefas|kap|hisse kodu|ticker|endeks|borsa istanbul)/i.test(query);
+}
+
 export function planForQuery(query: string): Plan {
   const tools: ToolName[] = [];
 
@@ -129,6 +196,18 @@ export function planForQuery(query: string): Plan {
 
   if (shouldUseQmd(query)) {
     tools.push('qmd_search');
+  }
+
+  if (shouldUseMevzuatMcp(query)) {
+    tools.push('mevzuat_mcp_search');
+  }
+
+  if (shouldUseYargiMcp(query)) {
+    tools.push('yargi_mcp_search');
+  }
+
+  if (shouldUseBorsaMcp(query)) {
+    tools.push('borsa_mcp_search');
   }
 
   const qLen = query.trim().length;

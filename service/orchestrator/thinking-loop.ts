@@ -24,6 +24,15 @@ function scorePlan(query: string, plan: Plan): number {
   if ((q.includes('repo') || q.includes('project') || q.includes('doküman') || q.includes('roadmap') || q.includes('contract')) && plan.tools.includes('qmd_search')) {
     score += 2.3;
   }
+  if ((q.includes('kanun') || q.includes('mevzuat') || q.includes('tebliğ') || q.includes('resmi gazete')) && plan.tools.includes('mevzuat_mcp_search')) {
+    score += 2.7;
+  }
+  if ((q.includes('yargıtay') || q.includes('emsal') || q.includes('mahkeme') || q.includes('yargi')) && plan.tools.includes('yargi_mcp_search')) {
+    score += 2.7;
+  }
+  if ((q.includes('bist') || q.includes('tefas') || q.includes('kap') || q.includes('xu100')) && plan.tools.includes('borsa_mcp_search')) {
+    score += 2.6;
+  }
   if (plan.tools.includes('web_search')) {
     score += 1;
   }
@@ -43,6 +52,9 @@ function generateCandidates(query: string): Plan[] {
       'rag_search',
       'memory_search',
       'qmd_search',
+      'mevzuat_mcp_search',
+      'yargi_mcp_search',
+      'borsa_mcp_search',
       'wikipedia',
       'web_search'
     ])
