@@ -1,0 +1,56 @@
+openapi: 3.0.3
+info:
+  title: SMART-AI Platform Extensions
+  version: 0.2.0
+paths:
+  /v1/keys/openrouter/status:
+    get:
+      summary: Check tenant OpenRouter key status
+      responses:
+        '200':
+          description: Key status
+  /v1/keys/openrouter:
+    post:
+      summary: Upsert tenant OpenRouter key
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apiKey]
+              properties:
+                apiKey:
+                  type: string
+    delete:
+      summary: Delete tenant OpenRouter key
+      responses:
+        '200':
+          description: Deletion result
+  /v1/jobs/research:
+    post:
+      summary: Start async research job
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query:
+                  type: string
+                model:
+                  type: string
+  /v1/jobs/{jobId}:
+    get:
+      summary: Get async job status/result
+      parameters:
+        - in: path
+          name: jobId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Job payload
