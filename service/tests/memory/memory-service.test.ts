@@ -117,6 +117,21 @@ test('memory stats track retrieval metrics', async () => {
   assert.ok(stats.retrieval.avgLatencyMs >= 0);
 });
 
+test('memory system builds related memory links (agentic memory style)', async () => {
+  await memorizeForTenant({
+    tenantId: 'tenant-memory-links',
+    items: [
+      { content: 'BIST şirketlerinde bilanço analizi yapıyorum ve finansal oran hesaplıyorum', category: 'knowledge' },
+      { content: 'Bilanço analizi sırasında nakit akış ve finansal oran verilerini karşılaştırıyorum', category: 'knowledge' }
+    ]
+  });
+
+  const listed = await listTenantMemories({ tenantId: 'tenant-memory-links', limit: 10 });
+  const withLinks = listed.filter((item) => (item.relatedMemoryIds?.length ?? 0) > 0);
+
+  assert.ok(withLinks.length >= 1);
+});
+
 test('hotness score increases with retrieval count and recency', () => {
   const now = Date.now();
   const recentHot = __private__.computeHotnessScore({

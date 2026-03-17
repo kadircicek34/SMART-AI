@@ -8,6 +8,7 @@ before(async () => {
   process.env.APP_API_KEYS = 'test-api-key';
   process.env.KEY_STORE_FILE = '/tmp/smart-ai-test-keys-ui.json';
   process.env.MASTER_KEY_BASE64 = Buffer.alloc(32, 6).toString('base64');
+  process.env.UI_SESSION_TTL_SECONDS = '120';
 
   const mod = await import('../../api/app.js');
   app = mod.buildApp();
@@ -45,4 +46,119 @@ test('GET /ui/assets path traversal is blocked', async () => {
   const res = await app.inject({ method: 'GET', url: '/ui/assets/..%2F..%2Fserver.ts' });
 
   assert.equal(res.statusCode, 404);
+});
+
+test('POST /ui/session issues short-lived token and token can call /v1/models', async () => {
+  const sessionRes = await app.inject({
+    method: 'POST',
+    url: '/ui/session',
+    payload: {
+      apiKey: 'test-api-key',
+      tenantId: 'tenant-ui'
+    }
+  });
+
+  assert.equal(sessionRes.statusCode, 200);
+  const sessionBody = sessionRes.json();
+  assert.equal(typeof sessionBody.token, 'string');
+  assert.equal(sessionBody.tenantId, 'tenant-ui');
+
+  const modelsRes = await app.inject({
+    method: 'GET',
+    url: '/v1/models',
+    headers: {
+      authorization: `Bearer ${sessionBody.token}`,
+      'x-tenant-id': 'tenant-ui'
+    }
+  });
+
+  assert.equal(modelsRes.statusCode, 200);
+});
+
+test('UI session token is tenant scoped', async () => {
+  const sessionRes = await app.inject({
+    method: 'POST',
+    url: '/ui/session',
+    payload: {
+      apiKey: 'test-api-key',
+      tenantId: 'tenant-a'
+    }
+  });
+
+  const sessionBody = sessionRes.json();
+
+  const wrongTenantRes = await app.inject({
+    method: 'GET',
+    url: '/v1/models',
+    headers: {
+      authorization: `Bearer ${sessionBody.token}`,
+      'x-tenant-id': 'tenant-b'
+    }
+  });
+
+  assert.equal(wrongTenantRes.statusCode, 403);
+});
+
+test('POST /ui/session/revoke invalidates issued token', async () => {
+  const sessionRes = await app.inject({
+    method: 'POST',
+    url: '/ui/session',
+    payload: {
+      apiKey: 'test-api-key',
+      tenantId: 'tenant-revoke'
+    }
+  });
+
+  const sessionBody = sessionRes.json();
+
+  const revokeRes = await app.inject({
+    method: 'POST',
+    url: '/ui/session/revoke',
+    headers: {
+      authorization: `Bearer ${sessionBody.token}`,
+      'x-tenant-id': 'tenant-revoke'
+    }
+  });
+
+  assert.equal(revokeRes.statusCode, 200);
+
+  const modelsRes = await app.inject({
+    method: 'GET',
+    url: '/v1/models',
+    headers: {
+      authorization: `Bearer ${sessionBody.token}`,
+      'x-tenant-id': 'tenant-revoke'
+    }
+  });
+
+  assert.equal(modelsRes.statusCode, 401);
+});
+
+test('POST /ui/session brute-force attempts trigger temporary 429 lock', async () => {
+  for (let i = 0; i < 5; i += 1) {
+    const attempt = await app.inject({
+      method: 'POST',
+      url: '/ui/session',
+      payload: {
+        apiKey: `wrong-key-${i}`,
+        tenantId: 'tenant-lock'
+      },
+      remoteAddress: '10.0.0.9'
+    });
+
+    assert.equal(attempt.statusCode, 401);
+  }
+
+  const blocked = await app.inject({
+    method: 'POST',
+    url: '/ui/session',
+    payload: {
+      apiKey: 'test-api-key',
+      tenantId: 'tenant-lock'
+    },
+    remoteAddress: '10.0.0.9'
+  });
+
+  assert.equal(blocked.statusCode, 429);
+  assert.ok(Number(blocked.headers['retry-after']) >= 1);
 });
