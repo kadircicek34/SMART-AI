@@ -405,3 +405,45 @@ API güçlü olsa da operasyonel kontrol ve son kullanıcı etkileşimi sadece A
 - Ürün API-first + UI-ready hale geldi.
 - Teknik olmayan kullanıcı için kullanım eşiği dramatik biçimde düştü.
 - SRE/operasyon tarafında troubleshooting hızı arttı.
+
+---
+
+## 2026-03-17 — UI auth session abstraction kararı (API key localStorage kaldırma)
+### Problem
+Chat UI'da API key'in localStorage'da tutulması XSS veya paylaşılan cihaz senaryolarında gereksiz risk yaratıyordu.
+
+### Seçenekler
+- A: Mevcut localStorage davranışını korumak
+- B: API key'i tamamen kaldırıp yalnızca backend-side login yapmak
+- C: API key ile kısa ömürlü UI session token üretip /v1 çağrılarını token ile yapmak
+
+### Karar
+**C seçildi:**
+- `POST /ui/session` endpointi ile API key doğrulanıp tenant-scope kısa ömürlü token üretiliyor.
+- `/v1/*` auth middleware'i APP API key + UI session token kabul edecek şekilde genişletildi.
+- Chat UI API key'i kalıcı saklamıyor; session token sadece `sessionStorage` içinde tutuluyor.
+
+### Gerekçe
+- Security posture'ı yükseltirken mevcut API sözleşmesini kırmaz.
+- UI kullanımını basit tutar (tek adım “Oturum Aç”).
+- Tenant isolation korunur (token tenant-scope doğrulaması).
+
+### Etki
+- API key'in browser persistence yüzeyi kaldırıldı.
+- UI token süresi dolduğunda kontrollü re-auth akışı oluştu.
+- Contract test kapsamı session issuance + tenant-scope doğrulamasıyla genişledi.
+
+## 2026-03-17 — UI auth risk closure + MCP health shared persistence abstraction
+- `/ui/session` için özel anti-bruteforce katmanı eklendi: IP+tenant bazlı başarısız giriş penceresi, geçici block ve `retry-after` header.
+- Login hata mesajı `Invalid credentials.` olarak normalize edildi (input farklarından kullanıcı bilgisi sızmaması için).
+- `POST /ui/session/revoke` endpoint’i eklendi; UI logout akışı bu endpoint üzerinden token revoke ediyor.
+- UI session store artık token’ı plaintext map key olarak tutmuyor; SHA-256 hash key kullanıyor.
+- MCP health persistence katmanı file/http modlu abstract backend’e geçirildi. `MCP_HEALTH_PERSIST_MODE=http` ile çoklu instance ortak persistence endpoint’i kullanılabiliyor; endpoint yoksa file fallback.
+
+## 2026-03-17 — Cross-repo synthesis (MiroFish + deepagents + A-mem)
+Analysis method: `mcporter` üzerinden `github-readonly` + `repomix` kullanıldı.
+
+Uygulanan adaptasyonlar:
+- **deepagents esinli plan/todo yaklaşımı**: Orchestrator planına `stages` checklist alanı eklendi (discover/domain/synthesis), metadata içinde görünür hale geldi.
+- **MiroFish esinli aşamalı pipeline görünürlüğü**: Tool seçimleri aşama bazına map edilerek aşama durumları (`pending/running/done`) takip ediliyor.
+- **A-mem esinli agentic memory linking**: Memory item’lara otomatik semantik `relatedMemoryIds` bağları eklendi (tenant scoped), search/list çıktısına yansıtıldı.

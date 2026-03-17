@@ -33,7 +33,7 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 ## Klasörler
 - `contracts/` → API sözleşmeleri
 - `service/api/` → gateway, middleware, routes
-- `service/orchestrator/` → planner/executor/verifier/synthesizer
+- `service/orchestrator/` → planner/executor/verifier/synthesizer (+ stage checklist metadata)
 - `service/tools/` → web/wiki/deep-research/financial/rag/memory/qmd/mcp adapters
 - `service/rag/` → ingest/chunk/retrieval/runtime store
 - `service/memory/` → memory ingest/retrieve/decision/auto-capture
@@ -132,7 +132,12 @@ Sunucu kalktıktan sonra:
 - `http://127.0.0.1:8080/ui/dashboard`
 - `http://127.0.0.1:8080/ui/chat`
 
-UI, API Key ve Tenant ID girilerek canlı kullanım sağlar.
+UI, API Key ve Tenant ID ile `POST /ui/session` üzerinden kısa ömürlü oturum tokenı üretir. API key tarayıcıda kalıcı saklanmaz; `/v1/*` çağrıları session token + tenant header ile yapılır.
+
+Yeni güvenlik akışı:
+- `/ui/session` endpoint’inde brute-force koruması (IP+tenant bazlı geçici lock)
+- `POST /ui/session/revoke` ile aktif token revoke/logout desteği
+- Login hata mesajı normalize edilmiştir (`Invalid credentials`).
 
 ## QMD Collection Bootstrap (opsiyonel manuel)
 ```bash

@@ -1,6 +1,7 @@
 # ROADMAP — OpenRouter Agentic Intelligence API
 
-## Durum Güncellemesi (2026-03-16)
+## Durum Güncellemesi (2026-03-17)
+- ✅ v1.2 teslim edildi: UI session auth hardening (API key localStorage kaldırma + short-lived tenant token)
 - ✅ v0.3 teslim edildi: Brave web-search + tenant-isolated RAG (ingest/search/list/delete)
 - ✅ v0.5 teslim edildi: orchestrator quality gates + deep-research hardening
 - ✅ v0.6 teslim edildi: tenant memory layer + pre-retrieval decision + memory_search tool
@@ -116,3 +117,10 @@ Prod-ready kalite eşiğine çıkmak.
 - p95 latency (sync kısa görev): hedef < 8s
 - Kritik güvenlik açık sayısı: 0
 - Üretim hata bütçesi (5xx): < %1
+
+- [x] `/ui/session` brute-force/rate-limit koruması
+- [x] UI session revoke endpoint + Chat UI logout akışı
+- [x] MCP health persistence için shared-backend abstraction (http/file)
+
+- [x] Agentic stage checklist (deepagents/MiroFish pattern)
+- [x] Tenant-scope related memory graph links (A-mem pattern)
