@@ -17,10 +17,18 @@ export type RunInput = {
   stream?: boolean;
 };
 
+export type PlanStage = {
+  id: string;
+  title: string;
+  tools: ToolName[];
+  status: 'pending' | 'running' | 'done';
+};
+
 export type Plan = {
   objective: string;
   tools: ToolName[];
   reasoning: string;
+  stages?: PlanStage[];
 };
 
 export type RunOutput = {

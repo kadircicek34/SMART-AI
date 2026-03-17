@@ -27,6 +27,22 @@ function toolPassSignature(toolNames: ToolName[]): string {
   return [...toolNames].sort().join('|');
 }
 
+function updateStageStatuses(plan: Plan, completedTools: ToolName[]): Plan {
+  const completed = new Set(completedTools);
+  const stages = plan.stages ?? [{ id: 'direct', title: 'Doğrudan yanıt', tools: [], status: 'pending' as const }];
+  return {
+    ...plan,
+    stages: stages.map((stage) => {
+      if (stage.tools.length === 0) {
+        return { ...stage, status: completedTools.length === 0 ? 'running' : 'done' };
+      }
+      const doneCount = stage.tools.filter((tool) => completed.has(tool)).length;
+      const status = doneCount === stage.tools.length ? 'done' : doneCount > 0 ? 'running' : 'pending';
+      return { ...stage, status };
+    })
+  };
+}
+
 export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
   const startedAt = Date.now();
   const budget = createBudget();
@@ -48,7 +64,8 @@ export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
       plan: {
         objective: query,
         tools: [],
-        reasoning: 'Smalltalk short-circuit'
+        reasoning: 'Smalltalk short-circuit',
+        stages: [{ id: 'direct', title: 'Doğrudan yanıt', tools: [], status: 'done' }]
       }
     };
   }
@@ -63,6 +80,7 @@ export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
   plan = normalizePlanTools(plan, policy.allowed);
 
   let allResults: ToolResult[] = [];
+  plan = updateStageStatuses(plan, []);
   let verification = verifyEvidence(plan, allResults, query);
 
   const stepLimit = Math.max(1, Math.min(policy.maxSteps, config.orchestrator.maxToolPasses));
@@ -98,6 +116,10 @@ export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
     });
 
     allResults = [...allResults, ...passResults];
+    plan = updateStageStatuses(
+      plan,
+      allResults.map((result) => result.tool)
+    );
 
     if (verification.suggestedTool) {
       plan = addSuggestedTool(plan, verification.suggestedTool);

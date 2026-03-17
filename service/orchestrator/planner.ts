@@ -1,4 +1,4 @@
-import type { Plan } from './types.js';
+import type { Plan, PlanStage } from './types.js';
 import type { ToolName } from '../tools/types.js';
 
 const FINANCIAL_KEYWORDS = [
@@ -129,6 +129,39 @@ function dedupe<T>(arr: T[]): T[] {
   return [...new Set(arr)];
 }
 
+function buildStages(tools: ToolName[]): PlanStage[] {
+  const stages: PlanStage[] = [];
+  const addStage = (id: string, title: string, stageTools: ToolName[]) => {
+    if (stageTools.length === 0) return;
+    stages.push({ id, title, tools: stageTools, status: 'pending' });
+  };
+
+  addStage(
+    'discover',
+    'Keşif ve kaynak toplama',
+    tools.filter((tool) => ['web_search', 'wikipedia', 'qmd_search', 'rag_search', 'memory_search'].includes(tool))
+  );
+
+  addStage(
+    'domain',
+    'Domain doğrulama',
+    tools.filter((tool) => ['mevzuat_mcp_search', 'yargi_mcp_search', 'borsa_mcp_search', 'financial_deep_search'].includes(tool))
+  );
+
+  addStage('synthesis', 'Derin analiz ve sentez', tools.filter((tool) => ['deep_research'].includes(tool)));
+
+  return stages.length > 0
+    ? stages
+    : [
+        {
+          id: 'direct',
+          title: 'Doğrudan yanıt',
+          tools: [],
+          status: 'pending'
+        }
+      ];
+}
+
 function shouldUseRag(query: string): boolean {
   const normalized = query.toLowerCase();
   if (hasKeyword(normalized, RAG_KEYWORDS)) return true;
@@ -222,6 +255,7 @@ export function planForQuery(query: string): Plan {
   return {
     objective: query,
     tools: normalizedTools,
-    reasoning: `Heuristic plan selected tools: ${normalizedTools.join(', ')}`
+    reasoning: `Heuristic plan selected tools: ${normalizedTools.join(', ')}`,
+    stages: buildStages(normalizedTools)
   };
 }
