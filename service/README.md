@@ -44,7 +44,11 @@
 - `YARGI_MCP_URL` (varsayılan: `https://yargimcp.fastmcp.app/mcp`)
 - `YARGI_MCP_FALLBACK_ENABLED` (varsayılan: true)
 - `MCP_HEALTH_PERSIST_ENABLED` (varsayılan: true)
+- `MCP_HEALTH_PERSIST_MODE` (`file`|`http`, varsayılan: `file`)
 - `MCP_HEALTH_STORE_FILE` (varsayılan: `.data/mcp-health.json`)
+- `MCP_HEALTH_PERSIST_HTTP_URL` (opsiyonel shared persistence endpoint)
+- `MCP_HEALTH_PERSIST_HTTP_TOKEN` (opsiyonel bearer token)
+- `MCP_HEALTH_PERSIST_HTTP_TIMEOUT_MS` (varsayılan: 2500)
 - `MCP_HEALTH_PERSIST_DEBOUNCE_MS` (varsayılan: 750)
 
 ## New endpoints
@@ -53,8 +57,8 @@
 - `GET /v1/rag/documents` → tenant belge listesi
 - `DELETE /v1/rag/documents/:documentId` → belge silme
 - `POST /v1/memory/items` → memory ingest / upsert
-- `POST /v1/memory/search` → memory retrieval + pre-retrieval decision
-- `GET /v1/memory/items` → tenant memory listesi
+- `POST /v1/memory/search` → memory retrieval + pre-retrieval decision (+ `related_memory_ids`)
+- `GET /v1/memory/items` → tenant memory listesi (+ `related_memory_ids`)
 - `GET /v1/memory/stats` → tenant memory istatistikleri
 - `DELETE /v1/memory/items/:memoryId` → memory silme
 - `GET /v1/mcp/health` → MCP health + circuit + latency telemetry

@@ -213,6 +213,7 @@ export async function registerMemoryRoutes(app: FastifyInstance) {
           source: hit.source,
           tags: hit.tags,
           score: hit.score,
+          related_memory_ids: hit.relatedMemoryIds,
           created: Math.floor(hit.createdAt / 1000),
           updated: Math.floor(hit.updatedAt / 1000)
         }))
@@ -256,6 +257,7 @@ export async function registerMemoryRoutes(app: FastifyInstance) {
         tags: item.tags,
         salience: item.salience,
         retrieval_count: item.retrievalCount,
+        related_memory_ids: item.relatedMemoryIds ?? [],
         last_retrieved: item.lastRetrievedAt ? Math.floor(item.lastRetrievedAt / 1000) : null,
         created: Math.floor(item.createdAt / 1000),
         updated: Math.floor(item.updatedAt / 1000)
