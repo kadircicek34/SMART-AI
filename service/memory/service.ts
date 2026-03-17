@@ -108,6 +108,37 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function jaccardSimilarity(a: string[], b: string[]): number {
+  const left = new Set(a);
+  const right = new Set(b);
+  if (left.size === 0 || right.size === 0) return 0;
+
+  let intersection = 0;
+  for (const token of left) {
+    if (right.has(token)) intersection += 1;
+  }
+
+  const union = left.size + right.size - intersection;
+  if (union <= 0) return 0;
+  return intersection / union;
+}
+
+function buildRelatedMemoryIds(params: {
+  candidateId: string;
+  candidateTokens: string[];
+  tenantItems: MemoryItemRecord[];
+}): string[] {
+  const scored = params.tenantItems
+    .filter((item) => item.memoryId !== params.candidateId)
+    .map((item) => ({ id: item.memoryId, score: jaccardSimilarity(params.candidateTokens, item.tokens) }))
+    .filter((entry) => entry.score >= 0.05)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5)
+    .map((entry) => entry.id);
+
+  return scored;
+}
+
 function sigmoid(value: number): number {
   return 1 / (1 + Math.exp(-value));
 }
@@ -413,6 +444,7 @@ export async function memorizeForTenant(params: {
         salience: item.salience,
         context: item.context,
         tokens: item.tokens,
+        relatedMemoryIds: existing?.relatedMemoryIds ?? [],
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
         lastRetrievedAt: existing?.lastRetrievedAt,
@@ -427,6 +459,17 @@ export async function memorizeForTenant(params: {
       } else {
         stored += 1;
       }
+    }
+
+    const linkedTenantItems = collectTenantMemories(store, tenantId);
+    for (const current of linkedTenantItems) {
+      const mutable = store.items[current.memoryId];
+      if (!mutable) continue;
+      mutable.relatedMemoryIds = buildRelatedMemoryIds({
+        candidateId: current.memoryId,
+        candidateTokens: current.tokens,
+        tenantItems: linkedTenantItems
+      });
     }
 
     // Hard trim in case tenant exceeds configured max.
@@ -559,6 +602,7 @@ export async function searchTenantMemories(params: {
         source: item.source,
         tags: item.tags,
         score: Number(score.toFixed(4)),
+        relatedMemoryIds: item.relatedMemoryIds ?? [],
         createdAt: item.createdAt,
         updatedAt: item.updatedAt
       }))

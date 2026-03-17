@@ -102,11 +102,22 @@ export const config = {
   },
   mcpHealth: {
     persistEnabled: (process.env.MCP_HEALTH_PERSIST_ENABLED ?? 'true').toLowerCase() === 'true',
+    persistenceMode: ((process.env.MCP_HEALTH_PERSIST_MODE ?? 'file').toLowerCase() === 'http' ? 'http' : 'file') as
+      | 'file'
+      | 'http',
     storeFile: process.env.MCP_HEALTH_STORE_FILE ?? path.resolve(process.cwd(), '.data', 'mcp-health.json'),
+    persistHttpUrl: process.env.MCP_HEALTH_PERSIST_HTTP_URL?.trim(),
+    persistHttpToken: process.env.MCP_HEALTH_PERSIST_HTTP_TOKEN?.trim(),
+    persistHttpTimeoutMs: Number(process.env.MCP_HEALTH_PERSIST_HTTP_TIMEOUT_MS ?? 2500),
     persistDebounceMs: Number(process.env.MCP_HEALTH_PERSIST_DEBOUNCE_MS ?? 750)
   },
   security: {
     masterKey: getMasterKey()
+  },
+  uiSession: {
+    ttlSeconds: Number(process.env.UI_SESSION_TTL_SECONDS ?? 1800),
+    maxAuthFailuresPerWindow: Number(process.env.UI_SESSION_MAX_AUTH_FAILURES ?? 5),
+    authBlockSeconds: Number(process.env.UI_SESSION_AUTH_BLOCK_SECONDS ?? 120)
   }
 };
 

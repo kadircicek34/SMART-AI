@@ -30,6 +30,7 @@ export type MemoryItemRecord = {
   salience: number;
   context?: string;
   tokens: string[];
+  relatedMemoryIds?: string[];
   createdAt: number;
   updatedAt: number;
   lastRetrievedAt?: number;
@@ -66,6 +67,7 @@ export type MemorySearchHit = {
   source: string;
   tags: string[];
   score: number;
+  relatedMemoryIds?: string[];
   createdAt: number;
   updatedAt: number;
 };
