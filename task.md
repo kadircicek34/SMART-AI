@@ -1,5 +1,13 @@
 # TASKS — OpenRouter Agentic Intelligence API
 
+## v1.2 Delta (UI Session Auth Hardening) — Tamamlandı
+- [x] `POST /ui/session` endpointi eklendi (API key -> kısa ömürlü tenant token)
+- [x] `/v1/*` auth middleware APP key + UI session token kabul edecek şekilde genişletildi
+- [x] Tenant-scope token enforcement eklendi (cross-tenant access -> 403)
+- [x] Chat UI localStorage API key persistence kaldırıldı (`sessionStorage` token modeli)
+- [x] Yeni contract testleri eklendi (`service/tests/contract/ui.test.ts`)
+- [x] Fresh verification: typecheck + test + audit + delivery-gate
+
 ## v1.1 Delta (Control Dashboard + Chatbot UI) — Tamamlandı
 - [x] Web control dashboard eklendi (`/ui/dashboard`)
 - [x] Kullanıcı chatbot arayüzü eklendi (`/ui/chat`)
@@ -245,3 +253,16 @@
 - OpenRouter model fallback zinciri (varsayılan model listesi)
 - İlk sürümde deep-research tool’un sync mi async mi expose edileceği
 - Finans tool erişim policy’sinin tenant bazlı açma/kapama seviyesi
+
+## 2026-03-17 Ek Sprint — Risk Closure
+- [x] `/ui/session` için anti-bruteforce/rate-limit katmanı
+- [x] `POST /ui/session/revoke` endpoint + UI logout akışı
+- [x] MCP health persistence’i shared-backend destekli abstraction'a taşı (http/file)
+- [x] Testler + delivery gate
+
+## 2026-03-17 Ek Sprint — External repo synthesis
+- [x] `mcporter` ile `github-readonly` + `repomix` üzerinden 3 referans repo analiz edildi
+- [x] Orchestrator planına stage checklist eklendi
+- [x] Stage status takibi (pending/running/done) eklendi
+- [x] Memory semantic linking (`relatedMemoryIds`) eklendi
+- [x] Test + audit + delivery gate çalıştırıldı

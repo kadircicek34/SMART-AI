@@ -1,28 +1,26 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "v1.1 control dashboard + chatbot UI production seviyede tamamlandı",
+  "current_task": "cross-repo synthesis (MiroFish + deepagents + A-mem) tamamlandı: stage checklist + stage status + related memory links",
   "next_actions": [
-    "UI için session/token abstraction (plain API key yerine)",
+    "MCP health HTTP persistence backend'i için merkezi KV/Redis servisi devreye al",
     "MCP health metriklerini Prometheus/OTEL'e export et",
-    "MCP retry budget'i circuit state'e göre policy-driven hale getir",
-    "Memory/RAG encrypt-at-rest (KMS)"
+    "Memory/RAG encrypt-at-rest (KMS)",
+    "related memory links için vector-embedding tabanlı benzerlik katmanı"
   ],
   "risks": [
-    "UI tarafında API key localStorage'da tutuluyor; production'da kısa ömürlü session token önerilir",
-    "MCP health persistence local disk tabanlı; multi-instance shared state henüz yok",
-    "MASTER_KEY env yönetimi production'da secret manager gerektirir"
+    "MCP health HTTP persistence endpoint operasyonel olarak dış sistem bağımlılığı gerektirir",
+    "MASTER_KEY env yönetimi production'da secret manager gerektirir",
+    "related memory linkler şu an lexical/Jaccard; embedding tabanlı semantic kalite sonraki fazda artırılmalı"
   ],
   "decisions": [
     "Mimari: Modüler monolith + async worker",
-    "Pattern-level sentez yaklaşımı",
-    "QMD: local CLI tabanlı qmd_search tool entegrasyonu",
-    "Memory: pre-retrieval decision + hotness + retrieval telemetry",
-    "Financial: OpenBB-style provider fallback (stooq + alpha_vantage)",
-    "Türk domain MCP: mevzuat/borsa/yargı remote MCP entegrasyonu",
-    "MCP resilience: circuit breaker + adaptive timeout + health endpointleri",
-    "MCP health persistence: snapshot store + startup restore + ops flush",
-    "Control dashboard + chatbot UI: server içinden statik route ile teslim"
+    "UI auth hardening: API key yerine tenant-scope kısa ömürlü session token",
+    "UI session anti-bruteforce: IP+tenant pencere + geçici lock + retry-after",
+    "UI logout lifecycle: POST /ui/session/revoke",
+    "MCP health persistence: file/http abstract backend + fallback",
+    "Orchestrator plan görünürlüğü için stages checklist eklendi",
+    "Memory katmanına tenant-scope relatedMemoryIds linking eklendi"
   ],
   "artifacts": [
     "README.md",
@@ -30,13 +28,16 @@
     "delivery.md",
     "test-report.md",
     "security-report.md",
-    "service/api/routes/ui.ts",
-    "service/web/dashboard.html",
-    "service/web/chat.html",
-    "service/web/assets/app.css",
-    "service/web/assets/dashboard.js",
-    "service/web/assets/chat.js",
-    "service/tests/contract/ui.test.ts"
+    "task.md",
+    "roadmap.md",
+    "service/orchestrator/planner.ts",
+    "service/orchestrator/run.ts",
+    "service/orchestrator/types.ts",
+    "service/memory/service.ts",
+    "service/memory/types.ts",
+    "service/api/routes/memory.ts",
+    "service/tests/orchestrator/planner.test.ts",
+    "service/tests/memory/memory-service.test.ts"
   ],
-  "updated_at": "2026-03-17T02:52:48+03:00"
+  "updated_at": "2026-03-17T13:12:00+03:00"
 }

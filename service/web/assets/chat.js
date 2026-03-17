@@ -1,16 +1,16 @@
-const STORAGE_KEY = 'smart_ai_ui_settings_v1';
+const SETTINGS_STORAGE_KEY = 'smart_ai_ui_settings_v2';
+const SESSION_STORAGE_KEY = 'smart_ai_ui_session_token_v1';
 
 function defaultSettings() {
   return {
     baseUrl: window.location.origin,
-    apiKey: '',
     tenantId: 'tenant-a',
     model: 'openrouter/agentic-default'
   };
 }
 
 function getSettings() {
-  const raw = localStorage.getItem(STORAGE_KEY);
+  const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
   if (!raw) return defaultSettings();
 
   try {
@@ -21,12 +21,29 @@ function getSettings() {
 }
 
 function setSettings(settings) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+  localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+}
+
+function getSessionToken() {
+  return sessionStorage.getItem(SESSION_STORAGE_KEY) ?? '';
+}
+
+function setSessionToken(token) {
+  if (!token) {
+    sessionStorage.removeItem(SESSION_STORAGE_KEY);
+    return;
+  }
+  sessionStorage.setItem(SESSION_STORAGE_KEY, token);
 }
 
 function authHeaders(settings) {
+  const token = getSessionToken();
+  if (!token) {
+    throw new Error('Önce API Key ile oturum açın.');
+  }
+
   return {
-    authorization: `Bearer ${settings.apiKey}`,
+    authorization: `Bearer ${token}`,
     'x-tenant-id': settings.tenantId,
     'content-type': 'application/json'
   };
@@ -67,17 +84,55 @@ async function fetchJson(url, options = {}) {
 
 function fillSettingsForm(settings) {
   document.getElementById('baseUrl').value = settings.baseUrl;
-  document.getElementById('apiKey').value = settings.apiKey;
   document.getElementById('tenantId').value = settings.tenantId;
 }
 
 function readSettingsForm() {
   return {
     baseUrl: document.getElementById('baseUrl').value.trim().replace(/\/$/, ''),
-    apiKey: document.getElementById('apiKey').value.trim(),
     tenantId: document.getElementById('tenantId').value.trim(),
     model: document.getElementById('modelSelect').value || 'openrouter/agentic-default'
   };
+}
+
+async function signIn(settings) {
+  const apiKey = document.getElementById('apiKey').value.trim();
+  if (!apiKey) {
+    throw new Error('API Key gerekli.');
+  }
+
+  const data = await fetchJson(`${settings.baseUrl}/ui/session`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ apiKey, tenantId: settings.tenantId })
+  });
+
+  setSessionToken(data?.token ?? '');
+  document.getElementById('apiKey').value = '';
+  setStatus(`Oturum açıldı. Token bitiş: ${data.expiresAt}`);
+}
+
+async function signOut(settings) {
+  const token = getSessionToken();
+  if (!token) {
+    setStatus('Aktif oturum yok.');
+    return;
+  }
+
+  try {
+    await fetchJson(`${settings.baseUrl}/ui/session/revoke`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'x-tenant-id': settings.tenantId,
+        'content-type': 'application/json'
+      }
+    });
+  } finally {
+    setSessionToken('');
+  }
+
+  setStatus('Oturum kapatıldı.');
 }
 
 async function loadModels(settings) {
@@ -131,7 +186,33 @@ async function init() {
   document.getElementById('saveSettings').addEventListener('click', () => {
     const next = readSettingsForm();
     setSettings(next);
-    setStatus('Ayarlar kaydedildi.');
+    setStatus('Ayarlar kaydedildi. API Key saklanmaz.');
+  });
+
+  document.getElementById('signIn').addEventListener('click', async () => {
+    const next = readSettingsForm();
+    setSettings(next);
+
+    try {
+      await signIn(next);
+      await loadModels(next);
+      setStatus('Oturum hazır, model listesi yüklendi.');
+    } catch (error) {
+      setStatus(String(error), true);
+      renderMessage('system', String(error));
+    }
+  });
+
+  document.getElementById('signOut').addEventListener('click', async () => {
+    const next = readSettingsForm();
+    setSettings(next);
+
+    try {
+      await signOut(next);
+    } catch (error) {
+      setStatus(String(error), true);
+      renderMessage('system', String(error));
+    }
   });
 
   document.getElementById('loadModels').addEventListener('click', async () => {
@@ -173,12 +254,18 @@ async function init() {
     box.innerHTML = '';
   });
 
+  if (!getSessionToken()) {
+    setStatus('Önce API Key ile oturum açın.', false);
+    renderMessage('system', 'Güvenlik için API Key localStorage yerine kısa ömürlü oturum tokenına çevrilir.');
+    return;
+  }
+
   try {
     await loadModels(settings);
     setStatus('Chat UI hazır.');
-  } catch (error) {
-    setStatus('Model yükleme için API Key/Tenant girin.', false);
-    renderMessage('system', 'Model yükleme için önce API Key ve Tenant girin.');
+  } catch {
+    setStatus('Oturum süresi dolmuş olabilir. Tekrar giriş yapın.', false);
+    setSessionToken('');
   }
 }
 
