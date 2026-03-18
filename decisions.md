@@ -474,3 +474,37 @@ Uygulanan adaptasyonlar:
 ### Bilinçli Olarak Ertelenenler
 - KMS/HSM entegrasyonu ve otomatik key rotation
 - Startup secret health endpoint'i ve policy-as-code doğrulaması
+
+---
+
+## 2026-03-18 — Security telemetry + UI hardening kararı (dashboard sessionization)
+### Problem
+Security olayları runtime içinde görünür değildi; dashboard API key’i localStorage’da tutarak gereksiz tarayıcı risk yüzeyi yaratıyordu.
+
+### Seçenekler
+- A: Mevcut dashboard modelini korumak
+- B: Sadece backend’de audit event toplayıp UI'yı değiştirmemek
+- C: Tenant-scope security event feed + dashboard session token modeli + UI origin/header hardening
+
+### Karar
+**C seçildi:**
+- `GET /v1/security/events` endpointi eklendi (tenant-scope audit feed)
+- Dashboard auth modeli chat UI ile hizalandı (API key kalıcı saklanmıyor, kısa ömürlü session token)
+- UI state-changing endpoint’lere (`/ui/session`, `/ui/session/revoke`) origin allowlist kontrolü eklendi
+- UI static yanıtlarına CSP + güvenlik header’ları eklendi
+- `x-tenant-id` format doğrulaması zorunlu hale getirildi
+
+### Gerekçe
+- Security operasyonları için doğrudan gözlemlenebilirlik sağlar.
+- Browser-side key exposure riskini düşürür.
+- Origin tabanlı istek hijack/CSRF benzeri riskleri azaltır.
+- Header hardening ile clickjacking/MIME sniffing yüzeyi daraltılır.
+
+### Etki
+- Dashboard güvenlik posture’ı belirgin güçlendi.
+- Tenant başına auth/rate-limit/session/origin olayları izlenebilir oldu.
+- API kontratına yeni endpoint eklendi, test kapsamı genişledi.
+
+### Bilinçli Olarak Ertelenenler
+- Audit event persistence’in merkezi store’a taşınması (şu an process-memory bounded store)
+- SIEM/OTEL export pipeline

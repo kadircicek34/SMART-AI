@@ -7,6 +7,11 @@ const parseCsv = (value: string | undefined): string[] =>
     .map((v) => v.trim())
     .filter(Boolean);
 
+const parseOrigins = (value: string | undefined): string[] =>
+  parseCsv(value)
+    .map((origin) => origin.toLowerCase())
+    .filter((origin) => origin.startsWith('http://') || origin.startsWith('https://'));
+
 function getMasterKey(): Buffer {
   const raw = process.env.MASTER_KEY_BASE64;
   if (raw) {
@@ -120,7 +125,11 @@ export const config = {
     persistDebounceMs: Number(process.env.MCP_HEALTH_PERSIST_DEBOUNCE_MS ?? 750)
   },
   security: {
-    masterKey: getMasterKey()
+    masterKey: getMasterKey(),
+    auditMaxEventsPerTenant: Number(process.env.SECURITY_AUDIT_MAX_EVENTS_PER_TENANT ?? 300)
+  },
+  ui: {
+    allowedOrigins: parseOrigins(process.env.UI_ALLOWED_ORIGINS)
   },
   uiSession: {
     ttlSeconds: Number(process.env.UI_SESSION_TTL_SECONDS ?? 1800),

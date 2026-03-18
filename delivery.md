@@ -72,3 +72,32 @@ Bu koşumda en yüksek etkili günlük iyileştirme olarak **UI güvenlik sertle
 
 ### Kalan riskler
 - Secret rotation ve merkezi KMS entegrasyonu hâlâ sonraki iterasyon konusu.
+
+## 2026-03-18 Teslim ek paketi (security telemetry + dashboard hardening)
+### Yapılan ana geliştirme (yeni özellik)
+- **Tenant-scope Security Event Feed** eklendi: `GET /v1/security/events`
+  - UI/API auth başarısızlıkları
+  - tenant mismatch olayları
+  - rate-limit blokları
+  - UI origin blokları
+  - UI session issue/revoke olayları
+
+### Aynı koşumdaki ciddi güvenlik iyileştirmeleri
+1. Dashboard auth akışı session token modeline geçirildi (API key localStorage persistence kaldırıldı).
+2. UI state-changing endpointlerinde origin allowlist enforcement eklendi (`UI_ALLOWED_ORIGINS`).
+3. `x-tenant-id` format doğrulaması zorunlu hale getirildi.
+4. UI HTML yanıtlarına CSP + hardening security header seti eklendi.
+
+### Ürün/operasyon etkisi
+- Dashboard üzerinden tenant güvenlik olayları gerçek zamanlı izlenebilir hale geldi.
+- Frontend secret handling posture iyileşti.
+- Cross-origin kötüye kullanım yüzeyi ve tenant-id manipülasyon riski azaldı.
+
+### Verification
+- `npm run typecheck` ✅
+- `npm test` ✅ (80/80)
+- `npm audit --omit=dev` ✅ (0 vuln)
+- `delivery-gate` ✅ PASS
+
+### Kalan riskler
+- Security event store şimdilik in-memory; kalıcı SIEM/OTEL export ve merkezi persistence sonraki fazda alınacak.

@@ -9,6 +9,7 @@ before(async () => {
   process.env.KEY_STORE_FILE = '/tmp/smart-ai-test-keys-ui.json';
   process.env.MASTER_KEY_BASE64 = Buffer.alloc(32, 6).toString('base64');
   process.env.UI_SESSION_TTL_SECONDS = '120';
+  process.env.UI_ALLOWED_ORIGINS = 'https://dashboard.example.com';
 
   const mod = await import('../../api/app.js');
   app = mod.buildApp();
@@ -18,12 +19,15 @@ after(async () => {
   await app.close();
 });
 
-test('GET /ui/dashboard serves control dashboard HTML', async () => {
+test('GET /ui/dashboard serves control dashboard HTML with security headers', async () => {
   const res = await app.inject({ method: 'GET', url: '/ui/dashboard' });
 
   assert.equal(res.statusCode, 200);
   assert.match(res.headers['content-type'] ?? '', /text\/html/);
   assert.match(res.body, /SMART-AI Control Dashboard/);
+  assert.match(String(res.headers['content-security-policy'] ?? ''), /default-src 'self'/);
+  assert.equal(res.headers['x-frame-options'], 'DENY');
+  assert.equal(res.headers['x-content-type-options'], 'nosniff');
 });
 
 test('GET /ui/chat serves chatbot UI HTML', async () => {
@@ -161,4 +165,49 @@ test('POST /ui/session brute-force attempts trigger temporary 429 lock', async (
 
   assert.equal(blocked.statusCode, 429);
   assert.ok(Number(blocked.headers['retry-after']) >= 1);
+});
+
+test('POST /ui/session rejects invalid tenant id format', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/ui/session',
+    payload: {
+      apiKey: 'test-api-key',
+      tenantId: '../tenant'
+    }
+  });
+
+  assert.equal(res.statusCode, 400);
+});
+
+test('POST /ui/session blocks origin not in allowlist', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/ui/session',
+    payload: {
+      apiKey: 'test-api-key',
+      tenantId: 'tenant-origin'
+    },
+    headers: {
+      origin: 'https://evil.example.com'
+    }
+  });
+
+  assert.equal(res.statusCode, 403);
+});
+
+test('POST /ui/session accepts allowlisted origin', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/ui/session',
+    payload: {
+      apiKey: 'test-api-key',
+      tenantId: 'tenant-origin-ok'
+    },
+    headers: {
+      origin: 'https://dashboard.example.com'
+    }
+  });
+
+  assert.equal(res.statusCode, 200);
 });

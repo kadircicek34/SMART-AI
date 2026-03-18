@@ -52,6 +52,8 @@
 - `MCP_HEALTH_PERSIST_HTTP_TOKEN` (opsiyonel bearer token)
 - `MCP_HEALTH_PERSIST_HTTP_TIMEOUT_MS` (varsayılan: 2500)
 - `MCP_HEALTH_PERSIST_DEBOUNCE_MS` (varsayılan: 750)
+- `UI_ALLOWED_ORIGINS` (opsiyonel CSV allowlist, örn: `https://dashboard.example.com,https://ops.example.com`)
+- `SECURITY_AUDIT_MAX_EVENTS_PER_TENANT` (varsayılan: 300)
 
 ## New endpoints
 - `POST /v1/rag/documents` → belge veya URL ingest
@@ -67,6 +69,7 @@
 - `GET /v1/mcp/health/:serverId` → tek MCP sunucusu health detayı
 - `POST /v1/mcp/reset` → circuit reset
 - `POST /v1/mcp/flush` → health snapshot’ını diskte flush etme
+- `GET /v1/security/events` → tenant-scope güvenlik olay akışı (auth/rate-limit/origin/session)
 - `GET /ui/dashboard` → control dashboard (web)
 - `GET /ui/chat` → kullanıcı chatbot arayüzü (web)
 

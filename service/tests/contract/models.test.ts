@@ -22,6 +22,19 @@ test('GET /v1/models requires auth', async () => {
   assert.equal(res.statusCode, 401);
 });
 
+test('GET /v1/models rejects invalid tenant header format', async () => {
+  const res = await app.inject({
+    method: 'GET',
+    url: '/v1/models',
+    headers: {
+      authorization: 'Bearer test-api-key',
+      'x-tenant-id': '../tenant-test'
+    }
+  });
+
+  assert.equal(res.statusCode, 400);
+});
+
 test('GET /v1/models returns OpenAI-compatible list', async () => {
   const res = await app.inject({
     method: 'GET',

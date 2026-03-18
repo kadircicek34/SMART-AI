@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { config } from '../../config.js';
+import { securityAuditLog } from '../../security/audit-log.js';
 
 type WindowState = {
   windowStartMs: number;
@@ -44,6 +45,18 @@ export async function rateLimitMiddleware(req: FastifyRequest, reply: FastifyRep
   reply.header('x-ratelimit-reset', String(state.windowStartMs + WINDOW_MS));
 
   if (state.count > config.rateLimitPerMinute) {
+    securityAuditLog.record({
+      tenant_id: tenantId,
+      type: 'api_rate_limited',
+      ip: req.ip,
+      request_id: req.requestContext?.requestId,
+      details: {
+        path: req.url,
+        request_count: state.count,
+        window_start_ms: state.windowStartMs
+      }
+    });
+
     return reply.status(429).send({
       error: {
         type: 'rate_limit_error',

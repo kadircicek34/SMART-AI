@@ -10,7 +10,7 @@
     <header class="topbar">
       <div>
         <h1>SMART-AI Control Dashboard</h1>
-        <p>Canlı servis durumu, MCP health ve tenant metrikleri</p>
+        <p>Canlı servis durumu, MCP health, tenant metrikleri ve güvenlik olayları</p>
       </div>
       <nav class="topnav">
         <a href="/ui/dashboard" class="active">Dashboard</a>
@@ -27,16 +27,18 @@
             <input id="baseUrl" type="text" placeholder="http://127.0.0.1:8080" />
           </label>
           <label>
-            API Key
-            <input id="apiKey" type="password" placeholder="Bearer key" />
-          </label>
-          <label>
             Tenant ID
             <input id="tenantId" type="text" placeholder="tenant-a" />
+          </label>
+          <label>
+            API Key (yalnızca giriş için)
+            <input id="apiKey" type="password" placeholder="Bearer key" autocomplete="off" />
           </label>
         </div>
         <div class="actions">
           <button id="saveSettings">Kaydet</button>
+          <button id="signIn">Oturum Aç</button>
+          <button id="signOut" class="secondary">Oturum Kapat</button>
           <button id="refreshAll" class="secondary">Yenile</button>
           <button id="flushMcp" class="secondary">MCP Flush</button>
         </div>
@@ -60,6 +62,10 @@
           <h3>RAG Doküman</h3>
           <p id="ragStats">—</p>
         </article>
+        <article class="card metric">
+          <h3>Security Events (24h)</h3>
+          <p id="securityEvents">—</p>
+        </article>
       </section>
 
       <section class="card">
@@ -76,6 +82,21 @@
             </tr>
           </thead>
           <tbody id="mcpTableBody"></tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h2>Son Güvenlik Olayları</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Zaman</th>
+              <th>Tip</th>
+              <th>IP</th>
+              <th>Detay</th>
+            </tr>
+          </thead>
+          <tbody id="securityTableBody"></tbody>
         </table>
       </section>
 

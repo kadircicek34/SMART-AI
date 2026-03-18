@@ -48,3 +48,20 @@ UI güvenlik modeli güçlendirildi: API key artık kalıcı tarayıcı saklamas
   - base64 decode sonrası anahtar <32 byte ise startup error
 - Dev/test ortamı için deterministic fallback korunarak local developer deneyimi bozulmadı.
 - Sonuç: yanlış prod konfigürasyonunda sessiz insecure fallback riski kapatıldı.
+
+## 2026-03-18 Güvenlik sertleştirmesi — UI + tenant boundary + audit feed
+- `x-tenant-id` için format doğrulaması eklendi (header injection / path-like tenant id reddi).
+- UI state-changing endpointleri için origin allowlist denetimi eklendi (`UI_ALLOWED_ORIGINS`).
+- UI static yanıtlarında CSP + hardening header seti aktif edildi:
+  - `content-security-policy`
+  - `x-frame-options=DENY`
+  - `x-content-type-options=nosniff`
+  - `referrer-policy=no-referrer`
+  - `permissions-policy` + `cross-origin-resource-policy`
+- Yeni tenant-scope audit event katmanı eklendi:
+  - event tipleri: auth fail, tenant mismatch, rate-limit, ui origin block, session issue/revoke
+  - endpoint: `GET /v1/security/events`
+- Dashboard auth modeli API key persistence'tan çıkarıldı; kısa ömürlü token ile sessionStorage modeline geçti.
+
+Ek not:
+- Audit event store şu an process-memory bounded tutulur; restart sonrası korunmaz. Merkezi persistence/SIEM entegrasyonu sonraki faz için backlog'da tutuldu.

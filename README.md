@@ -29,6 +29,7 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - **OpenBB-inspired financial provider fallback** (Stooq + AlphaVantage quote harmonization)
 - **Türk domain MCP entegrasyonu** (Mevzuat MCP + Borsa MCP + Yargı MCP via mcporter)
 - **MCP Dayanıklılık Katmanı** (circuit breaker + adaptive timeout + kalıcı health snapshot + health endpointleri)
+- **Security Audit Event Feed** (`/v1/security/events`) + dashboard güvenlik olay görünürlüğü
 
 ## Klasörler
 - `contracts/` → API sözleşmeleri
@@ -127,6 +128,13 @@ curl -X POST http://127.0.0.1:8080/v1/mcp/flush \
   -H 'x-tenant-id: tenant-a'
 ```
 
+## Security Event Feed
+```bash
+curl 'http://127.0.0.1:8080/v1/security/events?limit=20' \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a'
+```
+
 ## Web UI (Control Dashboard + Chat UI)
 Sunucu kalktıktan sonra:
 - `http://127.0.0.1:8080/ui/dashboard`
@@ -138,6 +146,9 @@ Yeni güvenlik akışı:
 - `/ui/session` endpoint’inde brute-force koruması (IP+tenant bazlı geçici lock)
 - `POST /ui/session/revoke` ile aktif token revoke/logout desteği
 - Login hata mesajı normalize edilmiştir (`Invalid credentials`).
+- UI state-changing endpoint’lerde Origin allowlist kontrolü (`UI_ALLOWED_ORIGINS`) desteklenir.
+- `/ui/dashboard` ve `/ui/chat` yanıtlarında CSP + güvenlik header’ları uygulanır.
+- Dashboard artık API key’i localStorage’da tutmaz; chat ile aynı kısa ömürlü session token modeli kullanılır.
 
 ## QMD Collection Bootstrap (opsiyonel manuel)
 ```bash

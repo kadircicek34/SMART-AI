@@ -1,17 +1,17 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "production secret hardening tamamlandı: MASTER_KEY_BASE64 fail-fast + regression test coverage",
+  "current_task": "security telemetry + dashboard hardening tamamlandı: tenant-scope security events feed, origin allowlist, tenant-id validation, dashboard session token migration",
   "next_actions": [
-    "MCP health HTTP persistence backend'i için merkezi KV/Redis servisi devreye al",
-    "MCP health metriklerini Prometheus/OTEL'e export et",
+    "Security event store için persistent backend (Redis/Postgres) ve retention policy ekle",
+    "Security event akışını OTEL/SIEM pipeline'ına export et",
     "Memory/RAG encrypt-at-rest (KMS)",
-    "related memory links için vector-embedding tabanlı benzerlik katmanı"
+    "MCP health HTTP persistence backend'i için merkezi KV/Redis servisi devreye al"
   ],
   "risks": [
-    "MCP health HTTP persistence endpoint operasyonel olarak dış sistem bağımlılığı gerektirir",
-    "MASTER_KEY env yönetimi production'da secret manager gerektirir",
-    "related memory linkler şu an lexical/Jaccard; embedding tabanlı semantic kalite sonraki fazda artırılmalı"
+    "Security event store şu an process-memory; servis restart sonrası event geçmişi sıfırlanır",
+    "UI_ALLOWED_ORIGINS yanlış konfigürasyonunda production dashboard login akışı bloklanabilir",
+    "MASTER_KEY env yönetimi production'da secret manager gerektirir"
   ],
   "decisions": [
     "Mimari: Modüler monolith + async worker",
@@ -21,7 +21,9 @@
     "MCP health persistence: file/http abstract backend + fallback",
     "Orchestrator plan görünürlüğü için stages checklist eklendi",
     "Memory katmanına tenant-scope relatedMemoryIds linking eklendi",
-    "Production'ta MASTER_KEY_BASE64 eksik/geçersiz ise fail-fast startup zorunlu"
+    "Production'ta MASTER_KEY_BASE64 eksik/geçersiz ise fail-fast startup zorunlu",
+    "Security telemetry: /v1/security/events tenant-scope audit feed + dashboard security panel",
+    "UI hardening: origin allowlist enforcement + CSP/security headers + tenant-id format validation"
   ],
   "artifacts": [
     "README.md",
@@ -32,8 +34,20 @@
     "task.md",
     "roadmap.md",
     "service/config.ts",
+    "service/.env.example",
     "service/README.md",
-    "service/tests/security/config-master-key.test.ts"
+    "service/api/middleware/auth.ts",
+    "service/api/middleware/rate-limit.ts",
+    "service/api/routes/security-events.ts",
+    "service/api/routes/ui.ts",
+    "service/security/audit-log.ts",
+    "service/security/origin-guard.ts",
+    "service/security/tenant-id.ts",
+    "service/web/dashboard.html",
+    "service/web/assets/dashboard.js",
+    "service/tests/contract/security-events.test.ts",
+    "service/tests/security/audit-log.test.ts",
+    "service/tests/security/origin-guard.test.ts"
   ],
-  "updated_at": "2026-03-18T07:01:52+03:00"
+  "updated_at": "2026-03-18T23:39:30+03:00"
 }

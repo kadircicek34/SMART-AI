@@ -56,3 +56,24 @@ UI auth katmanı kısa ömürlü session token modeline geçirildi; test paketi 
     - development modda fallback master key kabulü
     - production modda missing `MASTER_KEY_BASE64` için fail-fast
     - production modda geçersiz/short `MASTER_KEY_BASE64` için fail-fast
+
+## 2026-03-18 Ek doğrulama (security telemetry + dashboard hardening)
+- `npm run typecheck` ✅
+- `npm test` ✅ (**80/80**)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+- Yeni testler:
+  - `service/tests/contract/security-events.test.ts`
+    - tenant-scope security event feed
+    - type filter doğrulaması
+  - `service/tests/security/audit-log.test.ts`
+    - bounded tenant event retention
+    - type/since filtreleme
+  - `service/tests/security/origin-guard.test.ts`
+    - allowlist enforcement + malformed origin reject
+  - `service/tests/contract/ui.test.ts` güncellendi
+    - CSP ve güvenlik header doğrulaması
+    - invalid tenant format rejection
+    - UI origin allowlist block/allow senaryoları
+  - `service/tests/contract/models.test.ts` güncellendi
+    - invalid tenant header rejection

@@ -1,7 +1,17 @@
-const STORAGE_KEY = 'smart_ai_ui_settings_v1';
+const SETTINGS_STORAGE_KEY = 'smart_ai_ui_dashboard_settings_v2';
+const SESSION_STORAGE_KEY = 'smart_ai_ui_session_token_v1';
 
 function nowIso() {
   return new Date().toLocaleString('tr-TR');
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 function log(message) {
@@ -10,34 +20,51 @@ function log(message) {
   box.textContent = `[${nowIso()}] ${message}\n` + box.textContent;
 }
 
+function defaultSettings() {
+  return {
+    baseUrl: window.location.origin,
+    tenantId: 'tenant-a'
+  };
+}
+
 function getSettings() {
-  const saved = localStorage.getItem(STORAGE_KEY);
+  const saved = localStorage.getItem(SETTINGS_STORAGE_KEY);
   if (!saved) {
-    return {
-      baseUrl: window.location.origin,
-      apiKey: '',
-      tenantId: 'tenant-a'
-    };
+    return defaultSettings();
   }
 
   try {
-    return JSON.parse(saved);
+    return { ...defaultSettings(), ...JSON.parse(saved) };
   } catch {
-    return {
-      baseUrl: window.location.origin,
-      apiKey: '',
-      tenantId: 'tenant-a'
-    };
+    return defaultSettings();
   }
 }
 
 function setSettings(settings) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+  localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+}
+
+function getSessionToken() {
+  return sessionStorage.getItem(SESSION_STORAGE_KEY) ?? '';
+}
+
+function setSessionToken(token) {
+  if (!token) {
+    sessionStorage.removeItem(SESSION_STORAGE_KEY);
+    return;
+  }
+
+  sessionStorage.setItem(SESSION_STORAGE_KEY, token);
 }
 
 function authHeaders(settings) {
+  const token = getSessionToken();
+  if (!token) {
+    throw new Error('Önce API Key ile oturum açın.');
+  }
+
   return {
-    authorization: `Bearer ${settings.apiKey}`,
+    authorization: `Bearer ${token}`,
     'x-tenant-id': settings.tenantId,
     'content-type': 'application/json'
   };
@@ -63,14 +90,12 @@ async function safeFetchJson(url, options = {}) {
 
 function fillSettingsForm(settings) {
   document.getElementById('baseUrl').value = settings.baseUrl;
-  document.getElementById('apiKey').value = settings.apiKey;
   document.getElementById('tenantId').value = settings.tenantId;
 }
 
 function readSettingsForm() {
   return {
     baseUrl: document.getElementById('baseUrl').value.trim().replace(/\/$/, ''),
-    apiKey: document.getElementById('apiKey').value.trim(),
     tenantId: document.getElementById('tenantId').value.trim()
   };
 }
@@ -82,14 +107,40 @@ function renderMcpTable(servers = {}) {
   for (const [serverId, server] of Object.entries(servers)) {
     const tr = document.createElement('tr');
 
-    const err = server.lastError ? server.lastError.slice(0, 80) : '—';
+    const err = server.lastError ? server.lastError.slice(0, 100) : '—';
     tr.innerHTML = `
-      <td>${serverId}</td>
-      <td>${server.circuitState}</td>
-      <td>${server.totalCalls}</td>
-      <td>${server.totalFailures}</td>
-      <td>${server.avgLatencyMs} / ${server.p95LatencyMs}</td>
-      <td>${err}</td>
+      <td>${escapeHtml(serverId)}</td>
+      <td>${escapeHtml(server.circuitState)}</td>
+      <td>${escapeHtml(server.totalCalls)}</td>
+      <td>${escapeHtml(server.totalFailures)}</td>
+      <td>${escapeHtml(server.avgLatencyMs)} / ${escapeHtml(server.p95LatencyMs)}</td>
+      <td>${escapeHtml(err)}</td>
+    `;
+
+    tbody.appendChild(tr);
+  }
+}
+
+function renderSecurityTable(events = []) {
+  const tbody = document.getElementById('securityTableBody');
+  tbody.innerHTML = '';
+
+  if (!events.length) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="4">Kayıt yok</td>';
+    tbody.appendChild(tr);
+    return;
+  }
+
+  for (const event of events) {
+    const tr = document.createElement('tr');
+    const detail = event.details ? JSON.stringify(event.details) : '—';
+
+    tr.innerHTML = `
+      <td>${escapeHtml(new Date(event.timestamp).toLocaleString('tr-TR'))}</td>
+      <td>${escapeHtml(event.type)}</td>
+      <td>${escapeHtml(event.ip ?? '—')}</td>
+      <td>${escapeHtml(detail.slice(0, 140))}</td>
     `;
 
     tbody.appendChild(tr);
@@ -97,8 +148,8 @@ function renderMcpTable(servers = {}) {
 }
 
 async function loadDashboard(settings) {
-  if (!settings.apiKey || !settings.tenantId) {
-    throw new Error('API Key ve Tenant ID zorunlu.');
+  if (!settings.tenantId) {
+    throw new Error('Tenant ID zorunlu.');
   }
 
   const health = await safeFetchJson(`${settings.baseUrl}/health`);
@@ -121,6 +172,14 @@ async function loadDashboard(settings) {
   const docs = Array.isArray(ragDocs.documents) ? ragDocs.documents.length : 0;
   document.getElementById('ragStats').textContent = `documents=${docs}`;
 
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const security = await safeFetchJson(`${settings.baseUrl}/v1/security/events?limit=20&since=${encodeURIComponent(since)}`, {
+    headers: authHeaders(settings)
+  });
+  const events = Array.isArray(security.data) ? security.data : [];
+  document.getElementById('securityEvents').textContent = `events=${events.length}`;
+  renderSecurityTable(events);
+
   log('Dashboard güncellendi.');
 }
 
@@ -131,6 +190,47 @@ async function flushMcp(settings) {
   });
 
   log('MCP health snapshot flush tetiklendi.');
+}
+
+async function signIn(settings) {
+  const apiKey = document.getElementById('apiKey').value.trim();
+  if (!apiKey) {
+    throw new Error('API Key gerekli.');
+  }
+
+  const data = await safeFetchJson(`${settings.baseUrl}/ui/session`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ apiKey, tenantId: settings.tenantId })
+  });
+
+  setSessionToken(data?.token ?? '');
+  document.getElementById('apiKey').value = '';
+  log('Dashboard oturumu açıldı.');
+  return data;
+}
+
+async function signOut(settings) {
+  const token = getSessionToken();
+  if (!token) {
+    setStatus('Aktif oturum yok.');
+    return;
+  }
+
+  try {
+    await safeFetchJson(`${settings.baseUrl}/ui/session/revoke`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'x-tenant-id': settings.tenantId,
+        'content-type': 'application/json'
+      }
+    });
+  } finally {
+    setSessionToken('');
+  }
+
+  log('Dashboard oturumu kapatıldı.');
 }
 
 function setStatus(message, isError = false) {
@@ -146,8 +246,35 @@ async function init() {
   document.getElementById('saveSettings').addEventListener('click', () => {
     const next = readSettingsForm();
     setSettings(next);
-    setStatus('Ayarlar kaydedildi.');
+    setStatus('Ayarlar kaydedildi. API Key saklanmaz.');
     log('Ayarlar kaydedildi.');
+  });
+
+  document.getElementById('signIn').addEventListener('click', async () => {
+    const next = readSettingsForm();
+    setSettings(next);
+
+    try {
+      const session = await signIn(next);
+      await loadDashboard(next);
+      setStatus(`Oturum açıldı. Token bitiş: ${session.expiresAt}`);
+    } catch (error) {
+      setStatus(String(error), true);
+      log(`Hata: ${String(error)}`);
+    }
+  });
+
+  document.getElementById('signOut').addEventListener('click', async () => {
+    const next = readSettingsForm();
+    setSettings(next);
+
+    try {
+      await signOut(next);
+      setStatus('Oturum kapatıldı.');
+    } catch (error) {
+      setStatus(String(error), true);
+      log(`Hata: ${String(error)}`);
+    }
   });
 
   document.getElementById('refreshAll').addEventListener('click', async () => {
@@ -177,12 +304,17 @@ async function init() {
     }
   });
 
+  if (!getSessionToken()) {
+    setStatus('Önce API Key ile dashboard oturumu açın.');
+    return;
+  }
+
   try {
     await loadDashboard(settings);
     setStatus('Dashboard hazır.');
-  } catch (error) {
-    setStatus(String(error), true);
-    log(`Hata: ${String(error)}`);
+  } catch {
+    setStatus('Oturum süresi dolmuş olabilir. Tekrar giriş yapın.');
+    setSessionToken('');
   }
 }
 
