@@ -53,3 +53,22 @@ Bu koşumda en yüksek etkili günlük iyileştirme olarak **UI güvenlik sertle
 - API etkisi:
   - Chat completion metadata.plan içinde `stages` alanı
   - Memory list/search çıktılarında `related_memory_ids`
+
+## 2026-03-18 Teslim ek paketi (production secret hardening)
+### Yapılan ana iyileştirme
+- Production runtime için **MASTER_KEY fail-fast** güvenlik kapısı eklendi.
+- `NODE_ENV=production` altında `MASTER_KEY_BASE64` eksik/geçersizse servis başlangıçta hata vererek durur; insecure fallback ile ayağa kalkmaz.
+
+### Kod etkisi
+- `service/config.ts` güncellendi.
+- Yeni regression/security testi eklendi: `service/tests/security/config-master-key.test.ts`.
+- Runtime dokümantasyonuna production davranışı notu eklendi: `service/README.md`.
+
+### Verification
+- `npm run typecheck` ✅
+- `npm test` ✅ (69/69)
+- `npm audit --omit=dev` ✅ (0 vuln)
+- `delivery-gate` ✅ PASS
+
+### Kalan riskler
+- Secret rotation ve merkezi KMS entegrasyonu hâlâ sonraki iterasyon konusu.

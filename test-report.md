@@ -45,3 +45,14 @@ UI auth katmanı kısa ömürlü session token modeline geçirildi; test paketi 
 - Yeni testler:
   - `tests/orchestrator/planner.test.ts` (stage checklist üretimi)
   - `tests/memory/memory-service.test.ts` içinde related memory links testi
+
+## 2026-03-18 Ek doğrulama (production key fail-fast)
+- `npm run typecheck` ✅
+- `npm test` ✅ (**69/69**)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+- Yeni testler:
+  - `service/tests/security/config-master-key.test.ts`
+    - development modda fallback master key kabulü
+    - production modda missing `MASTER_KEY_BASE64` için fail-fast
+    - production modda geçersiz/short `MASTER_KEY_BASE64` için fail-fast

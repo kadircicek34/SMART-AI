@@ -447,3 +447,30 @@ Uygulanan adaptasyonlar:
 - **deepagents esinli plan/todo yaklaşımı**: Orchestrator planına `stages` checklist alanı eklendi (discover/domain/synthesis), metadata içinde görünür hale geldi.
 - **MiroFish esinli aşamalı pipeline görünürlüğü**: Tool seçimleri aşama bazına map edilerek aşama durumları (`pending/running/done`) takip ediliyor.
 - **A-mem esinli agentic memory linking**: Memory item’lara otomatik semantik `relatedMemoryIds` bağları eklendi (tenant scoped), search/list çıktısına yansıtıldı.
+
+---
+
+## 2026-03-18 — Production master key fail-fast kararı
+### Problem
+`MASTER_KEY_BASE64` tanımlı değilken servis deterministik dev fallback anahtarına düşebiliyordu; bu davranış production ortamında yanlış yapılandırma ile zayıf/öngörülebilir şifreleme riski yaratır.
+
+### Seçenekler
+- A: Mevcut fallback davranışını production'da da sürdürmek
+- B: Production'da eksik/geçersiz anahtarda fail-fast olmak, dev/test fallback'i korumak
+
+### Karar
+**B seçildi:** `NODE_ENV=production` altında `MASTER_KEY_BASE64` yoksa veya 32 byte altı/geçersizse servis startup aşamasında hata verip durur.
+
+### Gerekçe
+- Güvenli varsayılanlar (secure-by-default) yaklaşımını uygular.
+- Yanlış env konfigürasyonunu erken aşamada görünür kılar.
+- Encryption-at-rest key yönetiminde operasyon disiplini sağlar.
+
+### Etki
+- Production deploy pipeline'larında secret eksikliği anında yakalanır.
+- Geliştirme/test deneyimi bozulmaz (lokal fallback devam eder).
+- Yanlış yapılandırmadan kaynaklı sessiz güvenlik zafiyeti riski azalır.
+
+### Bilinçli Olarak Ertelenenler
+- KMS/HSM entegrasyonu ve otomatik key rotation
+- Startup secret health endpoint'i ve policy-as-code doğrulaması

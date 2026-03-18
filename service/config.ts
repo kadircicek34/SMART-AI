@@ -18,9 +18,17 @@ function getMasterKey(): Buffer {
     } catch {
       // fallthrough
     }
+
+    if ((process.env.NODE_ENV ?? 'development') === 'production') {
+      throw new Error('Invalid MASTER_KEY_BASE64: expected base64-encoded key with at least 32 bytes.');
+    }
   }
 
-  // deterministic fallback for local dev only
+  if ((process.env.NODE_ENV ?? 'development') === 'production') {
+    throw new Error('MASTER_KEY_BASE64 is required in production.');
+  }
+
+  // deterministic fallback for local dev/test only
   return crypto.createHash('sha256').update('dev-master-key-change-me').digest();
 }
 

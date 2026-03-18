@@ -1,7 +1,7 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "cross-repo synthesis (MiroFish + deepagents + A-mem) tamamlandı: stage checklist + stage status + related memory links",
+  "current_task": "production secret hardening tamamlandı: MASTER_KEY_BASE64 fail-fast + regression test coverage",
   "next_actions": [
     "MCP health HTTP persistence backend'i için merkezi KV/Redis servisi devreye al",
     "MCP health metriklerini Prometheus/OTEL'e export et",
@@ -20,7 +20,8 @@
     "UI logout lifecycle: POST /ui/session/revoke",
     "MCP health persistence: file/http abstract backend + fallback",
     "Orchestrator plan görünürlüğü için stages checklist eklendi",
-    "Memory katmanına tenant-scope relatedMemoryIds linking eklendi"
+    "Memory katmanına tenant-scope relatedMemoryIds linking eklendi",
+    "Production'ta MASTER_KEY_BASE64 eksik/geçersiz ise fail-fast startup zorunlu"
   ],
   "artifacts": [
     "README.md",
@@ -30,14 +31,9 @@
     "security-report.md",
     "task.md",
     "roadmap.md",
-    "service/orchestrator/planner.ts",
-    "service/orchestrator/run.ts",
-    "service/orchestrator/types.ts",
-    "service/memory/service.ts",
-    "service/memory/types.ts",
-    "service/api/routes/memory.ts",
-    "service/tests/orchestrator/planner.test.ts",
-    "service/tests/memory/memory-service.test.ts"
+    "service/config.ts",
+    "service/README.md",
+    "service/tests/security/config-master-key.test.ts"
   ],
-  "updated_at": "2026-03-17T13:12:00+03:00"
+  "updated_at": "2026-03-18T07:01:52+03:00"
 }

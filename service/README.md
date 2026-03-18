@@ -9,6 +9,8 @@
 - `APP_API_KEYS`
 - `MASTER_KEY_BASE64`
 
+> Security hardening: Production mode (`NODE_ENV=production`) now fails fast if `MASTER_KEY_BASE64` is missing/invalid. Development/test can still use deterministic local fallback for convenience.
+
 ## Optional env
 - `OPENROUTER_API_KEY` (global fallback)
 - `OPENROUTER_MAX_RETRIES` (varsayılan: 2)

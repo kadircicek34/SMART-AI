@@ -40,3 +40,11 @@ UI güvenlik modeli güçlendirildi: API key artık kalıcı tarayıcı saklamas
 - Stage metadata yalnızca plan izlenebilirliğini artırır; auth boundary veya tool policy bypass etmez.
 - Related memory links tamamen tenant-scope içinde hesaplanır (cross-tenant link yok).
 - Memory ilişkilendirme token-overlap/Jaccard tabanlıdır; dış kaynaklı otomatik execute akışı içermez.
+
+## 2026-03-18 Güvenlik sertleştirmesi — Master key fail-fast
+- `config.ts` içinde production için zorunlu secret doğrulaması eklendi.
+- `NODE_ENV=production` iken:
+  - `MASTER_KEY_BASE64` yoksa startup error
+  - base64 decode sonrası anahtar <32 byte ise startup error
+- Dev/test ortamı için deterministic fallback korunarak local developer deneyimi bozulmadı.
+- Sonuç: yanlış prod konfigürasyonunda sessiz insecure fallback riski kapatıldı.
