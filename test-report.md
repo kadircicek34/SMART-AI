@@ -77,3 +77,22 @@ UI auth katmanı kısa ömürlü session token modeline geçirildi; test paketi 
     - UI origin allowlist block/allow senaryoları
   - `service/tests/contract/models.test.ts` güncellendi
     - invalid tenant header rejection
+
+## 2026-03-19 Ek doğrulama (OpenBB native tool integration)
+- `npm run typecheck` ✅
+- `npm test` ✅ (**85/85**)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+- Yeni testler / güncellemeler:
+  - `service/tests/tools/openbb-search.test.ts`
+    - ticker parser doğrulaması
+    - OPENBB disabled davranışı
+    - quote/historical/company+world news birleşik özet doğrulaması
+  - `service/tests/orchestrator/planner.test.ts` güncellendi
+    - trading/OpenBB sorgusunda `openbb_search` route doğrulaması
+  - `service/tests/orchestrator/verifier.test.ts` güncellendi
+    - trading data sorgusunda `openbb_search` öneri doğrulaması
+  - `service/tests/security/policy.test.ts` güncellendi
+    - `openbb_search` default policy allowlist doğrulaması
+  - `service/tests/tools/deep-research.test.ts` güncellendi
+    - OpenBB dependency stublarıyla derleme/regresyon doğrulaması

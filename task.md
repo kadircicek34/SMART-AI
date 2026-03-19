@@ -1,5 +1,13 @@
 # TASKS — OpenRouter Agentic Intelligence API
 
+## v1.3 Delta (OpenBB Native Tool Integration) — Tamamlandı
+- [x] `openbb_search` tool adapter eklendi (OpenBB `/api/v1` quote/historical + company/world news)
+- [x] Orchestrator planner/thinking/verifier akışları OpenBB tool route'u ile güncellendi
+- [x] Deep research akışına finans/trading sorgularında OpenBB data pass eklendi
+- [x] Config/env yüzeyi genişletildi (`OPENBB_*`)
+- [x] Yeni testler eklendi (`service/tests/tools/openbb-search.test.ts` + planner/verifier/policy güncellemeleri)
+- [x] Fresh verification: typecheck + test + audit + delivery-gate
+
 ## v1.2 Delta (UI Session Auth Hardening) — Tamamlandı
 - [x] `POST /ui/session` endpointi eklendi (API key -> kısa ömürlü tenant token)
 - [x] `/v1/*` auth middleware APP key + UI session token kabul edecek şekilde genişletildi
@@ -93,7 +101,7 @@
 | API sözleşmesi | `contracts/openai-compatible.yaml` | OpenAI schema uyumlu endpoint sözleşmesi |
 | API katmanı | `service/api/*` | Auth, validation, endpointler |
 | Orchestrator | `service/orchestrator/*` | Planner/Executor/Verifier/Synthesizer |
-| Tool adapters | `service/tools/*` | web/wiki/deepresearch/financial/rag/memory/qmd + mevzuat/borsa/yargı mcp adapterları |
+| Tool adapters | `service/tools/*` | web/wiki/deepresearch/financial/openbb/rag/memory/qmd + mevzuat/borsa/yargı mcp adapterları |
 | Memory plane | `service/memory/*` | memory ingest/retrieve/decision/auto-capture |
 | Worker | `service/worker/*` | Uzun araştırma işleri ve event stream |
 | Security | `service/security/*` | BYOK, policy, budget guard |

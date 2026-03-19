@@ -1,5 +1,6 @@
 import { deepResearchTool } from './deep-research.js';
 import { financialDeepSearchTool } from './financial.js';
+import { openbbSearchTool } from './openbb-search.js';
 import { webSearchTool } from './web-search.js';
 import { wikipediaTool } from './wikipedia.js';
 import { ragSearchTool } from './rag-search.js';
@@ -13,6 +14,7 @@ const tools: Record<ToolName, ToolAdapter> = {
   wikipedia: wikipediaTool,
   deep_research: deepResearchTool,
   financial_deep_search: financialDeepSearchTool,
+  openbb_search: openbbSearchTool,
   rag_search: ragSearchTool,
   memory_search: memorySearchTool,
   qmd_search: qmdSearchTool,

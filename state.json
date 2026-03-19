@@ -1,17 +1,17 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "security telemetry + dashboard hardening tamamlandı: tenant-scope security events feed, origin allowlist, tenant-id validation, dashboard session token migration",
+  "current_task": "OpenBB native tool integration tamamlandı: openbb_search + planner/verifier/deep-research route + env/config + test coverage",
   "next_actions": [
+    "OpenBB technical endpoints (rsi/macd vb.) için payload-builder katmanı ekle",
+    "OpenBB tool için tenant bazlı provider/credential override endpointi ekle",
     "Security event store için persistent backend (Redis/Postgres) ve retention policy ekle",
-    "Security event akışını OTEL/SIEM pipeline'ına export et",
-    "Memory/RAG encrypt-at-rest (KMS)",
-    "MCP health HTTP persistence backend'i için merkezi KV/Redis servisi devreye al"
+    "Memory/RAG encrypt-at-rest (KMS)"
   ],
   "risks": [
-    "Security event store şu an process-memory; servis restart sonrası event geçmişi sıfırlanır",
-    "UI_ALLOWED_ORIGINS yanlış konfigürasyonunda production dashboard login akışı bloklanabilir",
-    "MASTER_KEY env yönetimi production'da secret manager gerektirir"
+    "OpenBB tool aktifken OpenBB API erişilemezse finans/trading sorgularında partial-data veya timeout görülebilir",
+    "OPENBB_PROVIDER/NEWS provider seçimi ortama göre yanlış kalırsa veri kapsaması düşebilir",
+    "Security event store şu an process-memory; servis restart sonrası event geçmişi sıfırlanır"
   ],
   "decisions": [
     "Mimari: Modüler monolith + async worker",
@@ -23,31 +23,40 @@
     "Memory katmanına tenant-scope relatedMemoryIds linking eklendi",
     "Production'ta MASTER_KEY_BASE64 eksik/geçersiz ise fail-fast startup zorunlu",
     "Security telemetry: /v1/security/events tenant-scope audit feed + dashboard security panel",
-    "UI hardening: origin allowlist enforcement + CSP/security headers + tenant-id format validation"
+    "UI hardening: origin allowlist enforcement + CSP/security headers + tenant-id format validation",
+    "OpenBB native tool: /api/v1 equity quote/historical + news world/company route with planner/verifier/deep-research integration"
   ],
   "artifacts": [
     "README.md",
+    "analysis-openbb-2026-03-19.md",
     "decisions.md",
     "delivery.md",
-    "test-report.md",
-    "security-report.md",
-    "task.md",
     "roadmap.md",
-    "service/config.ts",
+    "security-report.md",
     "service/.env.example",
     "service/README.md",
     "service/api/middleware/auth.ts",
     "service/api/middleware/rate-limit.ts",
     "service/api/routes/security-events.ts",
     "service/api/routes/ui.ts",
+    "service/config.ts",
+    "service/orchestrator/planner.ts",
+    "service/orchestrator/thinking-loop.ts",
+    "service/orchestrator/verifier.ts",
     "service/security/audit-log.ts",
     "service/security/origin-guard.ts",
+    "service/security/policy-engine.ts",
     "service/security/tenant-id.ts",
-    "service/web/dashboard.html",
-    "service/web/assets/dashboard.js",
     "service/tests/contract/security-events.test.ts",
     "service/tests/security/audit-log.test.ts",
-    "service/tests/security/origin-guard.test.ts"
+    "service/tests/security/origin-guard.test.ts",
+    "service/tests/tools/openbb-search.test.ts",
+    "service/tools/deep-research.ts",
+    "service/tools/openbb-search.ts",
+    "service/web/assets/dashboard.js",
+    "service/web/dashboard.html",
+    "task.md",
+    "test-report.md"
   ],
-  "updated_at": "2026-03-18T23:39:30+03:00"
+  "updated_at": "2026-03-19T03:10:00+03:00"
 }
