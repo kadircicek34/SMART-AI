@@ -26,6 +26,7 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - **Tenant Memory Layer** (memorizasyon + retrieval + auto-capture)
 - **QMD Local Search entegrasyonu** (VPS'teki kurulu `qmd` ile proje doküman araması)
 - **Memory hotness scoring + retrieval telemetry** (OpenViking pattern)
+- **OpenBB native tool entegrasyonu** (`openbb_search`: equity quote/historical + company/world news)
 - **OpenBB-inspired financial provider fallback** (Stooq + AlphaVantage quote harmonization)
 - **Türk domain MCP entegrasyonu** (Mevzuat MCP + Borsa MCP + Yargı MCP via mcporter)
 - **MCP Dayanıklılık Katmanı** (circuit breaker + adaptive timeout + kalıcı health snapshot + health endpointleri)
@@ -35,7 +36,7 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - `contracts/` → API sözleşmeleri
 - `service/api/` → gateway, middleware, routes
 - `service/orchestrator/` → planner/executor/verifier/synthesizer (+ stage checklist metadata)
-- `service/tools/` → web/wiki/deep-research/financial/rag/memory/qmd/mcp adapters
+- `service/tools/` → web/wiki/deep-research/financial/openbb/rag/memory/qmd/mcp adapters
 - `service/rag/` → ingest/chunk/retrieval/runtime store
 - `service/memory/` → memory ingest/retrieve/decision/auto-capture
 - `service/security/` → key-store, policy, budget

@@ -508,3 +508,32 @@ Security olayları runtime içinde görünür değildi; dashboard API key’i lo
 ### Bilinçli Olarak Ertelenenler
 - Audit event persistence’in merkezi store’a taşınması (şu an process-memory bounded store)
 - SIEM/OTEL export pipeline
+
+---
+
+## 2026-03-19 — OpenBB native tool entegrasyon kararı (no-code augmentation path)
+### Problem
+NOFX execution çekirdeğini bozmadan SMART-AI tarafında veri çeşitliliğini artırmak için OpenBB kaynaklarını doğrudan tool plane'e eklemek gerekiyor.
+
+### Seçenekler
+- A: Sadece mevcut `financial_deep_search` (stooq + alpha_vantage) ile devam etmek
+- B: OpenBB'yi sadece dış araştırma notu seviyesinde bırakmak
+- C: OpenBB API endpointlerini first-class tool (`openbb_search`) olarak entegre etmek
+
+### Karar
+**C seçildi:** `openbb_search` aracı eklendi ve planner/verifier/deep-research akışına bağlandı.
+
+### Gerekçe
+- OpenBB repo analizinde API endpointleri (`/api/v1/equity/price/quote`, `/api/v1/equity/price/historical`, `/api/v1/news/company`, `/api/v1/news/world`) doğrudan servislenebilir durumda.
+- NOFX tarafını fork etmeden, SMART-AI'yı “analysis brain” olarak güçlendirme hedefiyle uyumlu.
+- Tool-first entegrasyon, ileride provider/route genişletmesini düşük maliyetli hale getirir.
+
+### Etki
+- Finans/trading sorgularında OpenBB tabanlı market snapshot, trend ve haber özetleri üretilebiliyor.
+- Verifier kalite kapısında OpenBB kanıtları güven sinyaline dahil edildi.
+- Deep research akışı finans sorularında OpenBB pass ile genişledi.
+
+### Bilinçli Olarak Ertelenenler
+- OpenBB technical endpoints (`/api/v1/technical/*`) için payload zenginleştirme pipeline'ı
+- OpenBB MCP server ile doğrudan tool discovery/autogen katmanı
+- OpenBB response normalizasyonu için ayrı schema registry

@@ -32,6 +32,7 @@ Tek başına LLM API çağrısı çoğu görevde yetersiz kalıyor:
    - wikipedia,
    - deep-research,
    - financial deep search,
+   - OpenBB native market data search (`openbb_search`),
    - tenant-isolated RAG search,
    - tenant-isolated memory search,
    - local QMD search (VPS qmd binary),

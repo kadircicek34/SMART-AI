@@ -101,3 +101,32 @@ Bu koşumda en yüksek etkili günlük iyileştirme olarak **UI güvenlik sertle
 
 ### Kalan riskler
 - Security event store şimdilik in-memory; kalıcı SIEM/OTEL export ve merkezi persistence sonraki fazda alınacak.
+
+## 2026-03-19 Teslim ek paketi (OpenBB native tool integration)
+### Yapılan ana geliştirme
+- SMART-AI tool plane’e **`openbb_search`** eklendi.
+  - OpenBB API route’ları üzerinden:
+    - `equity/price/quote`
+    - `equity/price/historical`
+    - `news/company`
+    - `news/world`
+  - Finans/trading sorgularında tek tool çağrısında market snapshot + trend + haber özeti üretiliyor.
+
+### Orchestrator etkisi
+- Planner: trading/OpenBB anahtar sözcüklerinde `openbb_search` route ediyor.
+- Thinking loop: OpenBB odaklı sorgular için plan skoru ve aggressive candidate set güncellendi.
+- Verifier: trading/market-data sorgularında OpenBB kanıtı zorlaması ve öneri yolu eklendi.
+- Deep research: finans sorgularında OpenBB pass (RAG/memory/qmd/mcp/web/wiki ile birlikte) eklendi.
+
+### Konfigürasyon etkisi
+- Yeni env/config yüzeyi: `OPENBB_*` parametreleri (`OPENBB_ENABLED`, `OPENBB_API_BASE_URL`, provider/auth/limit ayarları).
+
+### Verification
+- `npm run typecheck` ✅
+- `npm test` ✅ (85/85)
+- `npm audit --omit=dev` ✅ (0 vuln)
+- `delivery-gate` ✅ PASS
+
+### Kalan riskler
+- OpenBB erişilemezken tool partial-data döndürür; üretimde health-check + retry politikasıyla desteklenmeli.
+- OpenBB technical endpoints için henüz data-payload bridge katmanı yok (sonraki iterasyon).
