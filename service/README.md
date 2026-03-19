@@ -22,6 +22,9 @@
 - `VERIFIER_MIN_SOURCE_DOMAINS` (varsayılan: 2)
 - `RESEARCH_MAX_QUERIES` (varsayılan: 3)
 - `RESEARCH_MAX_CONCURRENT_UNITS` (varsayılan: 2)
+- `RESEARCH_MAX_QUERY_CHARS` (varsayılan: 4000)
+- `RESEARCH_MAX_ACTIVE_JOBS_PER_TENANT` (varsayılan: 2)
+- `RESEARCH_IDEMPOTENCY_KEY_MAX_LENGTH` (varsayılan: 128)
 - Tenant-specific keys via `/v1/keys/openrouter`
 - `BRAVE_API_KEY` (web_search aracı için Brave Search API)
 - `ALPHA_VANTAGE_API_KEY` (financial_deep_search için ek quote provider)
@@ -78,7 +81,11 @@
 - `GET /v1/mcp/health/:serverId` → tek MCP sunucusu health detayı
 - `POST /v1/mcp/reset` → circuit reset
 - `POST /v1/mcp/flush` → health snapshot’ını diskte flush etme
-- `GET /v1/security/events` → tenant-scope güvenlik olay akışı (auth/rate-limit/origin/session)
+- `GET /v1/security/events` → tenant-scope güvenlik olay akışı (auth/rate-limit/origin/session/job)
+- `POST /v1/jobs/research` → async research job oluştur (Idempotency-Key destekli)
+- `GET /v1/jobs` → tenant job listesi (status + limit filtreli)
+- `GET /v1/jobs/:jobId` → job detay/durum
+- `POST /v1/jobs/:jobId/cancel` → queued/running job iptali
 - `GET /ui/dashboard` → control dashboard (web)
 - `GET /ui/chat` → kullanıcı chatbot arayüzü (web)
 

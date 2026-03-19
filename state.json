@@ -1,17 +1,17 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "OpenBB native tool integration tamamlandı: openbb_search + planner/verifier/deep-research route + env/config + test coverage",
+  "current_task": "Async research lifecycle hardening tamamlandı: idempotent create + tenant job list/cancel endpointleri + active-job security cap + error redaction + audit telemetry",
   "next_actions": [
-    "OpenBB technical endpoints (rsi/macd vb.) için payload-builder katmanı ekle",
-    "OpenBB tool için tenant bazlı provider/credential override endpointi ekle",
-    "Security event store için persistent backend (Redis/Postgres) ve retention policy ekle",
-    "Memory/RAG encrypt-at-rest (KMS)"
+    "Running job cancel için AbortSignal tabanlı gerçek interrupt zinciri ekle",
+    "Job store'u Redis/Postgres gibi persistent backend'e taşı",
+    "Idempotency kayıtları için TTL/retention politikasını kalıcı store ile uygula",
+    "OpenBB technical endpoints (rsi/macd vb.) için payload-builder katmanı ekle"
   ],
   "risks": [
-    "OpenBB tool aktifken OpenBB API erişilemezse finans/trading sorgularında partial-data veya timeout görülebilir",
-    "OPENBB_PROVIDER/NEWS provider seçimi ortama göre yanlış kalırsa veri kapsaması düşebilir",
-    "Security event store şu an process-memory; servis restart sonrası event geçmişi sıfırlanır"
+    "Running durumdaki job cancel şu an best-effort; orchestrator/tool çağrısı fiziksel olarak devam edebilir",
+    "Job store process-memory olduğu için servis restart sonrası job geçmişi ve idempotency index sıfırlanır",
+    "OPENBB endpoint erişim sorunlarında finans sorguları partial-data ile dönebilir"
   ],
   "decisions": [
     "Mimari: Modüler monolith + async worker",
@@ -24,39 +24,25 @@
     "Production'ta MASTER_KEY_BASE64 eksik/geçersiz ise fail-fast startup zorunlu",
     "Security telemetry: /v1/security/events tenant-scope audit feed + dashboard security panel",
     "UI hardening: origin allowlist enforcement + CSP/security headers + tenant-id format validation",
-    "OpenBB native tool: /api/v1 equity quote/historical + news world/company route with planner/verifier/deep-research integration"
+    "OpenBB native tool: /api/v1 equity quote/historical + news world/company route with planner/verifier/deep-research integration",
+    "Async research lifecycle: Idempotency-Key + tenant active-job cap + list/cancel endpointleri + error redaction"
   ],
   "artifacts": [
     "README.md",
-    "analysis-openbb-2026-03-19.md",
     "decisions.md",
     "delivery.md",
-    "roadmap.md",
     "security-report.md",
+    "task.md",
+    "test-report.md",
     "service/.env.example",
     "service/README.md",
-    "service/api/middleware/auth.ts",
-    "service/api/middleware/rate-limit.ts",
+    "service/api/routes/jobs.ts",
     "service/api/routes/security-events.ts",
-    "service/api/routes/ui.ts",
     "service/config.ts",
-    "service/orchestrator/planner.ts",
-    "service/orchestrator/thinking-loop.ts",
-    "service/orchestrator/verifier.ts",
     "service/security/audit-log.ts",
-    "service/security/origin-guard.ts",
-    "service/security/policy-engine.ts",
-    "service/security/tenant-id.ts",
-    "service/tests/contract/security-events.test.ts",
-    "service/tests/security/audit-log.test.ts",
-    "service/tests/security/origin-guard.test.ts",
-    "service/tests/tools/openbb-search.test.ts",
-    "service/tools/deep-research.ts",
-    "service/tools/openbb-search.ts",
-    "service/web/assets/dashboard.js",
-    "service/web/dashboard.html",
-    "task.md",
-    "test-report.md"
+    "service/worker/jobs.ts",
+    "service/tests/contract/jobs.test.ts",
+    "service/tests/worker/jobs.test.ts"
   ],
-  "updated_at": "2026-03-19T03:10:00+03:00"
+  "updated_at": "2026-03-19T07:22:00+03:00"
 }

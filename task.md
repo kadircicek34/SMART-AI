@@ -274,3 +274,14 @@
 - [x] Stage status takibi (pending/running/done) eklendi
 - [x] Memory semantic linking (`relatedMemoryIds`) eklendi
 - [x] Test + audit + delivery gate çalıştırıldı
+
+## 2026-03-19 Ek Sprint — Async research lifecycle + security hardening
+- [x] `POST /v1/jobs/research` için `Idempotency-Key` desteği eklendi
+- [x] `GET /v1/jobs` endpointi ile tenant job listesi eklendi
+- [x] `POST /v1/jobs/:jobId/cancel` endpointi eklendi
+- [x] Tenant active-job cap eklendi (`RESEARCH_MAX_ACTIVE_JOBS_PER_TENANT`)
+- [x] Idempotency conflict protection + header validation eklendi
+- [x] Job error redaction katmanı eklendi
+- [x] Security event feed, research-job event tipleriyle genişletildi
+- [x] Contract + worker testleri eklendi
+- [x] Typecheck + test + audit + smoke + delivery gate çalıştırıldı

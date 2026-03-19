@@ -23,7 +23,12 @@ const LIST_QUERY_SCHEMA = z.object({
       'api_auth_failed',
       'api_tenant_mismatch',
       'api_tenant_invalid',
-      'api_rate_limited'
+      'api_rate_limited',
+      'research_job_queued',
+      'research_job_cancelled',
+      'research_job_limit_exceeded',
+      'research_job_idempotency_reused',
+      'research_job_rejected'
     ])
     .optional(),
   since: z.string().datetime().optional()

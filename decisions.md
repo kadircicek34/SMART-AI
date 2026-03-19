@@ -537,3 +537,41 @@ NOFX execution çekirdeğini bozmadan SMART-AI tarafında veri çeşitliliğini 
 - OpenBB technical endpoints (`/api/v1/technical/*`) için payload zenginleştirme pipeline'ı
 - OpenBB MCP server ile doğrudan tool discovery/autogen katmanı
 - OpenBB response normalizasyonu için ayrı schema registry
+
+---
+
+## 2026-03-19 — Async research lifecycle hardening kararı (idempotent + cancellable jobs)
+### Problem
+Async research endpointi (`POST /v1/jobs/research`) duplicate submit, tenant başına job fırtınası ve runtime error message sızıntısı riskleri taşıyordu. Ayrıca operasyon tarafında job listesi ve güvenli cancel lifecycle eksikti.
+
+### Seçenekler
+- A: Mevcut minimal enqueue/get modeliyle devam etmek
+- B: Sadece rate-limit artırıp uygulama katmanını değiştirmemek
+- C: Job lifecycle’i üretim seviyesine çıkarmak (idempotency + active job cap + list/cancel + audit + redaction)
+
+### Karar
+**C seçildi:**
+1. **Yeni özellik:** Job lifecycle endpointleri genişletildi.
+   - `GET /v1/jobs`
+   - `POST /v1/jobs/:jobId/cancel`
+   - `POST /v1/jobs/research` için `Idempotency-Key` desteği
+2. **Güvenlik sertleştirmesi:** Tenant başına aktif async job limiti eklendi (`RESEARCH_MAX_ACTIVE_JOBS_PER_TENANT`).
+3. **Güvenlik sertleştirmesi:** Idempotency key format doğrulaması + farklı payload ile replay conflict koruması eklendi.
+4. **Güvenlik sertleştirmesi:** Job failure error mesajları redacted/sanitize edilerek secret sızıntı riski azaltıldı.
+5. **Gözlemlenebilirlik:** Security event feed’e research job event tipleri eklendi.
+
+### Gerekçe
+- Duplicate submit ve retry storm durumlarında aynı işi tekrar tekrar çalıştırmamak maliyet/süre avantajı sağlar.
+- Tenant başına aktif job sınırı, kaynak tüketimi tabanlı kötüye kullanım riskini azaltır.
+- Error redaction, özellikle provider token/authorization parçalarının API response üzerinden sızmasını engeller.
+- Job list/cancel endpointleri operasyonel kontrol ve güvenli recovery sağlar.
+
+### Etki
+- Async research yüzeyi artık replay-safe ve tenant bazlı kapasite kontrollü.
+- Ops/UI katmanları queued/running/completed/failed/cancelled lifecycle’ı tek API ile izleyebilir.
+- Güvenlik telemetry’sinde job kaynaklı olaylar da tenant bazlı raporlanabilir.
+
+### Bilinçli Olarak Ertelenenler
+- Running job için gerçek runtime cancellation (AbortSignal ile tool-level interrupt zinciri)
+- Job store’un kalıcı bir backend’e taşınması (Redis/Postgres)
+- Idempotency kayıtları için TTL + persistence policy

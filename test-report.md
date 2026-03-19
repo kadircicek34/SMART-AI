@@ -96,3 +96,22 @@ UI auth katmanı kısa ömürlü session token modeline geçirildi; test paketi 
     - `openbb_search` default policy allowlist doğrulaması
   - `service/tests/tools/deep-research.test.ts` güncellendi
     - OpenBB dependency stublarıyla derleme/regresyon doğrulaması
+
+## 2026-03-19 Ek doğrulama (Async research lifecycle + security hardening)
+- `npm run typecheck` ✅
+- `npm test` ✅ (**95/95**)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `npx tsx -e "...smoke create/list/cancel..."` ✅ (`create=202`, `list=200`, `cancel=200`)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+- Yeni testler:
+  - `service/tests/contract/jobs.test.ts`
+    - idempotent replay (aynı payload/key)
+    - idempotency conflict (aynı key + farklı payload)
+    - active-job cap (`429`)
+    - list + cancel lifecycle
+    - invalid `Idempotency-Key` doğrulaması
+  - `service/tests/worker/jobs.test.ts`
+    - store-level idempotency davranışı
+    - tenant active-job sınırı
+    - cancel-after-runner-complete race koruması
+    - sensitive error redaction doğrulaması

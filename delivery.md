@@ -130,3 +130,33 @@ Bu koşumda en yüksek etkili günlük iyileştirme olarak **UI güvenlik sertle
 ### Kalan riskler
 - OpenBB erişilemezken tool partial-data döndürür; üretimde health-check + retry politikasıyla desteklenmeli.
 - OpenBB technical endpoints için henüz data-payload bridge katmanı yok (sonraki iterasyon).
+
+## 2026-03-19 Teslim ek paketi (Async research lifecycle hardening)
+### Yapılan ana geliştirme (yeni özellik)
+- Async research job hattı production-grade lifecycle seviyesine çıkarıldı:
+  - `POST /v1/jobs/research` artık `Idempotency-Key` destekli
+  - `GET /v1/jobs` endpointi eklendi (status + limit filtre)
+  - `POST /v1/jobs/:jobId/cancel` endpointi eklendi
+
+### Aynı koşumdaki ciddi güvenlik iyileştirmeleri
+1. Tenant başına aktif async job limiti eklendi (`RESEARCH_MAX_ACTIVE_JOBS_PER_TENANT`) → job-flood/DoS yüzeyi azaltıldı.
+2. Idempotency collision koruması eklendi (aynı key + farklı payload = `409`).
+3. `Idempotency-Key` header format/uzunluk validasyonu eklendi.
+4. Job error çıktılarında secret/token redaction katmanı eklendi.
+5. Security audit feed, research-job event tipleriyle genişletildi.
+
+### Operasyonel etkiler
+- Retry ve network kaynaklı duplicate submit’lerde job tekrar çalışmıyor, maliyet ve kuyruk şişmesi azalıyor.
+- Ops tarafı artık tenant bazlı job listesini çekip aktif işleri güvenli biçimde cancel edebiliyor.
+- Güvenlik paneli/reports, job bazlı suistimal sinyallerini doğrudan görmeye başlıyor.
+
+### Verification
+- `npm run typecheck` ✅
+- `npm test` ✅ (95/95)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `npx tsx -e "...smoke create/list/cancel..."` ✅ (`202/200/200`)
+- `delivery-gate` ✅ PASS
+
+### Kalan riskler
+- Running state’te gerçek runtime interrupt henüz yok; cancel şu an best-effort status transition olarak çalışıyor.
+- Job store hâlâ process-memory (restart sonrası lifecycle geçmişi sıfırlanır).

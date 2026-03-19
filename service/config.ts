@@ -56,7 +56,10 @@ export const config = {
   },
   research: {
     maxQueries: Number(process.env.RESEARCH_MAX_QUERIES ?? 3),
-    maxConcurrentUnits: Number(process.env.RESEARCH_MAX_CONCURRENT_UNITS ?? 2)
+    maxConcurrentUnits: Number(process.env.RESEARCH_MAX_CONCURRENT_UNITS ?? 2),
+    maxQueryChars: Number(process.env.RESEARCH_MAX_QUERY_CHARS ?? 4_000),
+    maxActiveJobsPerTenant: Number(process.env.RESEARCH_MAX_ACTIVE_JOBS_PER_TENANT ?? 2),
+    idempotencyKeyMaxLength: Number(process.env.RESEARCH_IDEMPOTENCY_KEY_MAX_LENGTH ?? 128)
   },
   openRouter: {
     baseUrl: process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1',

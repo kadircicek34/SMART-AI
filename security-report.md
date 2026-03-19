@@ -76,3 +76,19 @@ Ek not:
 - Risk notu:
   - OpenBB endpoint yanlış/kapalıysa sorgular partial-data ile dönebilir.
   - Basic auth kullanılıyorsa secret yönetimi `.env` yerine secret manager üzerinden yapılmalı.
+
+## 2026-03-19 Güvenlik sertleştirmesi — Async research lifecycle protection
+- `POST /v1/jobs/research` için `Idempotency-Key` desteği eklendi.
+  - Aynı tenant + aynı key + aynı payload tekrarında job replay-safe şekilde mevcut job döner.
+  - Aynı key ile farklı payload denemesi `409` ile engellenir (idempotency collision abuse koruması).
+- Tenant başına aktif async job limiti eklendi (`RESEARCH_MAX_ACTIVE_JOBS_PER_TENANT`, varsayılan: 2).
+  - Limit aşımlarında `429` dönülür ve security audit event üretilir.
+- `Idempotency-Key` header format/uzunluk doğrulaması eklendi.
+  - Uygunsuz header’lar `400` ile reddedilir.
+- Job failure error mesajları sanitize/redact ediliyor.
+  - `sk-*`, `Bearer ...`, `api_key=...` benzeri token pattern’leri response’a açık dönmüyor.
+- Security telemetry genişletmesi:
+  - Yeni event tipleri: `research_job_queued`, `research_job_cancelled`, `research_job_limit_exceeded`, `research_job_idempotency_reused`, `research_job_rejected`.
+
+Kalan risk:
+- Running job cancel şu an "best effort" (status cancel + completion drop). Tool-level gerçek interrupt (AbortSignal chain) sonraki fazda ele alınmalı.

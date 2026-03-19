@@ -16,13 +16,14 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - Tenant bazlı güvenlik (`Authorization` + `x-tenant-id`)
 - Tenant bazlı OpenRouter API key saklama (AES-256-GCM encrypted-at-rest)
 - Policy kontrollü tool erişimi
-- Sync chat + Async research jobs (`/v1/jobs/research`)
+- Sync chat + Async research jobs (`/v1/jobs/research`) + job list/cancel lifecycle (`/v1/jobs`, `/v1/jobs/:jobId/cancel`)
 - Stream/non-stream cevap desteği
 - **RAG knowledge base** (tenant izole ingest + retrieval)
 - **Brave Search destekli web_search** (fallback: DuckDuckGo)
 - **Verifier kalite kapıları** (minimum citation + source diversity)
 - **Loop guard** (tekrarlayan tool-pass kırıcı)
 - **Deep research budget/concurrency kontrolleri**
+- **Research job güvenlik kapıları** (Idempotency-Key replay protection + tenant active-job cap + cancel support)
 - **Tenant Memory Layer** (memorizasyon + retrieval + auto-capture)
 - **QMD Local Search entegrasyonu** (VPS'teki kurulu `qmd` ile proje doküman araması)
 - **Memory hotness scoring + retrieval telemetry** (OpenViking pattern)
@@ -174,15 +175,26 @@ curl -X POST http://127.0.0.1:8080/v1/chat/completions \
 
 ## Async Deep Research Job
 ```bash
-# job başlat
+# job başlat (idempotent)
 curl -X POST http://127.0.0.1:8080/v1/jobs/research \
   -H 'Authorization: Bearer dev-admin-key' \
   -H 'x-tenant-id: tenant-a' \
+  -H 'Idempotency-Key: ai-research-2026-03-19-01' \
   -H 'content-type: application/json' \
   -d '{"query":"Türkiye AI ekosisteminin 2025 trendlerini karşılaştırmalı analiz et"}'
 
+# job listesi
+curl 'http://127.0.0.1:8080/v1/jobs?limit=20&status=running' \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a'
+
 # job durumunu al
 curl http://127.0.0.1:8080/v1/jobs/<job_id> \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a'
+
+# çalışan/queued job iptal et
+curl -X POST http://127.0.0.1:8080/v1/jobs/<job_id>/cancel \
   -H 'Authorization: Bearer dev-admin-key' \
   -H 'x-tenant-id: tenant-a'
 ```
