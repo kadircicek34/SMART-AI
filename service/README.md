@@ -45,6 +45,15 @@
 - `BORSA_MCP_URL` (varsayılan: `https://borsamcp.fastmcp.app/mcp`)
 - `YARGI_MCP_URL` (varsayılan: `https://yargimcp.fastmcp.app/mcp`)
 - `YARGI_MCP_FALLBACK_ENABLED` (varsayılan: true)
+- `OPENBB_ENABLED` (varsayılan: false; true olduğunda `openbb_search` aktif)
+- `OPENBB_API_BASE_URL` (örn: `http://127.0.0.1:6900`)
+- `OPENBB_API_PREFIX` (varsayılan: `/api/v1`)
+- `OPENBB_API_TIMEOUT_MS` (varsayılan: 12000)
+- `OPENBB_PROVIDER` (varsayılan: `yfinance`)
+- `OPENBB_NEWS_PROVIDER` (varsayılan: `benzinga`)
+- `OPENBB_WORLD_NEWS_PROVIDER` (varsayılan: `fmp`)
+- `OPENBB_AUTH_TOKEN` veya `OPENBB_USERNAME` + `OPENBB_PASSWORD`
+- `OPENBB_MAX_SYMBOLS` / `OPENBB_HISTORY_LIMIT` / `OPENBB_NEWS_LIMIT`
 - `MCP_HEALTH_PERSIST_ENABLED` (varsayılan: true)
 - `MCP_HEALTH_PERSIST_MODE` (`file`|`http`, varsayılan: `file`)
 - `MCP_HEALTH_STORE_FILE` (varsayılan: `.data/mcp-health.json`)
@@ -76,5 +85,6 @@
 ## Tool plane updates
 - `qmd_search` aracı eklendi (VPS'teki kurulu `qmd` CLI ile lokal repo doküman araması)
 - `mevzuat_mcp_search`, `borsa_mcp_search`, `yargi_mcp_search` araçları eklendi (mcporter üzerinden remote MCP)
+- `openbb_search` aracı eklendi (OpenBB API üzerinden equity quote/historical + company/world news)
 - `financial_deep_search` artık OpenBB-pattern fallback ile `stooq + alpha_vantage` kaynaklarını harmonize ediyor
-- `deep_research` akışı artık tenant memory + QMD + RAG + mevzuat/yargi/borsa MCP + web/wiki kaynaklarını birleştiriyor
+- `deep_research` akışı artık tenant memory + QMD + RAG + OpenBB + mevzuat/yargi/borsa MCP + web/wiki kaynaklarını birleştiriyor

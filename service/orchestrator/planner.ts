@@ -17,6 +17,23 @@ const FINANCIAL_KEYWORDS = [
   'borsa'
 ];
 
+const OPENBB_KEYWORDS = [
+  'openbb',
+  'trading',
+  'trade',
+  'binance',
+  'technical indicator',
+  'teknik indikatör',
+  'rsi',
+  'macd',
+  'bollinger',
+  'candlestick',
+  'ohlc',
+  'company news',
+  'macro data',
+  'ekonomik veri'
+];
+
 const WIKI_KEYWORDS = ['who is', 'what is', 'history', 'nedir', 'kimdir', 'tarihçe', 'wikipedia'];
 const RESEARCH_KEYWORDS = ['deep', 'research', 'analyze', 'analysis', 'araştır', 'detay', 'karşılaştır'];
 const RAG_KEYWORDS = [
@@ -145,7 +162,7 @@ function buildStages(tools: ToolName[]): PlanStage[] {
   addStage(
     'domain',
     'Domain doğrulama',
-    tools.filter((tool) => ['mevzuat_mcp_search', 'yargi_mcp_search', 'borsa_mcp_search', 'financial_deep_search'].includes(tool))
+    tools.filter((tool) => ['mevzuat_mcp_search', 'yargi_mcp_search', 'borsa_mcp_search', 'financial_deep_search', 'openbb_search'].includes(tool))
   );
 
   addStage('synthesis', 'Derin analiz ve sentez', tools.filter((tool) => ['deep_research'].includes(tool)));
@@ -204,11 +221,22 @@ function shouldUseBorsaMcp(query: string): boolean {
   return /(bist|tefas|kap|hisse kodu|ticker|endeks|borsa istanbul)/i.test(query);
 }
 
+function shouldUseOpenbb(query: string): boolean {
+  const normalized = query.toLowerCase();
+  if (hasKeyword(normalized, OPENBB_KEYWORDS)) return true;
+
+  return /(ai trading|trading bot|algoritmik|teknik analiz|teknik indikat|market data|haber analizi|volatilite)/i.test(query);
+}
+
 export function planForQuery(query: string): Plan {
   const tools: ToolName[] = [];
 
   if (hasKeyword(query, FINANCIAL_KEYWORDS)) {
     tools.push('financial_deep_search');
+  }
+
+  if (shouldUseOpenbb(query)) {
+    tools.push('openbb_search');
   }
 
   if (hasKeyword(query, WIKI_KEYWORDS)) {

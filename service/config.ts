@@ -86,7 +86,21 @@ export const config = {
     mevzuatMcpUrl: process.env.MEVZUAT_MCP_URL ?? 'https://mevzuat.surucu.dev/mcp',
     borsaMcpUrl: process.env.BORSA_MCP_URL ?? 'https://borsamcp.fastmcp.app/mcp',
     yargiMcpUrl: process.env.YARGI_MCP_URL ?? 'https://yargimcp.fastmcp.app/mcp',
-    yargiMcpFallbackEnabled: (process.env.YARGI_MCP_FALLBACK_ENABLED ?? 'true').toLowerCase() === 'true'
+    yargiMcpFallbackEnabled: (process.env.YARGI_MCP_FALLBACK_ENABLED ?? 'true').toLowerCase() === 'true',
+    openbbEnabled:
+      (process.env.OPENBB_ENABLED ?? (process.env.OPENBB_API_BASE_URL ? 'true' : 'false')).toLowerCase() === 'true',
+    openbbApiBaseUrl: process.env.OPENBB_API_BASE_URL?.trim() ?? '',
+    openbbApiPrefix: process.env.OPENBB_API_PREFIX?.trim() || '/api/v1',
+    openbbApiTimeoutMs: Number(process.env.OPENBB_API_TIMEOUT_MS ?? 12_000),
+    openbbProvider: process.env.OPENBB_PROVIDER?.trim() || 'yfinance',
+    openbbNewsProvider: process.env.OPENBB_NEWS_PROVIDER?.trim() || 'benzinga',
+    openbbWorldNewsProvider: process.env.OPENBB_WORLD_NEWS_PROVIDER?.trim() || 'fmp',
+    openbbAuthToken: process.env.OPENBB_AUTH_TOKEN?.trim(),
+    openbbUsername: process.env.OPENBB_USERNAME?.trim(),
+    openbbPassword: process.env.OPENBB_PASSWORD?.trim(),
+    openbbMaxSymbols: Number(process.env.OPENBB_MAX_SYMBOLS ?? 3),
+    openbbHistoryLimit: Number(process.env.OPENBB_HISTORY_LIMIT ?? 60),
+    openbbNewsLimit: Number(process.env.OPENBB_NEWS_LIMIT ?? 6)
   },
   storage: {
     root: process.env.DATA_DIR ?? path.resolve(process.cwd(), '.data'),

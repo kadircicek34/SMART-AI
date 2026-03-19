@@ -65,3 +65,14 @@ UI güvenlik modeli güçlendirildi: API key artık kalıcı tarayıcı saklamas
 
 Ek not:
 - Audit event store şu an process-memory bounded tutulur; restart sonrası korunmaz. Merkezi persistence/SIEM entegrasyonu sonraki faz için backlog'da tutuldu.
+
+## 2026-03-19 Güvenlik notu — OpenBB native tool entegrasyonu
+- `openbb_search` sadece HTTP GET + timeout kontrollü çağrı yapar (`OPENBB_API_TIMEOUT_MS`).
+- Auth modeli environment tabanlıdır:
+  - `OPENBB_AUTH_TOKEN` (Bearer) veya
+  - `OPENBB_USERNAME` + `OPENBB_PASSWORD` (Basic)
+- Tool kapama anahtarı eklendi: `OPENBB_ENABLED=false`.
+- Varsayılan policy allowlist’e `openbb_search` eklendi; tenant bazlı policy ile kapatılabilir (`TENANT_TOOL_POLICIES_JSON`).
+- Risk notu:
+  - OpenBB endpoint yanlış/kapalıysa sorgular partial-data ile dönebilir.
+  - Basic auth kullanılıyorsa secret yönetimi `.env` yerine secret manager üzerinden yapılmalı.
