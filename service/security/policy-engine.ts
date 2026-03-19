@@ -3,6 +3,7 @@ export type ToolName =
   | 'wikipedia'
   | 'deep_research'
   | 'financial_deep_search'
+  | 'openbb_search'
   | 'rag_search'
   | 'memory_search'
   | 'qmd_search'
@@ -27,6 +28,7 @@ const DEFAULT_ALLOWED_TOOLS: ToolName[] = [
   'wikipedia',
   'deep_research',
   'financial_deep_search',
+  'openbb_search',
   'rag_search',
   'memory_search',
   'qmd_search',

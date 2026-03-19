@@ -9,6 +9,12 @@ function scorePlan(query: string, plan: Plan): number {
   if ((q.includes('finans') || q.includes('stock') || q.includes('hisse')) && plan.tools.includes('financial_deep_search')) {
     score += 3;
   }
+  if (
+    (q.includes('openbb') || q.includes('trading') || q.includes('binance') || q.includes('teknik') || q.includes('indicator')) &&
+    plan.tools.includes('openbb_search')
+  ) {
+    score += 3.1;
+  }
   if ((q.includes('kim') || q.includes('nedir') || q.includes('history') || q.includes('what is')) && plan.tools.includes('wikipedia')) {
     score += 2;
   }
@@ -52,6 +58,7 @@ function generateCandidates(query: string): Plan[] {
       'rag_search',
       'memory_search',
       'qmd_search',
+      'openbb_search',
       'mevzuat_mcp_search',
       'yargi_mcp_search',
       'borsa_mcp_search',

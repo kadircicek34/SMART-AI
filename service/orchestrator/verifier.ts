@@ -51,6 +51,13 @@ function looksLikeBorsaMcpQuery(query: string | undefined): boolean {
   return /\b(bist|xu100|xbank|tefas|kap haberi|hisse kodu|endeks|borsa istanbul|garan|akbnk|thyao|asels)\b/i.test(query);
 }
 
+function looksLikeOpenbbQuery(query: string | undefined): boolean {
+  if (!query) return false;
+  return /\b(openbb|trading|trading bot|binance|technical|teknik analiz|indikat|indicator|rsi|macd|bollinger|candlestick|ohlc|market data|company news)\b/i.test(
+    query
+  );
+}
+
 function citationSourceKey(citation: string): string {
   if (!citation) return 'unknown';
 
@@ -84,6 +91,15 @@ export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string
         confidence: 0,
         reason: 'No evidence yet. Query looks memory-focused, prioritize memory_search.',
         suggestedTool: 'memory_search'
+      };
+    }
+
+    if (looksLikeOpenbbQuery(query) && !plan.tools.includes('openbb_search')) {
+      return {
+        sufficient: false,
+        confidence: 0,
+        reason: 'No evidence yet. Query looks trading/market-data focused, prioritize openbb_search.',
+        suggestedTool: 'openbb_search'
       };
     }
 
@@ -146,6 +162,7 @@ export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string
   const hasRagEvidence = results.some((r) => r.tool === 'rag_search' && r.citations.length > 0);
   const hasMemoryEvidence = results.some((r) => r.tool === 'memory_search' && r.citations.length > 0);
   const hasQmdEvidence = results.some((r) => r.tool === 'qmd_search' && r.citations.length > 0);
+  const hasOpenbbEvidence = results.some((r) => r.tool === 'openbb_search' && r.citations.length > 0);
   const hasMevzuatEvidence = results.some((r) => r.tool === 'mevzuat_mcp_search' && r.citations.length > 0);
   const hasYargiEvidence = results.some((r) => r.tool === 'yargi_mcp_search' && r.citations.length > 0);
   const hasBorsaMcpEvidence = results.some((r) => r.tool === 'borsa_mcp_search' && r.citations.length > 0);
@@ -158,6 +175,7 @@ export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string
   if (hasRagEvidence) confidence += 0.15;
   if (hasMemoryEvidence) confidence += 0.1;
   if (hasQmdEvidence) confidence += 0.12;
+  if (hasOpenbbEvidence) confidence += 0.12;
   if (hasMevzuatEvidence) confidence += 0.1;
   if (hasYargiEvidence) confidence += 0.1;
   if (hasBorsaMcpEvidence) confidence += 0.1;
@@ -166,13 +184,21 @@ export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string
     citationCount >= config.verifier.minCitations ||
     hasMemoryEvidence ||
     hasQmdEvidence ||
+    hasOpenbbEvidence ||
     hasMevzuatEvidence ||
     hasYargiEvidence ||
     hasBorsaMcpEvidence;
   const sourceDiversityMet = distinctSources >= config.verifier.minSourceDomains;
   const qualityFloorMet =
     citationFloorMet &&
-    (sourceDiversityMet || hasRagEvidence || hasMemoryEvidence || hasQmdEvidence || hasMevzuatEvidence || hasYargiEvidence || hasBorsaMcpEvidence);
+    (sourceDiversityMet ||
+      hasRagEvidence ||
+      hasMemoryEvidence ||
+      hasQmdEvidence ||
+      hasOpenbbEvidence ||
+      hasMevzuatEvidence ||
+      hasYargiEvidence ||
+      hasBorsaMcpEvidence);
 
   if (confidence >= 0.65 && qualityFloorMet) {
     return {
@@ -188,6 +214,15 @@ export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string
       confidence,
       reason: 'Confidence low for memory-focused query, adding memory_search pass.',
       suggestedTool: 'memory_search'
+    };
+  }
+
+  if (looksLikeOpenbbQuery(query) && !plan.tools.includes('openbb_search')) {
+    return {
+      sufficient: false,
+      confidence,
+      reason: 'Confidence low for trading/market-data query, adding openbb_search pass.',
+      suggestedTool: 'openbb_search'
     };
   }
 

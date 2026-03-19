@@ -9,3 +9,10 @@ test('planner creates stage checklist for research queries', () => {
   assert.ok((plan.stages?.length ?? 0) >= 1);
   assert.ok(plan.stages?.some((stage) => stage.title.includes('Keşif')));
 });
+
+test('planner routes trading/OpenBB style queries to openbb_search', () => {
+  const plan = planForQuery('Binance için openbb market data ve teknik indikatör analizi yap');
+
+  assert.ok(plan.tools.includes('openbb_search'));
+  assert.ok(plan.stages?.some((stage) => stage.tools.includes('openbb_search')));
+});

@@ -153,3 +153,18 @@ test('verifier suggests borsa_mcp_search for BIST queries without evidence', () 
   assert.equal(result.sufficient, false);
   assert.equal(result.suggestedTool, 'borsa_mcp_search');
 });
+
+test('verifier suggests openbb_search for trading data queries without evidence', () => {
+  const result = verifyEvidence(
+    {
+      objective: 'trading query',
+      tools: ['web_search'],
+      reasoning: 'test'
+    },
+    [],
+    'Binance için teknik indikatör ve market data analizi yap.'
+  );
+
+  assert.equal(result.sufficient, false);
+  assert.equal(result.suggestedTool, 'openbb_search');
+});
