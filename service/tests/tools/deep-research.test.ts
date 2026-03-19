@@ -56,6 +56,13 @@ test('deep_research continues when one source fails and dedupes citations', asyn
           throw new Error('rag backend unavailable');
         }
       },
+      openbbSearch: {
+        execute: async () => ({
+          tool: 'openbb_search',
+          summary: 'openbb: market snapshot bulundu',
+          citations: ['http://127.0.0.1:6900/api/v1/equity/price/quote?symbol=AAPL']
+        })
+      },
       webSearch: {
         execute: async ({ query }) => {
           if (query.includes('risks')) {

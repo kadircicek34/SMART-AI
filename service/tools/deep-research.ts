@@ -4,6 +4,7 @@ import { ragSearchTool } from './rag-search.js';
 import { memorySearchTool } from './memory-search.js';
 import { qmdSearchTool } from './qmd-search.js';
 import { borsaMcpSearchTool, mevzuatMcpSearchTool, yargiMcpSearchTool } from './tr-mcp-search.js';
+import { openbbSearchTool } from './openbb-search.js';
 import { webSearchTool } from './web-search.js';
 import { wikipediaTool } from './wikipedia.js';
 
@@ -16,6 +17,7 @@ type ResearchDependencies = {
   mevzuatMcpSearch: Pick<ToolAdapter, 'execute'>;
   borsaMcpSearch: Pick<ToolAdapter, 'execute'>;
   yargiMcpSearch: Pick<ToolAdapter, 'execute'>;
+  openbbSearch: Pick<ToolAdapter, 'execute'>;
 };
 
 type ResearchLimits = {
@@ -30,6 +32,12 @@ function dedupe(values: string[]): string[] {
 function toErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+function looksLikeFinancialResearch(query: string): boolean {
+  return /(stock|finance|financial|hisse|finans|borsa|trading|trade|binance|openbb|technical|indikat|market data|company news)/i.test(
+    query
+  );
 }
 
 function buildResearchQueryPlan(query: string, maxQueries = config.research.maxQueries): {
@@ -154,6 +162,17 @@ async function executeDeepResearch(
     }
   }
 
+  if (looksLikeFinancialResearch(input.query)) {
+    try {
+      const openbb = await deps.openbbSearch.execute({ query: input.query, tenantId: input.tenantId });
+      notes.push('OpenBB Market Data:');
+      notes.push(openbb.summary);
+      citations.push(...openbb.citations);
+    } catch (error) {
+      notes.push(`OpenBB Market Data: hata (${toErrorMessage(error)})`);
+    }
+  }
+
   const perQueryNotes = await mapWithConcurrency(
     researchQueries,
     limits.maxConcurrentUnits,
@@ -221,7 +240,8 @@ export const deepResearchTool: ToolAdapter = {
         qmdSearch: qmdSearchTool,
         mevzuatMcpSearch: mevzuatMcpSearchTool,
         borsaMcpSearch: borsaMcpSearchTool,
-        yargiMcpSearch: yargiMcpSearchTool
+        yargiMcpSearch: yargiMcpSearchTool,
+        openbbSearch: openbbSearchTool
       },
       {
         maxQueries: config.research.maxQueries,
@@ -235,5 +255,6 @@ export const __private__ = {
   buildResearchQueryPlan,
   mapWithConcurrency,
   executeDeepResearch,
+  looksLikeFinancialResearch,
   toErrorMessage
 };

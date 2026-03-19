@@ -9,6 +9,7 @@ test('policy allows default tools and denies unknown tools', () => {
       'web_search',
       'wikipedia',
       'deep_research',
+      'openbb_search',
       'rag_search',
       'memory_search',
       'qmd_search',
@@ -22,6 +23,7 @@ test('policy allows default tools and denies unknown tools', () => {
   assert.ok(result.allowed.includes('web_search'));
   assert.ok(result.allowed.includes('wikipedia'));
   assert.ok(result.allowed.includes('deep_research'));
+  assert.ok(result.allowed.includes('openbb_search'));
   assert.ok(result.allowed.includes('rag_search'));
   assert.ok(result.allowed.includes('memory_search'));
   assert.ok(result.allowed.includes('qmd_search'));
