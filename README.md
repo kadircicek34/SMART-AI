@@ -23,7 +23,8 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - **Verifier kalite kapıları** (minimum citation + source diversity)
 - **Loop guard** (tekrarlayan tool-pass kırıcı)
 - **Deep research budget/concurrency kontrolleri**
-- **Research job güvenlik kapıları** (Idempotency-Key replay protection + tenant active-job cap + cancel support)
+- **Research job runtime hardening** (Idempotency-Key TTL + tenant active-job cap + AbortSignal destekli gerçek cancel/timeout + cancellation reason telemetry)
+- **Model allowlist policy** (`OPENROUTER_ALLOWED_MODELS` + model format doğrulaması + security audit event)
 - **Tenant Memory Layer** (memorizasyon + retrieval + auto-capture)
 - **QMD Local Search entegrasyonu** (VPS'teki kurulu `qmd` ile proje doküman araması)
 - **Memory hotness scoring + retrieval telemetry** (OpenViking pattern)
@@ -32,6 +33,8 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - **Türk domain MCP entegrasyonu** (Mevzuat MCP + Borsa MCP + Yargı MCP via mcporter)
 - **MCP Dayanıklılık Katmanı** (circuit breaker + adaptive timeout + kalıcı health snapshot + health endpointleri)
 - **Security Audit Event Feed** (`/v1/security/events`) + dashboard güvenlik olay görünürlüğü
+- **Security Risk Summary** (`/v1/security/summary`) + tenant bazlı risk skoru / alarm bayrakları
+- **Header abuse guard** (Authorization / tenant header boyut limitleri + UI oversized key koruması)
 
 ## Klasörler
 - `contracts/` → API sözleşmeleri
@@ -135,6 +138,10 @@ curl -X POST http://127.0.0.1:8080/v1/mcp/flush \
 curl 'http://127.0.0.1:8080/v1/security/events?limit=20' \
   -H 'Authorization: Bearer dev-admin-key' \
   -H 'x-tenant-id: tenant-a'
+
+curl 'http://127.0.0.1:8080/v1/security/summary?window_hours=24&top_ip_limit=5' \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a'
 ```
 
 ## Web UI (Control Dashboard + Chat UI)
@@ -151,6 +158,7 @@ Yeni güvenlik akışı:
 - UI state-changing endpoint’lerde Origin allowlist kontrolü (`UI_ALLOWED_ORIGINS`) desteklenir.
 - `/ui/dashboard` ve `/ui/chat` yanıtlarında CSP + güvenlik header’ları uygulanır.
 - Dashboard artık API key’i localStorage’da tutmaz; chat ile aynı kısa ömürlü session token modeli kullanılır.
+- Dashboard, `/v1/security/summary` ile 24h risk seviyesi + alarm bayraklarını da gösterir.
 
 ## QMD Collection Bootstrap (opsiyonel manuel)
 ```bash
