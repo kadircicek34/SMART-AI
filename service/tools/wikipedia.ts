@@ -1,3 +1,4 @@
+import { createTimeoutSignal, throwIfAborted } from '../utils/abort.js';
 import type { ToolAdapter, ToolInput, ToolResult } from './types.js';
 
 type SearchResp = {
@@ -27,7 +28,8 @@ export const wikipediaTool: ToolAdapter = {
     searchUrl.searchParams.set('srlimit', '3');
     searchUrl.searchParams.set('srsearch', input.query);
 
-    const searchRes = await fetch(searchUrl, { signal: AbortSignal.timeout(12_000) });
+    throwIfAborted(input.signal);
+    const searchRes = await fetch(searchUrl, { signal: createTimeoutSignal(12_000, input.signal) });
     if (!searchRes.ok) {
       throw new Error(`wikipedia search failed (${searchRes.status})`);
     }
@@ -52,7 +54,8 @@ export const wikipediaTool: ToolAdapter = {
     extractUrl.searchParams.set('exintro', '1');
     extractUrl.searchParams.set('explaintext', '1');
 
-    const extractRes = await fetch(extractUrl, { signal: AbortSignal.timeout(12_000) });
+    throwIfAborted(input.signal);
+    const extractRes = await fetch(extractUrl, { signal: createTimeoutSignal(12_000, input.signal) });
     if (!extractRes.ok) {
       throw new Error(`wikipedia extract failed (${extractRes.status})`);
     }

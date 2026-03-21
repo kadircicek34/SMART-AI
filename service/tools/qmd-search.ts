@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { config } from '../config.js';
+import { throwIfAborted } from '../utils/abort.js';
 import type { ToolAdapter, ToolInput, ToolResult } from './types.js';
 
 type QmdSearchItem = {
@@ -16,7 +17,7 @@ type QmdExecResult = {
   stderr: string;
 };
 
-type QmdRunner = (args: string[]) => Promise<QmdExecResult>;
+type QmdRunner = (args: string[], signal?: AbortSignal) => Promise<QmdExecResult>;
 
 const execFileAsync = promisify(execFile);
 const initializedCollections = new Set<string>();
@@ -67,11 +68,12 @@ function formatItems(items: QmdSearchItem[], maxSnippetChars: number): { summary
   };
 }
 
-async function defaultQmdRunner(args: string[]): Promise<QmdExecResult> {
+async function defaultQmdRunner(args: string[], signal?: AbortSignal): Promise<QmdExecResult> {
   const { stdout, stderr } = await execFileAsync(config.tools.qmdCommand, args, {
     timeout: config.tools.qmdTimeoutMs,
     maxBuffer: 4 * 1024 * 1024,
-    encoding: 'utf-8'
+    encoding: 'utf-8',
+    signal
   });
 
   return {
@@ -86,19 +88,21 @@ async function ensureCollection(
     collectionName: string;
     collectionPath: string;
     autoAdd: boolean;
-  }
+  },
+  signal?: AbortSignal
 ): Promise<void> {
   const cacheKey = `${opts.collectionName}|${opts.collectionPath}`;
   if (initializedCollections.has(cacheKey)) return;
 
-  const listed = await runner(['collection', 'list']);
+  throwIfAborted(signal);
+  const listed = await runner(['collection', 'list'], signal);
   const haystack = `${listed.stdout}\n${listed.stderr}`.toLowerCase();
   const collectionDetected =
     haystack.includes(opts.collectionName.toLowerCase()) || haystack.includes(opts.collectionPath.toLowerCase());
 
   if (!collectionDetected && opts.autoAdd) {
     try {
-      await runner(['collection', 'add', opts.collectionPath, '--name', opts.collectionName]);
+      await runner(['collection', 'add', opts.collectionPath, '--name', opts.collectionName], signal);
     } catch (error) {
       const msg = toMessage(error).toLowerCase();
       if (!msg.includes('already exists') && !msg.includes('duplicate')) {
@@ -130,11 +134,15 @@ async function executeQmdSearchWithRunner(
     };
   }
 
-  await ensureCollection(runner, {
-    collectionName: opts.collectionName,
-    collectionPath: opts.collectionPath,
-    autoAdd: opts.autoAddCollection
-  });
+  await ensureCollection(
+    runner,
+    {
+      collectionName: opts.collectionName,
+      collectionPath: opts.collectionPath,
+      autoAdd: opts.autoAddCollection
+    },
+    input.signal
+  );
 
   const args = [
     'search',
@@ -146,7 +154,8 @@ async function executeQmdSearchWithRunner(
     opts.collectionName
   ];
 
-  const searchResult = await runner(args);
+  throwIfAborted(input.signal);
+  const searchResult = await runner(args, input.signal);
   const items = parseQmdSearchJson(searchResult.stdout).slice(0, opts.maxResults);
 
   if (items.length === 0) {

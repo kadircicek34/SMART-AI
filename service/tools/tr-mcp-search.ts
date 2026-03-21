@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { config } from '../config.js';
 import { canCallMcp, getMcpAdaptiveTimeout, recordMcpFailure, recordMcpSuccess } from '../mcp-health/index.js';
+import { throwIfAborted } from '../utils/abort.js';
 import type { ToolAdapter, ToolInput, ToolResult } from './types.js';
 import type { McpServerId } from '../mcp-health/types.js';
 
@@ -12,7 +13,7 @@ type McpRunnerResult = {
   stderr: string;
 };
 
-type McpRunner = (args: string[]) => Promise<McpRunnerResult>;
+type McpRunner = (args: string[], signal?: AbortSignal) => Promise<McpRunnerResult>;
 
 type JsonObject = Record<string, unknown>;
 
@@ -44,11 +45,12 @@ function truncate(value: string, maxChars = 320): string {
   return `${normalized.slice(0, Math.max(0, maxChars - 3))}...`;
 }
 
-function defaultRunner(args: string[]): Promise<McpRunnerResult> {
+function defaultRunner(args: string[], signal?: AbortSignal): Promise<McpRunnerResult> {
   return execFileAsync(config.tools.mcporterCommand, args, {
     timeout: config.tools.mcporterTimeoutMs,
     maxBuffer: 4 * 1024 * 1024,
-    encoding: 'utf-8'
+    encoding: 'utf-8',
+    signal
   }).then(({ stdout, stderr }) => ({
     stdout: stdout ?? '',
     stderr: stderr ?? ''
@@ -88,8 +90,9 @@ async function callMcpTool(
     toolName: string;
     args: JsonObject;
   },
-  serverId: McpServerId
-): Promise<{
+  serverId: McpServerId,
+  signal?: AbortSignal
+): Promise<{ 
   ok: boolean;
   parsed: unknown;
   error?: string;
@@ -123,7 +126,8 @@ async function callMcpTool(
   const startTime = Date.now();
 
   try {
-    const { stdout, stderr } = await runner(callArgs);
+    throwIfAborted(signal);
+    const { stdout, stderr } = await runner(callArgs, signal);
     const latencyMs = Date.now() - startTime;
     const parsed = parseJsonIfPossible(stdout);
 
@@ -228,6 +232,7 @@ async function executeMevzuatMcpSearch(
   input: ToolInput,
   runner: McpRunner
 ): Promise<ToolResult> {
+  throwIfAborted(input.signal);
   const query = input.query.trim();
   const toolName = /\b(tebliğ|teblig)\b/i.test(query) ? 'search_teblig' : 'search_kanun';
   const serverId: McpServerId = 'mevzuat';
@@ -242,7 +247,8 @@ async function executeMevzuatMcpSearch(
         page_size: config.tools.mcpMaxResults
       }
     },
-    serverId
+    serverId,
+    input.signal
   );
 
   if (call.circuitOpen) {
@@ -308,6 +314,7 @@ async function executeBorsaMcpSearch(
   input: ToolInput,
   runner: McpRunner
 ): Promise<ToolResult> {
+  throwIfAborted(input.signal);
   const query = input.query.trim();
   const market = marketFromQuery(query);
   const serverId: McpServerId = 'borsa';
@@ -323,7 +330,8 @@ async function executeBorsaMcpSearch(
         limit: config.tools.mcpMaxResults
       }
     },
-    serverId
+    serverId,
+    input.signal
   );
 
   if (searchCall.circuitOpen) {
@@ -375,7 +383,8 @@ async function executeBorsaMcpSearch(
           market
         }
       },
-      serverId
+      serverId,
+      input.signal
     );
 
     if (profileCall.ok && profileCall.parsed && typeof profileCall.parsed === 'object') {
@@ -413,6 +422,7 @@ async function executeYargiMcpSearch(
   input: ToolInput,
   runner: McpRunner
 ): Promise<ToolResult> {
+  throwIfAborted(input.signal);
   const query = input.query.trim();
   const serverId: McpServerId = 'yargi';
 
@@ -426,7 +436,8 @@ async function executeYargiMcpSearch(
         page_number: 1
       }
     },
-    serverId
+    serverId,
+    input.signal
   );
 
   let parsed: JsonObject | null = null;
@@ -449,7 +460,8 @@ async function executeYargiMcpSearch(
           pageNumber: 1
         }
       },
-      serverId
+      serverId,
+      input.signal
     );
 
     if (fallbackCall.ok && fallbackCall.parsed && typeof fallbackCall.parsed === 'object') {

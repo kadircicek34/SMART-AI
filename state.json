@@ -1,31 +1,28 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "Async research lifecycle hardening tamamlandı: idempotent create + tenant job list/cancel endpointleri + active-job security cap + error redaction + audit telemetry",
+  "current_task": "Async runtime cancellation + model allowlist + idempotency/job store hardening teslim edildi",
   "next_actions": [
-    "Running job cancel için AbortSignal tabanlı gerçek interrupt zinciri ekle",
-    "Job store'u Redis/Postgres gibi persistent backend'e taşı",
-    "Idempotency kayıtları için TTL/retention politikasını kalıcı store ile uygula",
-    "OpenBB technical endpoints (rsi/macd vb.) için payload-builder katmanı ekle"
+    "Job/idempotency store'u Redis/Postgres gibi kalıcı bir backend'e taşı",
+    "Tenant bazlı farklı model allowlist/policy yönetimi ekle",
+    "Security audit eventlerini SIEM/OTEL pipeline'ına aktar",
+    "Cancel/timeout metrikleri için dashboard trend paneli ekle"
   ],
   "risks": [
-    "Running durumdaki job cancel şu an best-effort; orchestrator/tool çağrısı fiziksel olarak devam edebilir",
-    "Job store process-memory olduğu için servis restart sonrası job geçmişi ve idempotency index sıfırlanır",
-    "OPENBB endpoint erişim sorunlarında finans sorguları partial-data ile dönebilir"
+    "Job/idempotency state process-memory tutulduğu için servis restartında geçmiş durum korunmaz",
+    "Model allowlist deployment-level; tenant bazlı ayrık model politikası henüz yok",
+    "Signal-aware cancellation zinciri dış bağımlı provider gecikmelerinde best-effort davranabilir"
   ],
   "decisions": [
     "Mimari: Modüler monolith + async worker",
     "UI auth hardening: API key yerine tenant-scope kısa ömürlü session token",
-    "UI session anti-bruteforce: IP+tenant pencere + geçici lock + retry-after",
-    "UI logout lifecycle: POST /ui/session/revoke",
-    "MCP health persistence: file/http abstract backend + fallback",
-    "Orchestrator plan görünürlüğü için stages checklist eklendi",
-    "Memory katmanına tenant-scope relatedMemoryIds linking eklendi",
     "Production'ta MASTER_KEY_BASE64 eksik/geçersiz ise fail-fast startup zorunlu",
     "Security telemetry: /v1/security/events tenant-scope audit feed + dashboard security panel",
-    "UI hardening: origin allowlist enforcement + CSP/security headers + tenant-id format validation",
-    "OpenBB native tool: /api/v1 equity quote/historical + news world/company route with planner/verifier/deep-research integration",
-    "Async research lifecycle: Idempotency-Key + tenant active-job cap + list/cancel endpointleri + error redaction"
+    "OpenBB native tool: /api/v1 equity quote/historical + news route entegrasyonu",
+    "Async research lifecycle: Idempotency-Key + tenant active-job cap + list/cancel endpointleri + error redaction",
+    "Security intelligence summary: /v1/security/summary + risk scoring + alert flags + top IP",
+    "Auth/UI header abuse hardening: Authorization/Bearer/Tenant size guard + oversized UI API key reject",
+    "Runtime cancellation + model allowlist: AbortSignal chain, OPENROUTER_ALLOWED_MODELS, idempotency TTL/store cap"
   ],
   "artifacts": [
     "README.md",
@@ -36,13 +33,26 @@
     "test-report.md",
     "service/.env.example",
     "service/README.md",
-    "service/api/routes/jobs.ts",
-    "service/api/routes/security-events.ts",
     "service/config.ts",
+    "service/utils/abort.ts",
+    "service/security/model-policy.ts",
     "service/security/audit-log.ts",
+    "service/llm/openrouter-client.ts",
     "service/worker/jobs.ts",
+    "service/api/routes/chat-completions.ts",
+    "service/api/routes/jobs.ts",
+    "service/api/routes/models.ts",
+    "service/tools/router.ts",
+    "service/tools/deep-research.ts",
+    "service/tools/financial.ts",
+    "service/tools/openbb-search.ts",
+    "service/tools/web-search.ts",
+    "service/tools/wikipedia.ts",
+    "service/tools/qmd-search.ts",
+    "service/tools/tr-mcp-search.ts",
+    "service/tests/contract/chat-completions.test.ts",
     "service/tests/contract/jobs.test.ts",
     "service/tests/worker/jobs.test.ts"
   ],
-  "updated_at": "2026-03-19T07:22:00+03:00"
+  "updated_at": "2026-03-21T07:22:48+03:00"
 }

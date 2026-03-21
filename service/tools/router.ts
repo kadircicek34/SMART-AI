@@ -7,6 +7,7 @@ import { ragSearchTool } from './rag-search.js';
 import { memorySearchTool } from './memory-search.js';
 import { qmdSearchTool } from './qmd-search.js';
 import { borsaMcpSearchTool, mevzuatMcpSearchTool, yargiMcpSearchTool } from './tr-mcp-search.js';
+import { throwIfAborted } from '../utils/abort.js';
 import type { ToolAdapter, ToolName, ToolResult } from './types.js';
 
 const tools: Record<ToolName, ToolAdapter> = {
@@ -32,16 +33,23 @@ export async function runTools(params: {
   query: string;
   maxCalls: number;
   tenantId: string;
+  signal?: AbortSignal;
 }): Promise<ToolResult[]> {
   const selected = params.toolNames.slice(0, params.maxCalls);
   const results: ToolResult[] = [];
 
   for (const toolName of selected) {
+    throwIfAborted(params.signal);
+
     const adapter = tools[toolName];
     try {
-      const result = await adapter.execute({ query: params.query, tenantId: params.tenantId });
+      const result = await adapter.execute({ query: params.query, tenantId: params.tenantId, signal: params.signal });
       results.push(result);
     } catch (error) {
+      if (params.signal?.aborted) {
+        throw error;
+      }
+
       results.push({
         tool: toolName,
         summary: `${toolName} failed: ${error instanceof Error ? error.message : String(error)}`,

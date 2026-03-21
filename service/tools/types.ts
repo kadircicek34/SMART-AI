@@ -15,6 +15,7 @@ export type ToolInput = {
   query: string;
   locale?: string;
   tenantId?: string;
+  signal?: AbortSignal;
 };
 
 export type ToolResult = {

@@ -1,4 +1,5 @@
 import { config } from '../config.js';
+import { createTimeoutSignal, throwIfAborted } from '../utils/abort.js';
 import type { ToolAdapter, ToolInput, ToolResult } from './types.js';
 
 type DuckResponse = {
@@ -37,14 +38,15 @@ function flattenTopics(resp: DuckResponse): Array<{ text: string; url?: string }
   return out;
 }
 
-async function runDuckDuckGo(query: string): Promise<ToolResult> {
+async function runDuckDuckGo(query: string, signal?: AbortSignal): Promise<ToolResult> {
   const url = new URL('https://api.duckduckgo.com/');
   url.searchParams.set('q', query);
   url.searchParams.set('format', 'json');
   url.searchParams.set('no_redirect', '1');
   url.searchParams.set('no_html', '1');
 
-  const res = await fetch(url, { signal: AbortSignal.timeout(12_000) });
+  throwIfAborted(signal);
+  const res = await fetch(url, { signal: createTimeoutSignal(12_000, signal) });
   if (!res.ok) {
     throw new Error(`web_search failed (${res.status})`);
   }
@@ -75,7 +77,7 @@ async function runDuckDuckGo(query: string): Promise<ToolResult> {
   };
 }
 
-async function runBrave(query: string, locale?: string): Promise<ToolResult> {
+async function runBrave(query: string, locale?: string, signal?: AbortSignal): Promise<ToolResult> {
   const braveApiKey = config.tools.braveApiKey;
   if (!braveApiKey) {
     throw new Error('brave_api_key_missing');
@@ -92,8 +94,9 @@ async function runBrave(query: string, locale?: string): Promise<ToolResult> {
     if (country) url.searchParams.set('country', country.toUpperCase());
   }
 
+  throwIfAborted(signal);
   const res = await fetch(url, {
-    signal: AbortSignal.timeout(12_000),
+    signal: createTimeoutSignal(12_000, signal),
     headers: {
       Accept: 'application/json',
       'X-Subscription-Token': braveApiKey
@@ -143,12 +146,12 @@ export const webSearchTool: ToolAdapter = {
   async execute(input: ToolInput): Promise<ToolResult> {
     if (config.tools.braveApiKey) {
       try {
-        return await runBrave(input.query, input.locale);
+        return await runBrave(input.query, input.locale, input.signal);
       } catch {
         // fall through to duckduckgo fallback
       }
     }
 
-    return runDuckDuckGo(input.query);
+    return runDuckDuckGo(input.query, input.signal);
   }
 };
