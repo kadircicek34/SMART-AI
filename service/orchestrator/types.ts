@@ -15,6 +15,7 @@ export type RunInput = {
   temperature?: number;
   maxTokens?: number;
   stream?: boolean;
+  signal?: AbortSignal;
 };
 
 export type PlanStage = {

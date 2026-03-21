@@ -208,6 +208,22 @@ test('GET /v1/jobs and POST /v1/jobs/:jobId/cancel manage tenant-scoped lifecycl
   assert.equal(detailBody.status, 'cancelled');
 });
 
+test('POST /v1/jobs/research rejects disallowed model', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/v1/jobs/research',
+    headers: authHeaders('tenant-jobs-model-reject'),
+    payload: {
+      query: 'test query',
+      model: 'openrouter/agentic-default'
+    }
+  });
+
+  assert.equal(res.statusCode, 403);
+  const body = res.json();
+  assert.equal(body.error.type, 'permission_error');
+});
+
 test('POST /v1/jobs/research validates Idempotency-Key header format', async () => {
   const res = await app.inject({
     method: 'POST',

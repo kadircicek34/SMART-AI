@@ -59,11 +59,23 @@ export const config = {
     maxConcurrentUnits: Number(process.env.RESEARCH_MAX_CONCURRENT_UNITS ?? 2),
     maxQueryChars: Number(process.env.RESEARCH_MAX_QUERY_CHARS ?? 4_000),
     maxActiveJobsPerTenant: Number(process.env.RESEARCH_MAX_ACTIVE_JOBS_PER_TENANT ?? 2),
-    idempotencyKeyMaxLength: Number(process.env.RESEARCH_IDEMPOTENCY_KEY_MAX_LENGTH ?? 128)
+    idempotencyKeyMaxLength: Number(process.env.RESEARCH_IDEMPOTENCY_KEY_MAX_LENGTH ?? 128),
+    idempotencyTtlSeconds: Number(process.env.RESEARCH_IDEMPOTENCY_TTL_SECONDS ?? 3600),
+    jobTimeoutMs: Number(process.env.RESEARCH_JOB_TIMEOUT_MS ?? 120_000),
+    maxJobsPerTenant: Number(process.env.RESEARCH_MAX_JOBS_PER_TENANT ?? 500)
   },
   openRouter: {
     baseUrl: process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1',
     defaultModel: process.env.OPENROUTER_DEFAULT_MODEL ?? 'deepseek/deepseek-chat-v3.1',
+    allowedModels: (() => {
+      const configured = parseCsv(process.env.OPENROUTER_ALLOWED_MODELS);
+      if (configured.length > 0) {
+        return configured;
+      }
+
+      return [process.env.OPENROUTER_DEFAULT_MODEL ?? 'deepseek/deepseek-chat-v3.1'];
+    })(),
+    modelIdMaxLength: Number(process.env.OPENROUTER_MODEL_ID_MAX_LENGTH ?? 120),
     globalApiKey: process.env.OPENROUTER_API_KEY,
     maxRetries: Number(process.env.OPENROUTER_MAX_RETRIES ?? 2),
     retryBaseDelayMs: Number(process.env.OPENROUTER_RETRY_BASE_DELAY_MS ?? 400),
@@ -143,7 +155,11 @@ export const config = {
   },
   security: {
     masterKey: getMasterKey(),
-    auditMaxEventsPerTenant: Number(process.env.SECURITY_AUDIT_MAX_EVENTS_PER_TENANT ?? 300)
+    auditMaxEventsPerTenant: Number(process.env.SECURITY_AUDIT_MAX_EVENTS_PER_TENANT ?? 300),
+    authorizationHeaderMaxLength: Number(process.env.SECURITY_AUTH_HEADER_MAX_LENGTH ?? 4096),
+    bearerTokenMaxLength: Number(process.env.SECURITY_BEARER_TOKEN_MAX_LENGTH ?? 2048),
+    tenantHeaderMaxLength: Number(process.env.SECURITY_TENANT_HEADER_MAX_LENGTH ?? 128),
+    uiApiKeyMaxLength: Number(process.env.SECURITY_UI_API_KEY_MAX_LENGTH ?? 512)
   },
   ui: {
     allowedOrigins: parseOrigins(process.env.UI_ALLOWED_ORIGINS)

@@ -7,11 +7,13 @@ export async function executePlan(params: {
   query: string;
   maxToolCalls: number;
   tenantId: string;
+  signal?: AbortSignal;
 }): Promise<ToolResult[]> {
   return runTools({
     toolNames: params.plan.tools,
     query: params.query,
     maxCalls: params.maxToolCalls,
-    tenantId: params.tenantId
+    tenantId: params.tenantId,
+    signal: params.signal
   });
 }

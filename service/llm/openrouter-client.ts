@@ -1,4 +1,5 @@
 import { config } from '../config.js';
+import { createTimeoutSignal, sleep, throwIfAborted } from '../utils/abort.js';
 
 export type LlmMessage = {
   role: 'system' | 'user' | 'assistant';
@@ -46,13 +47,6 @@ function calculateBackoffDelayMs(attempt: number): number {
   return capped + jitter;
 }
 
-async function sleep(ms: number): Promise<void> {
-  if (ms <= 0) {
-    return;
-  }
-
-  await new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 export async function chatWithOpenRouter(params: {
   apiKey: string;
@@ -60,10 +54,13 @@ export async function chatWithOpenRouter(params: {
   messages: LlmMessage[];
   temperature?: number;
   maxTokens?: number;
+  signal?: AbortSignal;
 }): Promise<LlmResponse> {
   const maxAttempts = Math.max(1, config.openRouter.maxRetries + 1);
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    throwIfAborted(params.signal);
+
     const response = await fetch(`${config.openRouter.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -79,7 +76,7 @@ export async function chatWithOpenRouter(params: {
         max_tokens: params.maxTokens ?? 1200,
         stream: false
       }),
-      signal: AbortSignal.timeout(config.requestTimeoutMs)
+      signal: createTimeoutSignal(config.requestTimeoutMs, params.signal)
     });
 
     if (response.ok) {
@@ -111,7 +108,7 @@ export async function chatWithOpenRouter(params: {
 
     const retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
     const delayMs = retryAfterMs ?? calculateBackoffDelayMs(attempt);
-    await sleep(delayMs);
+    await sleep(delayMs, params.signal);
   }
 
   throw new Error('OpenRouter request failed after retries.');

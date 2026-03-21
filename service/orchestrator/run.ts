@@ -7,6 +7,7 @@ import { chooseBestPlan } from './thinking-loop.js';
 import { synthesizeAnswer } from './synthesizer.js';
 import type { Plan, RunInput, RunOutput } from './types.js';
 import { verifyEvidence } from './verifier.js';
+import { throwIfAborted } from '../utils/abort.js';
 
 function normalizePlanTools(plan: Plan, allowed: ToolName[]): Plan {
   return {
@@ -44,6 +45,8 @@ function updateStageStatuses(plan: Plan, completedTools: ToolName[]): Plan {
 }
 
 export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
+  throwIfAborted(input.signal);
+
   const startedAt = Date.now();
   const budget = createBudget();
   const lastUser = [...input.messages].reverse().find((m) => m.role === 'user');
@@ -107,12 +110,14 @@ export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
     }
 
     assertWithinRuntime(startedAt, budget);
+    throwIfAborted(input.signal);
 
     const passResults = await executePlan({
       plan: { ...plan, tools: toolsToRun },
       query,
       maxToolCalls: Math.min(policy.maxToolCalls, budget.maxToolCalls, toolsToRun.length),
-      tenantId: input.tenantId
+      tenantId: input.tenantId,
+      signal: input.signal
     });
 
     allResults = [...allResults, ...passResults];
@@ -133,13 +138,16 @@ export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
     step += 1;
   }
 
+  throwIfAborted(input.signal);
+
   const synthesized = await synthesizeAnswer({
     query,
     model: input.model,
     openRouterApiKey: input.openRouterApiKey,
     plan,
     verification,
-    results: allResults
+    results: allResults,
+    signal: input.signal
   });
 
   const promptTokensApprox = Math.ceil(JSON.stringify(input.messages).length / 4);

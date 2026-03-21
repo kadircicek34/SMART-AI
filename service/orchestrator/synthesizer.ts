@@ -44,6 +44,7 @@ export async function synthesizeAnswer(params: {
   plan: Plan;
   verification: VerificationResult;
   results: ToolResult[];
+  signal?: AbortSignal;
 }): Promise<{ text: string; usage: { promptTokens: number; completionTokens: number; totalTokens: number }; model: string }> {
   const evidence = buildEvidenceBlock(params.results);
 
@@ -59,6 +60,7 @@ export async function synthesizeAnswer(params: {
     const completion = await chatWithOpenRouter({
       apiKey: params.openRouterApiKey,
       model: params.model || config.openRouter.defaultModel,
+      signal: params.signal,
       messages: [
         {
           role: 'system',

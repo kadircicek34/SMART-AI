@@ -34,7 +34,7 @@ test('POST /v1/chat/completions rejects invalid body', async () => {
   assert.equal(body.error.type, 'invalid_request_error');
 });
 
-test('POST /v1/chat/completions returns completion shape', async () => {
+test('POST /v1/chat/completions rejects model outside allowlist', async () => {
   const res = await app.inject({
     method: 'POST',
     url: '/v1/chat/completions',
@@ -45,6 +45,26 @@ test('POST /v1/chat/completions returns completion shape', async () => {
     },
     payload: {
       model: 'openrouter/agentic-default',
+      messages: [{ role: 'user', content: 'selam' }]
+    }
+  });
+
+  assert.equal(res.statusCode, 403);
+  const body = res.json();
+  assert.equal(body.error.type, 'permission_error');
+});
+
+test('POST /v1/chat/completions returns completion shape', async () => {
+  const res = await app.inject({
+    method: 'POST',
+    url: '/v1/chat/completions',
+    headers: {
+      authorization: 'Bearer test-api-key',
+      'x-tenant-id': 'tenant-test',
+      'content-type': 'application/json'
+    },
+    payload: {
+      model: 'deepseek/deepseek-chat-v3.1',
       messages: [{ role: 'user', content: 'selam' }]
     }
   });
