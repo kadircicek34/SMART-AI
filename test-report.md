@@ -115,3 +115,34 @@ UI auth katmanı kısa ömürlü session token modeline geçirildi; test paketi 
     - tenant active-job sınırı
     - cancel-after-runner-complete race koruması
     - sensitive error redaction doğrulaması
+
+## 2026-03-20 Ek doğrulama (Security intelligence summary + header abuse hardening)
+- `npm run typecheck` ✅
+- `npm test` ✅ (**101/101**)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `PORT=18080 ... npm run dev + curl /health + curl /v1/security/summary` ✅ smoke başarılı
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+- Yeni testler / güncellemeler:
+  - `service/tests/contract/security-events.test.ts`
+    - `GET /v1/security/summary` contract doğrulaması
+    - oversized `Authorization` header için `431` doğrulaması
+  - `service/tests/security/audit-log.test.ts`
+    - audit detail redaction doğrulaması
+    - risk summary + top IP + flag üretimi doğrulaması
+  - `service/tests/contract/ui.test.ts`
+    - `/ui/session` oversized API key payload reddi (`400`)
+    - `/ui/session/revoke` oversized authorization header reddi (`431`)
+
+## 2026-03-21 Ek doğrulama (Async runtime cancellation + model allowlist hardening)
+- `npm run typecheck` ✅
+- `npm test` ✅ (**105/105**)
+- `npm audit --omit=dev --audit-level=high` ✅ (0 vulnerability)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+- Yeni testler / güncellemeler:
+  - `service/tests/contract/chat-completions.test.ts`
+    - allowlist dışı model için `403` doğrulaması
+  - `service/tests/contract/jobs.test.ts`
+    - allowlist dışı model ile async job reject (`403`)
+  - `service/tests/worker/jobs.test.ts`
+    - running job timeout/cancel reason doğrulaması
+    - idempotency TTL expiry/prune davranışı doğrulaması

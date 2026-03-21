@@ -1,5 +1,24 @@
 # TASKS — OpenRouter Agentic Intelligence API
 
+## v1.5 Delta (Async Runtime Cancellation + Model Allowlist + Job Store Hardening) — Tamamlandı
+- [x] Yeni özellik: running research job’lar için gerçek cancellation/timeout desteği (AbortSignal chain)
+- [x] Job response modeli genişletildi (`started_at`, `completed_at`, `cancellation_reason`)
+- [x] Güvenlik: model allowlist enforcement eklendi (`OPENROUTER_ALLOWED_MODELS`, model format validation)
+- [x] Güvenlik: model reject girişimleri security audit feed’e eklendi (`api_model_rejected`)
+- [x] Güvenlik/Dayanıklılık: idempotency TTL + tenant job store cap eklendi
+- [x] Tool/LLM cancellation zinciri genişletildi (OpenRouter + web/wiki/financial/openbb/qmd/mcp)
+- [x] Yeni testler: model reject contract testleri + worker timeout/idempotency TTL testleri
+- [x] Fresh verification: typecheck + test + audit + delivery-gate
+
+## v1.4 Delta (Security Intelligence Summary + Header Abuse Hardening) — Tamamlandı
+- [x] Yeni özellik: `GET /v1/security/summary` endpointi eklendi (riskScore/riskLevel/alertFlags/top IP + byType)
+- [x] Dashboard'a Security Risk kartı eklendi (`/v1/security/summary` entegrasyonu)
+- [x] Security audit log için detail redaction/sanitize katmanı eklendi (token/key leak azaltımı)
+- [x] Authorization/Bearer/Tenant header boyut limitleri eklendi (`431` reject)
+- [x] `/ui/session` için oversized API key payload reddi eklendi
+- [x] Yeni testler eklendi (`security-summary`, audit redaction/risk summary, header-size reject, oversized UI key)
+- [x] Fresh verification: typecheck + test + smoke + audit + delivery-gate
+
 ## v1.3 Delta (OpenBB Native Tool Integration) — Tamamlandı
 - [x] `openbb_search` tool adapter eklendi (OpenBB `/api/v1` quote/historical + company/world news)
 - [x] Orchestrator planner/thinking/verifier akışları OpenBB tool route'u ile güncellendi
