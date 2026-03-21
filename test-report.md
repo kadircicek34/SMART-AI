@@ -135,7 +135,7 @@ UI auth katmanı kısa ömürlü session token modeline geçirildi; test paketi 
 
 ## 2026-03-21 Ek doğrulama (Async runtime cancellation + model allowlist hardening)
 - `npm run typecheck` ✅
-- `npm test` ✅ (**105/105**)
+- `npm test` ✅ (**99/99**)
 - `npm audit --omit=dev --audit-level=high` ✅ (0 vulnerability)
 - `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
 - Yeni testler / güncellemeler:

@@ -27,7 +27,7 @@ Teslimin odağı:
 
 ### Verification
 - `npm run typecheck` ✅
-- `npm test` ✅ (105/105)
+- `npm test` ✅ (99/99)
 - `npm audit --omit=dev --audit-level=high` ✅ (0 vulnerability)
 - `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
 
