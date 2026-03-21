@@ -13,6 +13,8 @@
 
 ## Optional env
 - `OPENROUTER_API_KEY` (global fallback)
+- `OPENROUTER_ALLOWED_MODELS` (CSV allowlist, varsayılan: sadece `OPENROUTER_DEFAULT_MODEL`)
+- `OPENROUTER_MODEL_ID_MAX_LENGTH` (varsayılan: 120)
 - `OPENROUTER_MAX_RETRIES` (varsayılan: 2)
 - `OPENROUTER_RETRY_BASE_DELAY_MS` (varsayılan: 400)
 - `OPENROUTER_RETRY_MAX_DELAY_MS` (varsayılan: 4000)
@@ -25,6 +27,9 @@
 - `RESEARCH_MAX_QUERY_CHARS` (varsayılan: 4000)
 - `RESEARCH_MAX_ACTIVE_JOBS_PER_TENANT` (varsayılan: 2)
 - `RESEARCH_IDEMPOTENCY_KEY_MAX_LENGTH` (varsayılan: 128)
+- `RESEARCH_IDEMPOTENCY_TTL_SECONDS` (varsayılan: 3600)
+- `RESEARCH_JOB_TIMEOUT_MS` (varsayılan: 120000)
+- `RESEARCH_MAX_JOBS_PER_TENANT` (varsayılan: 500)
 - Tenant-specific keys via `/v1/keys/openrouter`
 - `BRAVE_API_KEY` (web_search aracı için Brave Search API)
 - `ALPHA_VANTAGE_API_KEY` (financial_deep_search için ek quote provider)
@@ -66,6 +71,10 @@
 - `MCP_HEALTH_PERSIST_DEBOUNCE_MS` (varsayılan: 750)
 - `UI_ALLOWED_ORIGINS` (opsiyonel CSV allowlist, örn: `https://dashboard.example.com,https://ops.example.com`)
 - `SECURITY_AUDIT_MAX_EVENTS_PER_TENANT` (varsayılan: 300)
+- `SECURITY_AUTH_HEADER_MAX_LENGTH` (varsayılan: 4096)
+- `SECURITY_BEARER_TOKEN_MAX_LENGTH` (varsayılan: 2048)
+- `SECURITY_TENANT_HEADER_MAX_LENGTH` (varsayılan: 128)
+- `SECURITY_UI_API_KEY_MAX_LENGTH` (varsayılan: 512)
 
 ## New endpoints
 - `POST /v1/rag/documents` → belge veya URL ingest
@@ -82,10 +91,11 @@
 - `POST /v1/mcp/reset` → circuit reset
 - `POST /v1/mcp/flush` → health snapshot’ını diskte flush etme
 - `GET /v1/security/events` → tenant-scope güvenlik olay akışı (auth/rate-limit/origin/session/job)
-- `POST /v1/jobs/research` → async research job oluştur (Idempotency-Key destekli)
+- `GET /v1/security/summary` → tenant güvenlik risk özeti (riskScore/riskLevel/flags/top IP)
+- `POST /v1/jobs/research` → async research job oluştur (Idempotency-Key + model allowlist doğrulaması)
 - `GET /v1/jobs` → tenant job listesi (status + limit filtreli)
-- `GET /v1/jobs/:jobId` → job detay/durum
-- `POST /v1/jobs/:jobId/cancel` → queued/running job iptali
+- `GET /v1/jobs/:jobId` → job detay/durum (`started_at`, `completed_at`, `cancellation_reason`)
+- `POST /v1/jobs/:jobId/cancel` → queued/running job iptali (AbortSignal ile aktif işi de keser)
 - `GET /ui/dashboard` → control dashboard (web)
 - `GET /ui/chat` → kullanıcı chatbot arayüzü (web)
 

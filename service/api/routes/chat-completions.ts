@@ -5,6 +5,8 @@ import { config } from '../../config.js';
 import { runOrchestrator } from '../../orchestrator/run.js';
 import { getTenantOpenRouterKey } from '../../security/key-store.js';
 import { autoCaptureUserMemory } from '../../memory/service.js';
+import { isAllowedModel, validateModelId } from '../../security/model-policy.js';
+import { securityAuditLog } from '../../security/audit-log.js';
 
 const MessageSchema = z.object({
   role: z.enum(['system', 'user', 'assistant', 'tool']),
@@ -55,11 +57,51 @@ export async function registerChatCompletionsRoute(app: FastifyInstance) {
       });
     }
 
+    const modelValidation = validateModelId(input.model);
+    if (!modelValidation.ok) {
+      securityAuditLog.record({
+        tenant_id: tenantId,
+        type: 'api_model_rejected',
+        ip: req.ip,
+        request_id: req.requestContext?.requestId,
+        details: {
+          reason: 'invalid_model_format'
+        }
+      });
+
+      return reply.status(400).send({
+        error: {
+          type: 'invalid_request_error',
+          message: modelValidation.reason
+        }
+      });
+    }
+
+    if (!isAllowedModel(modelValidation.normalized)) {
+      securityAuditLog.record({
+        tenant_id: tenantId,
+        type: 'api_model_rejected',
+        ip: req.ip,
+        request_id: req.requestContext?.requestId,
+        details: {
+          reason: 'model_not_allowed',
+          model: modelValidation.normalized
+        }
+      });
+
+      return reply.status(403).send({
+        error: {
+          type: 'permission_error',
+          message: 'Requested model is not allowed for this deployment.'
+        }
+      });
+    }
+
     const openRouterApiKey = (await getTenantOpenRouterKey(tenantId)) ?? config.openRouter.globalApiKey;
 
     const out = await runOrchestrator({
       tenantId,
-      model: input.model,
+      model: modelValidation.normalized,
       openRouterApiKey: openRouterApiKey ?? undefined,
       messages: input.messages,
       temperature: input.temperature,

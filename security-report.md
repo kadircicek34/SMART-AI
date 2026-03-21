@@ -92,3 +92,37 @@ Ek not:
 
 Kalan risk:
 - Running job cancel şu an "best effort" (status cancel + completion drop). Tool-level gerçek interrupt (AbortSignal chain) sonraki fazda ele alınmalı.
+
+## 2026-03-20 Güvenlik sertleştirmesi — Security risk summary + header abuse guard
+- Yeni endpoint: `GET /v1/security/summary`
+  - Son pencere için (`window_hours`) tenant-scope risk özeti döner.
+  - Çıktı: `riskScore`, `riskLevel`, `alertFlags`, `byType`, `topIps`, `uniqueIps`.
+- Security audit log sertleştirmesi:
+  - `details` içindeki hassas patternler (`Bearer ...`, `api_key=...`, `sk-...`) otomatik redacted.
+  - Kontrol karakterleri ve aşırı uzun alanlar normalize edilip kırpılıyor.
+- Header abuse guard:
+  - `Authorization`, Bearer token ve `x-tenant-id` için boyut limitleri eklendi.
+  - Limit aşımında güvenli şekilde `431` döndürülüyor ve audit event kaydı oluşturuluyor.
+- UI auth payload guard:
+  - `/ui/session` endpointinde oversized API key payload reddi (`400`) eklendi.
+
+Ek operasyon notu:
+- Dashboard artık sadece event sayısı değil, 24 saatlik risk seviyesi + alarm bayraklarını da gösterir.
+- Bu iterasyonda SIEM export eklenmedi; summary hesaplaması process-memory audit store üstünden yapılır.
+
+## 2026-03-21 Güvenlik sertleştirmesi — model allowlist + gerçek runtime cancellation
+- **Model policy enforcement**
+  - `OPENROUTER_ALLOWED_MODELS` allowlist zorunluluğu eklendi (varsayılan: `OPENROUTER_DEFAULT_MODEL`).
+  - Model ID için format + max length doğrulaması eklendi.
+  - Allowlist dışı veya invalid model denemeleri `api_model_rejected` security event olarak kaydediliyor.
+- **Async job runtime hardening**
+  - Running job’larda AbortSignal zinciri aktif edildi (LLM + tool çağrıları signal-aware).
+  - `RESEARCH_JOB_TIMEOUT_MS` ile zorunlu timeout cancel path’i eklendi.
+  - Job API çıktısına `started_at`, `completed_at`, `cancellation_reason` alanları eklendi.
+- **Resource abuse mitigation**
+  - Idempotency kayıtlarına TTL eklendi (`RESEARCH_IDEMPOTENCY_TTL_SECONDS`).
+  - Tenant başına job store upper-bound eklendi (`RESEARCH_MAX_JOBS_PER_TENANT`) ve terminal job prune davranışı uygulandı.
+
+Kalan risk:
+- Job/idempotency store hâlâ process-memory; servis restartında geçmiş state korunmuyor.
+- Model allowlist şu an deployment-level; tenant bazlı farklı model policy yönetimi sonraki fazda ele alınmalı.

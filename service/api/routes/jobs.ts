@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { config } from '../../config.js';
 import { getTenantOpenRouterKey } from '../../security/key-store.js';
 import { securityAuditLog } from '../../security/audit-log.js';
+import { isAllowedModel, validateModelId } from '../../security/model-policy.js';
 import {
   cancelResearchJob,
   enqueueResearchJob,
@@ -55,9 +56,12 @@ function mapJob(job: ResearchJob) {
     model: job.model,
     created: Math.floor(job.createdAt / 1000),
     updated: Math.floor(job.updatedAt / 1000),
+    started_at: job.startedAt ? Math.floor(job.startedAt / 1000) : undefined,
+    completed_at: job.completedAt ? Math.floor(job.completedAt / 1000) : undefined,
     result: job.result,
     error: job.error,
-    cancelled_at: job.cancelledAt ? Math.floor(job.cancelledAt / 1000) : undefined
+    cancelled_at: job.cancelledAt ? Math.floor(job.cancelledAt / 1000) : undefined,
+    cancellation_reason: job.cancellationReason
   };
 }
 
@@ -108,16 +112,59 @@ export async function registerJobsRoute(app: FastifyInstance) {
       }
     }
 
-    const model = parsed.data.model ?? config.openRouter.defaultModel;
+    const requestedModel = parsed.data.model ?? config.openRouter.defaultModel;
+    const modelValidation = validateModelId(requestedModel);
+    if (!modelValidation.ok) {
+      securityAuditLog.record({
+        tenant_id: tenantId,
+        type: 'api_model_rejected',
+        ip: req.ip,
+        request_id: req.requestContext?.requestId,
+        details: {
+          reason: 'invalid_model_format'
+        }
+      });
+
+      return reply.status(400).send({
+        error: {
+          type: 'invalid_request_error',
+          message: modelValidation.reason
+        }
+      });
+    }
+
+    if (!isAllowedModel(modelValidation.normalized)) {
+      securityAuditLog.record({
+        tenant_id: tenantId,
+        type: 'api_model_rejected',
+        ip: req.ip,
+        request_id: req.requestContext?.requestId,
+        details: {
+          reason: 'model_not_allowed',
+          model: modelValidation.normalized
+        }
+      });
+
+      return reply.status(403).send({
+        error: {
+          type: 'permission_error',
+          message: 'Requested model is not allowed for this deployment.'
+        }
+      });
+    }
+
     const openRouterApiKey = (await getTenantOpenRouterKey(tenantId)) ?? config.openRouter.globalApiKey;
 
     const enqueueResult = enqueueResearchJob({
       tenantId,
-      model,
+      model: modelValidation.normalized,
       query: parsed.data.query,
       openRouterApiKey: openRouterApiKey ?? undefined,
       idempotencyKey: idempotencyKey ?? undefined,
-      maxActiveJobsPerTenant: config.research.maxActiveJobsPerTenant
+      maxActiveJobsPerTenant: config.research.maxActiveJobsPerTenant,
+      idempotencyTtlSeconds: config.research.idempotencyTtlSeconds,
+      jobTimeoutMs: config.research.jobTimeoutMs,
+      maxJobsPerTenant: config.research.maxJobsPerTenant
     });
 
     if (!enqueueResult.ok) {
@@ -252,12 +299,13 @@ export async function registerJobsRoute(app: FastifyInstance) {
     if (wasActive && job.status === 'cancelled') {
       securityAuditLog.record({
         tenant_id: tenantId,
-        type: 'research_job_cancelled',
+        type: job.cancellationReason === 'timeout' ? 'research_job_timed_out' : 'research_job_cancelled',
         ip: req.ip,
         request_id: req.requestContext?.requestId,
         details: {
           job_id: job.id,
-          previous_status: previousStatus
+          previous_status: previousStatus,
+          cancellation_reason: job.cancellationReason ?? 'user_cancelled'
         }
       });
     }

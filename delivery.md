@@ -1,12 +1,39 @@
-# DELIVERY — SMART-AI v1.2 (UI Session Auth Hardening)
+# DELIVERY — SMART-AI v1.5 (Async Runtime Cancellation + Model Allowlist Hardening)
 
 ## Özet
-Bu koşumda en yüksek etkili günlük iyileştirme olarak **UI güvenlik sertleştirmesi** teslim edildi.
+Bu koşumda en yüksek etkili günlük iyileştirme olarak **async runtime güvenlik/dayanıklılık sertleştirmesi** teslim edildi.
 
-Önceki sürümde Chat UI API key'i localStorage'da tutuyordu. Bu iterasyonda:
-- API key browserda kalıcı saklanmıyor,
-- kısa ömürlü tenant-scope session token akışına geçildi,
-- `/v1/*` auth middleware'i bu tokenları güvenli şekilde doğrulayacak hale getirildi.
+Teslimin odağı:
+- running research job’lar için gerçek cancel/timeout (AbortSignal zinciri),
+- deployment-level model allowlist enforcement,
+- idempotency/job store büyümesini sınırlayan TTL + prune mekanizması.
+
+
+## 2026-03-21 Teslim paketi (Async runtime cancellation + model allowlist)
+### Yapılanlar
+1. **Yeni özellik — gerçek running cancel/timeout**
+   - Worker katmanında running job için `AbortSignal` tabanlı yürütme eklendi.
+   - `RESEARCH_JOB_TIMEOUT_MS` ile otomatik timeout cancel path’i aktif.
+   - Job API çıktısına `started_at`, `completed_at`, `cancellation_reason` alanları eklendi.
+2. **Ciddi güvenlik iyileştirmesi — model allowlist policy**
+   - `OPENROUTER_ALLOWED_MODELS` ve model format/uzunluk doğrulaması eklendi.
+   - Chat + async jobs endpointleri allowlist dışı modelde `403` dönüyor.
+   - Security audit feed’e `api_model_rejected` event tipi eklendi.
+3. **Ciddi güvenlik/perf iyileştirmesi — job/idempotency store hardening**
+   - Idempotency kayıtlarına TTL eklendi (`RESEARCH_IDEMPOTENCY_TTL_SECONDS`).
+   - Tenant başına job store üst sınırı + terminal job prune davranışı eklendi (`RESEARCH_MAX_JOBS_PER_TENANT`).
+4. **Runtime propagation**
+   - OpenRouter client + web/wiki/financial/openbb/qmd/mcp tool çağrıları signal-aware hale getirildi.
+
+### Verification
+- `npm run typecheck` ✅
+- `npm test` ✅ (105/105)
+- `npm audit --omit=dev --audit-level=high` ✅ (0 vulnerability)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+
+### Kalan riskler
+- Job/idempotency store process-memory; restart sonrası geçmiş kaybolur.
+- Allowlist şu an deployment-level; tenant bazlı farklı model policy yönetimi backlog’da.
 
 ## Teslim Edilen Ana Bileşenler
 1. **Yeni UI Session Endpointi**
@@ -160,3 +187,30 @@ Bu koşumda en yüksek etkili günlük iyileştirme olarak **UI güvenlik sertle
 ### Kalan riskler
 - Running state’te gerçek runtime interrupt henüz yok; cancel şu an best-effort status transition olarak çalışıyor.
 - Job store hâlâ process-memory (restart sonrası lifecycle geçmişi sıfırlanır).
+
+## 2026-03-20 Teslim ek paketi (Security intelligence summary + header abuse hardening)
+### Yapılan ana geliştirme (yeni özellik)
+- **`GET /v1/security/summary`** endpointi eklendi.
+  - Tenant bazlı 24h risk görünümü üretir (`riskScore`, `riskLevel`, `alertFlags`, `topIps`, `byType`).
+- Dashboard risk kartı eklendi; artık security panelde olay sayısı yanında risk seviyesi de gösteriliyor.
+
+### Aynı koşumdaki ciddi güvenlik iyileştirmeleri
+1. Authorization/Bearer/Tenant header boyut limitleri eklendi, limit aşımı `431` ile güvenli reddediliyor.
+2. UI login endpointinde oversized API key payload reddi eklendi (`400`).
+3. Security audit detaylarında secret redaction + normalize/sanitize katmanı eklendi.
+
+### Verification
+- `npm run typecheck` ✅
+- `npm test` ✅ (101/101)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `PORT=18080 ... npm run dev + curl /health + curl /v1/security/summary` ✅ smoke
+- `delivery-gate` ✅ PASS
+
+### Git senkronizasyon durumu
+- Commit oluşturuldu: `4162cab` (`feat(security): add risk summary endpoint and header abuse hardening`).
+- `git push origin main` denemesi bu koşumda credential eksikliği nedeniyle başarısız oldu (`could not read Username for 'https://github.com'`).
+
+### Kalan riskler
+- Security analytics şu an process-memory audit store üzerinde çalışır; restart sonrası geçmiş korunmaz.
+- IP reputation / geo intelligence veya SIEM dışa aktarımı henüz yok.
+- GitHub push için non-interactive credential (PAT/SSH key) yapılandırılmadıkça otomatik publish tamamlanamaz.
