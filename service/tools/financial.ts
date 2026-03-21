@@ -1,4 +1,5 @@
 import { config } from '../config.js';
+import { createTimeoutSignal, throwIfAborted } from '../utils/abort.js';
 import type { ToolAdapter, ToolInput, ToolResult } from './types.js';
 import { webSearchTool } from './web-search.js';
 
@@ -36,7 +37,7 @@ type QuoteSnapshot = {
 
 type QuoteProvider = {
   name: QuoteSnapshot['source'];
-  fetchQuote(symbol: string): Promise<{ quote: QuoteSnapshot | null; citation?: string }>;
+  fetchQuote(symbol: string, signal?: AbortSignal): Promise<{ quote: QuoteSnapshot | null; citation?: string }>;
 };
 
 type QuoteCacheEntry = {
@@ -175,11 +176,12 @@ async function withCache(
 
 const stooqProvider: QuoteProvider = {
   name: 'stooq',
-  async fetchQuote(symbol) {
+  async fetchQuote(symbol, signal) {
     const stooqUrl = `https://stooq.com/q/l/?s=${symbol.toLowerCase()}.us&i=d`;
 
     return withCache('stooq', symbol, async () => {
-      const response = await fetch(stooqUrl, { signal: AbortSignal.timeout(12_000) });
+      throwIfAborted(signal);
+      const response = await fetch(stooqUrl, { signal: createTimeoutSignal(12_000, signal) });
       if (!response.ok) {
         return { quote: null, citation: stooqUrl };
       }
@@ -211,7 +213,7 @@ const stooqProvider: QuoteProvider = {
 
 const alphaVantageProvider: QuoteProvider = {
   name: 'alpha_vantage',
-  async fetchQuote(symbol) {
+  async fetchQuote(symbol, signal) {
     const apiKey = config.tools.alphaVantageApiKey || 'demo';
     const url = new URL('https://www.alphavantage.co/query');
     url.searchParams.set('function', 'GLOBAL_QUOTE');
@@ -219,7 +221,8 @@ const alphaVantageProvider: QuoteProvider = {
     url.searchParams.set('apikey', apiKey);
 
     return withCache('alpha_vantage', symbol, async () => {
-      const response = await fetch(url, { signal: AbortSignal.timeout(12_000) });
+      throwIfAborted(signal);
+      const response = await fetch(url, { signal: createTimeoutSignal(12_000, signal) });
       if (!response.ok) {
         return { quote: null, citation: url.toString() };
       }
@@ -261,14 +264,14 @@ function buildFinancialNewsQuery(symbols: string[], query: string): string {
   return normalized.length > 260 ? normalized.slice(0, 260) : normalized;
 }
 
-async function collectQuotes(symbol: string): Promise<{ quotes: QuoteSnapshot[]; citations: string[] }> {
+async function collectQuotes(symbol: string, signal?: AbortSignal): Promise<{ quotes: QuoteSnapshot[]; citations: string[] }> {
   const providers: QuoteProvider[] = [stooqProvider, alphaVantageProvider];
   const quotes: QuoteSnapshot[] = [];
   const citations: string[] = [];
 
   for (const provider of providers) {
     try {
-      const result = await provider.fetchQuote(symbol);
+      const result = await provider.fetchQuote(symbol, signal);
       if (result.citation) citations.push(result.citation);
       if (result.quote) quotes.push(result.quote);
     } catch {
@@ -291,7 +294,9 @@ export const financialDeepSearchTool: ToolAdapter = {
 
     if (symbols.length > 0) {
       for (const symbol of symbols) {
-        const quoteResult = await collectQuotes(symbol);
+        throwIfAborted(input.signal);
+
+        const quoteResult = await collectQuotes(symbol, input.signal);
         citations.push(...quoteResult.citations);
 
         const primary = choosePrimaryQuote(quoteResult.quotes);
@@ -317,7 +322,14 @@ export const financialDeepSearchTool: ToolAdapter = {
     }
 
     const newsQuery = buildFinancialNewsQuery(symbols, input.query);
-    const news = await webSearchTool.execute({ query: newsQuery, locale: input.locale, tenantId: input.tenantId });
+    throwIfAborted(input.signal);
+
+    const news = await webSearchTool.execute({
+      query: newsQuery,
+      locale: input.locale,
+      tenantId: input.tenantId,
+      signal: input.signal
+    });
     lines.push('Haber özeti:');
     lines.push(news.summary);
     citations.push(...news.citations);

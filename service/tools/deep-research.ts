@@ -1,4 +1,5 @@
 import { config } from '../config.js';
+import { throwIfAborted } from '../utils/abort.js';
 import type { ToolAdapter, ToolInput, ToolResult } from './types.js';
 import { ragSearchTool } from './rag-search.js';
 import { memorySearchTool } from './memory-search.js';
@@ -76,7 +77,8 @@ function buildResearchQueryPlan(query: string, maxQueries = config.research.maxQ
 async function mapWithConcurrency<T, R>(
   items: T[],
   concurrency: number,
-  worker: (item: T, index: number) => Promise<R>
+  worker: (item: T, index: number) => Promise<R>,
+  signal?: AbortSignal
 ): Promise<R[]> {
   if (items.length === 0) return [];
 
@@ -86,6 +88,8 @@ async function mapWithConcurrency<T, R>(
 
   async function runWorker(): Promise<void> {
     while (true) {
+      throwIfAborted(signal);
+
       const index = cursor;
       cursor += 1;
       if (index >= items.length) return;
@@ -108,7 +112,11 @@ async function executeDeepResearch(
 
   if (input.tenantId) {
     try {
-      const memory = await deps.memorySearch.execute({ query: input.query, tenantId: input.tenantId });
+      const memory = await deps.memorySearch.execute({
+        query: input.query,
+        tenantId: input.tenantId,
+        signal: input.signal
+      });
       notes.push('Tenant Memory:');
       notes.push(memory.summary);
       citations.push(...memory.citations);
@@ -117,7 +125,11 @@ async function executeDeepResearch(
     }
 
     try {
-      const qmd = await deps.qmdSearch.execute({ query: input.query, tenantId: input.tenantId });
+      const qmd = await deps.qmdSearch.execute({
+        query: input.query,
+        tenantId: input.tenantId,
+        signal: input.signal
+      });
       notes.push('QMD Local Search:');
       notes.push(qmd.summary);
       citations.push(...qmd.citations);
@@ -126,7 +138,11 @@ async function executeDeepResearch(
     }
 
     try {
-      const mevzuat = await deps.mevzuatMcpSearch.execute({ query: input.query, tenantId: input.tenantId });
+      const mevzuat = await deps.mevzuatMcpSearch.execute({
+        query: input.query,
+        tenantId: input.tenantId,
+        signal: input.signal
+      });
       notes.push('Mevzuat MCP:');
       notes.push(mevzuat.summary);
       citations.push(...mevzuat.citations);
@@ -135,7 +151,11 @@ async function executeDeepResearch(
     }
 
     try {
-      const yargi = await deps.yargiMcpSearch.execute({ query: input.query, tenantId: input.tenantId });
+      const yargi = await deps.yargiMcpSearch.execute({
+        query: input.query,
+        tenantId: input.tenantId,
+        signal: input.signal
+      });
       notes.push('Yargı MCP:');
       notes.push(yargi.summary);
       citations.push(...yargi.citations);
@@ -144,7 +164,11 @@ async function executeDeepResearch(
     }
 
     try {
-      const borsa = await deps.borsaMcpSearch.execute({ query: input.query, tenantId: input.tenantId });
+      const borsa = await deps.borsaMcpSearch.execute({
+        query: input.query,
+        tenantId: input.tenantId,
+        signal: input.signal
+      });
       notes.push('Borsa MCP:');
       notes.push(borsa.summary);
       citations.push(...borsa.citations);
@@ -153,7 +177,11 @@ async function executeDeepResearch(
     }
 
     try {
-      const rag = await deps.ragSearch.execute({ query: input.query, tenantId: input.tenantId });
+      const rag = await deps.ragSearch.execute({
+        query: input.query,
+        tenantId: input.tenantId,
+        signal: input.signal
+      });
       notes.push('Tenant RAG:');
       notes.push(rag.summary);
       citations.push(...rag.citations);
@@ -164,7 +192,11 @@ async function executeDeepResearch(
 
   if (looksLikeFinancialResearch(input.query)) {
     try {
-      const openbb = await deps.openbbSearch.execute({ query: input.query, tenantId: input.tenantId });
+      const openbb = await deps.openbbSearch.execute({
+        query: input.query,
+        tenantId: input.tenantId,
+        signal: input.signal
+      });
       notes.push('OpenBB Market Data:');
       notes.push(openbb.summary);
       citations.push(...openbb.citations);
@@ -173,13 +205,17 @@ async function executeDeepResearch(
     }
   }
 
+  throwIfAborted(input.signal);
+
   const perQueryNotes = await mapWithConcurrency(
     researchQueries,
     limits.maxConcurrentUnits,
     async (researchQuery) => {
+      throwIfAborted(input.signal);
+
       const [web, wiki] = await Promise.allSettled([
-        deps.webSearch.execute({ query: researchQuery }),
-        deps.wikipedia.execute({ query: researchQuery })
+        deps.webSearch.execute({ query: researchQuery, signal: input.signal }),
+        deps.wikipedia.execute({ query: researchQuery, signal: input.signal })
       ]);
 
       const section: string[] = [`Sorgu: ${researchQuery}`];
@@ -203,7 +239,8 @@ async function executeDeepResearch(
         section,
         sectionCitations
       };
-    }
+    },
+    input.signal
   );
 
   for (const entry of perQueryNotes) {

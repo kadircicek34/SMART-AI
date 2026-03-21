@@ -1,4 +1,5 @@
 import { config } from '../config.js';
+import { createTimeoutSignal, throwIfAborted } from '../utils/abort.js';
 import type { ToolAdapter, ToolInput, ToolResult } from './types.js';
 
 type JsonRecord = Record<string, unknown>;
@@ -142,7 +143,11 @@ function buildAuthHeaders(): HeadersInit {
   return headers;
 }
 
-async function openbbRequest(pathname: string, params: Record<string, string | number | undefined>): Promise<OpenbbCallResult> {
+async function openbbRequest(
+  pathname: string,
+  params: Record<string, string | number | undefined>,
+  signal?: AbortSignal
+): Promise<OpenbbCallResult> {
   const baseUrl = buildBaseUrl();
   if (!baseUrl) {
     return {
@@ -165,10 +170,12 @@ async function openbbRequest(pathname: string, params: Record<string, string | n
   }
 
   try {
+    throwIfAborted(signal);
+
     const response = await fetch(url, {
       method: 'GET',
       headers: buildAuthHeaders(),
-      signal: AbortSignal.timeout(config.tools.openbbApiTimeoutMs)
+      signal: createTimeoutSignal(config.tools.openbbApiTimeoutMs, signal)
     });
 
     const responseText = await response.text();
@@ -273,23 +280,31 @@ function extractNewsTitles(payload: unknown, max = 2): string[] {
   return [...new Set(titles)].slice(0, max);
 }
 
-async function collectSymbolInsight(symbol: string): Promise<{ insight: SymbolInsight; citations: string[] }> {
+async function collectSymbolInsight(symbol: string, signal?: AbortSignal): Promise<{ insight: SymbolInsight; citations: string[] }> {
   const provider = config.tools.openbbProvider;
   const newsProvider = config.tools.openbbNewsProvider;
 
   const [quoteResp, historicalResp, companyNewsResp] = await Promise.all([
-    openbbRequest('/equity/price/quote', { symbol, provider }),
-    openbbRequest('/equity/price/historical', {
-      symbol,
-      provider,
-      interval: '1d',
-      limit: config.tools.openbbHistoryLimit
-    }),
-    openbbRequest('/news/company', {
-      symbol,
-      provider: newsProvider,
-      limit: config.tools.openbbNewsLimit
-    })
+    openbbRequest('/equity/price/quote', { symbol, provider }, signal),
+    openbbRequest(
+      '/equity/price/historical',
+      {
+        symbol,
+        provider,
+        interval: '1d',
+        limit: config.tools.openbbHistoryLimit
+      },
+      signal
+    ),
+    openbbRequest(
+      '/news/company',
+      {
+        symbol,
+        provider: newsProvider,
+        limit: config.tools.openbbNewsLimit
+      },
+      signal
+    )
   ]);
 
   const citations = [quoteResp.url, historicalResp.url, companyNewsResp.url];
@@ -380,16 +395,24 @@ export const openbbSearchTool: ToolAdapter = {
 
     const symbolInsights: SymbolInsight[] = [];
     for (const symbol of symbols) {
-      const { insight, citations: symbolCitations } = await collectSymbolInsight(symbol);
+      throwIfAborted(input.signal);
+
+      const { insight, citations: symbolCitations } = await collectSymbolInsight(symbol, input.signal);
       symbolInsights.push(insight);
       citations.push(...symbolCitations);
       lines.push(buildSymbolLine(insight));
     }
 
-    const worldNews = await openbbRequest('/news/world', {
-      provider: config.tools.openbbWorldNewsProvider,
-      limit: config.tools.openbbNewsLimit
-    });
+    throwIfAborted(input.signal);
+
+    const worldNews = await openbbRequest(
+      '/news/world',
+      {
+        provider: config.tools.openbbWorldNewsProvider,
+        limit: config.tools.openbbNewsLimit
+      },
+      input.signal
+    );
     citations.push(worldNews.url);
 
     if (worldNews.ok) {

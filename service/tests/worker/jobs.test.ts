@@ -82,7 +82,10 @@ test('enqueueResearchJob reuses existing job when Idempotency-Key matches same p
     model: 'deepseek/deepseek-chat-v3.1',
     query: 'Aynı job tekrar edilmesin',
     idempotencyKey: 'idempo-001',
-    maxActiveJobsPerTenant: 2
+    maxActiveJobsPerTenant: 2,
+    idempotencyTtlSeconds: 3600,
+    jobTimeoutMs: 5_000,
+    maxJobsPerTenant: 500
   });
 
   const second = enqueueResearchJob({
@@ -90,7 +93,10 @@ test('enqueueResearchJob reuses existing job when Idempotency-Key matches same p
     model: 'deepseek/deepseek-chat-v3.1',
     query: 'Aynı job tekrar edilmesin',
     idempotencyKey: 'idempo-001',
-    maxActiveJobsPerTenant: 2
+    maxActiveJobsPerTenant: 2,
+    idempotencyTtlSeconds: 3600,
+    jobTimeoutMs: 5_000,
+    maxJobsPerTenant: 500
   });
 
   assert.equal(first.ok, true);
@@ -123,7 +129,10 @@ test('enqueueResearchJob rejects idempotency key conflicts when payload differs'
     model: 'deepseek/deepseek-chat-v3.1',
     query: 'ilk payload',
     idempotencyKey: 'idempo-conflict',
-    maxActiveJobsPerTenant: 2
+    maxActiveJobsPerTenant: 2,
+    idempotencyTtlSeconds: 3600,
+    jobTimeoutMs: 5_000,
+    maxJobsPerTenant: 500
   });
 
   const second = enqueueResearchJob({
@@ -131,13 +140,60 @@ test('enqueueResearchJob rejects idempotency key conflicts when payload differs'
     model: 'deepseek/deepseek-chat-v3.1',
     query: 'farklı payload',
     idempotencyKey: 'idempo-conflict',
-    maxActiveJobsPerTenant: 2
+    maxActiveJobsPerTenant: 2,
+    idempotencyTtlSeconds: 3600,
+    jobTimeoutMs: 5_000,
+    maxJobsPerTenant: 500
   });
 
   assert.equal(first.ok, true);
   assert.deepEqual(second, { ok: false, reason: 'idempotency_conflict' });
 
   gate.resolve(stubRunnerOutput);
+});
+
+test('enqueueResearchJob expires idempotency key after TTL window', async () => {
+  const gate = createDeferred<typeof stubRunnerOutput>();
+
+  __private__.setJobRunnerForTests(async () => gate.promise);
+
+  const first = enqueueResearchJob({
+    tenantId: 'tenant-worker-idempotency-ttl',
+    model: 'deepseek/deepseek-chat-v3.1',
+    query: 'aynı key ama ttl sonrası yeni job',
+    idempotencyKey: 'idempo-ttl',
+    maxActiveJobsPerTenant: 3,
+    idempotencyTtlSeconds: 3600,
+    jobTimeoutMs: 5_000,
+    maxJobsPerTenant: 500
+  });
+
+  assert.equal(first.ok, true);
+  if (!first.ok) return;
+
+  await waitFor(() => getResearchJob(first.job.id)?.status === 'running');
+
+  gate.resolve(stubRunnerOutput);
+
+  await waitFor(() => getResearchJob(first.job.id)?.status === 'completed');
+
+  __private__.pruneExpiredIdempotencyEntries(0);
+
+  const second = enqueueResearchJob({
+    tenantId: 'tenant-worker-idempotency-ttl',
+    model: 'deepseek/deepseek-chat-v3.1',
+    query: 'aynı key ama ttl sonrası yeni job',
+    idempotencyKey: 'idempo-ttl',
+    maxActiveJobsPerTenant: 3,
+    idempotencyTtlSeconds: 3600,
+    jobTimeoutMs: 5_000,
+    maxJobsPerTenant: 500
+  });
+
+  assert.equal(second.ok, true);
+  if (!second.ok) return;
+
+  assert.notEqual(second.job.id, first.job.id);
 });
 
 test('enqueueResearchJob enforces maxActiveJobsPerTenant limit', async () => {
@@ -149,14 +205,20 @@ test('enqueueResearchJob enforces maxActiveJobsPerTenant limit', async () => {
     tenantId: 'tenant-worker-limit',
     model: 'deepseek/deepseek-chat-v3.1',
     query: 'job-1',
-    maxActiveJobsPerTenant: 1
+    maxActiveJobsPerTenant: 1,
+    idempotencyTtlSeconds: 3600,
+    jobTimeoutMs: 5_000,
+    maxJobsPerTenant: 500
   });
 
   const second = enqueueResearchJob({
     tenantId: 'tenant-worker-limit',
     model: 'deepseek/deepseek-chat-v3.1',
     query: 'job-2',
-    maxActiveJobsPerTenant: 1
+    maxActiveJobsPerTenant: 1,
+    idempotencyTtlSeconds: 3600,
+    jobTimeoutMs: 5_000,
+    maxJobsPerTenant: 500
   });
 
   assert.equal(first.ok, true);
@@ -179,7 +241,10 @@ test('cancelResearchJob keeps cancelled status even if runner finishes later', a
     tenantId: 'tenant-worker-cancel',
     model: 'deepseek/deepseek-chat-v3.1',
     query: 'uzun süren araştırma',
-    maxActiveJobsPerTenant: 2
+    maxActiveJobsPerTenant: 2,
+    idempotencyTtlSeconds: 3600,
+    jobTimeoutMs: 5_000,
+    maxJobsPerTenant: 500
   });
 
   assert.equal(created.ok, true);
@@ -206,6 +271,51 @@ test('cancelResearchJob keeps cancelled status even if runner finishes later', a
   assert.equal(latest.result, undefined);
 });
 
+test('job timeout aborts long-running work and marks cancellation reason', async () => {
+  __private__.setJobRunnerForTests(async ({ signal }) => {
+    await new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(signal.reason);
+        return;
+      }
+
+      const timer = setTimeout(resolve, 5_000);
+      signal?.addEventListener(
+        'abort',
+        () => {
+          clearTimeout(timer);
+          reject(signal.reason);
+        },
+        { once: true }
+      );
+    });
+
+    return stubRunnerOutput;
+  });
+
+  const created = enqueueResearchJob({
+    tenantId: 'tenant-worker-timeout',
+    model: 'deepseek/deepseek-chat-v3.1',
+    query: 'uzun görev',
+    maxActiveJobsPerTenant: 2,
+    idempotencyTtlSeconds: 3600,
+    jobTimeoutMs: 1_000,
+    maxJobsPerTenant: 500
+  });
+
+  assert.equal(created.ok, true);
+  if (!created.ok) return;
+
+  await waitFor(() => getResearchJob(created.job.id)?.status === 'cancelled', {
+    timeoutMs: 2_500,
+    message: 'timed out job should become cancelled'
+  });
+
+  const timedOut = getResearchJob(created.job.id);
+  assert.equal(timedOut?.status, 'cancelled');
+  assert.equal(timedOut?.cancellationReason, 'timeout');
+});
+
 test('job failure errors are redacted before being persisted', async () => {
   __private__.setJobRunnerForTests(async () => {
     throw new Error('provider rejected key sk-or-v1-1234567890 and Authorization: Bearer super-secret-token');
@@ -215,7 +325,10 @@ test('job failure errors are redacted before being persisted', async () => {
     tenantId: 'tenant-worker-redact',
     model: 'deepseek/deepseek-chat-v3.1',
     query: 'hata üret',
-    maxActiveJobsPerTenant: 2
+    maxActiveJobsPerTenant: 2,
+    idempotencyTtlSeconds: 3600,
+    jobTimeoutMs: 5_000,
+    maxJobsPerTenant: 500
   });
 
   assert.equal(created.ok, true);
