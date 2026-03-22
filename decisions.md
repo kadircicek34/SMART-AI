@@ -639,3 +639,47 @@ Security event feed vardı ancak operasyon ekibi olayları elle okumadan risk se
 - Persisted audit analytics store (Redis/Postgres/SIEM)
 - Anomali tespiti için zaman serisi tabanlı ML/istatistiksel model
 - IP reputation/geo intelligence entegrasyonu
+
+## 2026-03-22 — UI session lifecycle hardening + zero-downtime token rotation kararı
+### Problem
+UI tarafında session token modeli vardı ancak üç kritik açık bulunuyordu:
+1. Token yenileme akışı olmadığı için dashboard/chat tarafında token bitişi kullanıcı deneyimini kesiyordu.
+2. Session store için tenant/global üst sınır olmadığından memory-DoS riski bulunuyordu.
+3. Idle session kontrolü ve fingerprint doğrulaması eksik olduğundan token ele geçirilmesi durumunda kötüye kullanım penceresi uzundu.
+
+### Seçenekler
+- A: Sadece token TTL artırmak (kısa vadeli UX düzeltmesi, güvenlik kazanımı zayıf)
+- B: Refresh endpoint ekleyip güvenlik katmanını olduğu gibi bırakmak
+- C: Session lifecycle’ı uçtan uca sertleştirmek (refresh/introspection + idle timeout + UA binding + cap eviction + UI auto-refresh)
+
+### Karar
+**C seçildi:**
+1. **Yeni özellik:**
+   - `GET /ui/session` endpointi eklendi (aktif session introspection: expiry, idle window, remaining seconds)
+   - `POST /ui/session/refresh` endpointi eklendi (token rotation; eski token anında geçersiz)
+2. **Ciddi güvenlik iyileştirmesi #1:**
+   - UI session’larda idle-timeout enforcement eklendi (`UI_SESSION_MAX_IDLE_SECONDS`)
+   - `/v1/*` auth middleware artık session resolve sırasında `lastSeenAt` touch + idle expiry uygular
+3. **Ciddi güvenlik iyileştirmesi #2:**
+   - User-Agent fingerprint binding eklendi (token farklı UA ile kullanılırsa session düşürülür)
+4. **Ciddi güvenlik iyileştirmesi #3:**
+   - Tenant başına ve global aktif session cap eklendi (`UI_SESSION_MAX_SESSIONS_PER_TENANT`, `UI_SESSION_MAX_SESSIONS_GLOBAL`)
+   - En eski tokenlar otomatik evict edilerek store büyümesi kontrol altına alındı
+5. **Ops/telemetry genişletmesi:**
+   - Yeni security event tipleri: `ui_session_rotated`, `ui_session_validation_failed`, `ui_session_refresh_failed`
+   - Risk summary skorlama/flag mantığı session-anomaly sinyalleriyle güncellendi
+
+### Gerekçe
+- Session rotation + auto-refresh kombinasyonu kullanıcı deneyimini kesmeden güvenlik posture’unu yükseltir.
+- Idle timeout + fingerprint binding, token theft etkisini anlamlı şekilde sınırlar.
+- Session cap, bellek tüketimi tabanlı suistimalleri düşük maliyetle azaltır.
+
+### Etki
+- Dashboard/chat token kesintileri azaldı; token bitişine yakın otomatik refresh yapılabiliyor.
+- UI auth yüzeyi replay/hijack ve resource abuse risklerine karşı daha dayanıklı hale geldi.
+- Security event feed artık session-odaklı anomali sinyallerini de taşıyor.
+
+### Bilinçli Olarak Ertelenenler
+- Multi-signal device fingerprint (IP + UA + client-hints) ile adaptif risk scoring
+- Session store’un process-memory yerine Redis’e taşınması
+- Revoked token bloom-filter/denylist ile distributed revoke propagation

@@ -35,6 +35,7 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - **Security Audit Event Feed** (`/v1/security/events`) + dashboard güvenlik olay görünürlüğü
 - **Security Risk Summary** (`/v1/security/summary`) + tenant bazlı risk skoru / alarm bayrakları
 - **Header abuse guard** (Authorization / tenant header boyut limitleri + UI oversized key koruması)
+- **UI session lifecycle hardening** (`/ui/session` introspection + `/ui/session/refresh` token rotation + idle-timeout + session cap eviction)
 
 ## Klasörler
 - `contracts/` → API sözleşmeleri
@@ -153,12 +154,30 @@ UI, API Key ve Tenant ID ile `POST /ui/session` üzerinden kısa ömürlü oturu
 
 Yeni güvenlik akışı:
 - `/ui/session` endpoint’inde brute-force koruması (IP+tenant bazlı geçici lock)
+- `GET /ui/session` ile aktif session introspection (expiry + idle timeout görünürlüğü)
+- `POST /ui/session/refresh` ile token rotation (eski token anında geçersizleşir)
 - `POST /ui/session/revoke` ile aktif token revoke/logout desteği
+- UI session’lar için idle-timeout enforcement + User-Agent fingerprint kontrolü uygulanır
+- Tenant/global session cap ile eski tokenlar otomatik evict edilir (memory DoS riskine karşı)
 - Login hata mesajı normalize edilmiştir (`Invalid credentials`).
 - UI state-changing endpoint’lerde Origin allowlist kontrolü (`UI_ALLOWED_ORIGINS`) desteklenir.
 - `/ui/dashboard` ve `/ui/chat` yanıtlarında CSP + güvenlik header’ları uygulanır.
 - Dashboard artık API key’i localStorage’da tutmaz; chat ile aynı kısa ömürlü session token modeli kullanılır.
+- Dashboard ve Chat UI, token bitişine yakın otomatik `refresh` çağırarak kesintisiz oturum yeniler.
 - Dashboard, `/v1/security/summary` ile 24h risk seviyesi + alarm bayraklarını da gösterir.
+
+UI session lifecycle endpoint örnekleri:
+```bash
+# aktif session metadata
+curl http://127.0.0.1:8080/ui/session \
+  -H 'Authorization: Bearer <ui-session-token>' \
+  -H 'x-tenant-id: tenant-a'
+
+# token rotate/refresh
+curl -X POST http://127.0.0.1:8080/ui/session/refresh \
+  -H 'Authorization: Bearer <ui-session-token>' \
+  -H 'x-tenant-id: tenant-a'
+```
 
 ## QMD Collection Bootstrap (opsiyonel manuel)
 ```bash
