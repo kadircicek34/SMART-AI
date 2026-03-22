@@ -1,5 +1,6 @@
 const SETTINGS_STORAGE_KEY = 'smart_ai_ui_dashboard_settings_v2';
 const SESSION_STORAGE_KEY = 'smart_ai_ui_session_token_v1';
+const SESSION_META_STORAGE_KEY = 'smart_ai_ui_session_meta_v1';
 
 function nowIso() {
   return new Date().toLocaleString('tr-TR');
@@ -57,6 +58,26 @@ function setSessionToken(token) {
   sessionStorage.setItem(SESSION_STORAGE_KEY, token);
 }
 
+function getSessionMeta() {
+  const raw = sessionStorage.getItem(SESSION_META_STORAGE_KEY);
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function setSessionMeta(meta) {
+  if (!meta) {
+    sessionStorage.removeItem(SESSION_META_STORAGE_KEY);
+    return;
+  }
+
+  sessionStorage.setItem(SESSION_META_STORAGE_KEY, JSON.stringify(meta));
+}
+
 function authHeaders(settings) {
   const token = getSessionToken();
   if (!token) {
@@ -86,6 +107,36 @@ async function safeFetchJson(url, options = {}) {
   }
 
   return body;
+}
+
+async function maybeRefreshSession(settings, minRemainingSeconds = 90) {
+  const token = getSessionToken();
+  if (!token) return;
+
+  const sessionMeta = getSessionMeta();
+  const expiresAtMs = Date.parse(String(sessionMeta?.expiresAt ?? ''));
+  const secondsLeft = Number.isFinite(expiresAtMs) ? Math.floor((expiresAtMs - Date.now()) / 1000) : 0;
+
+  if (secondsLeft > minRemainingSeconds) {
+    return;
+  }
+
+  const refreshed = await safeFetchJson(`${settings.baseUrl}/ui/session/refresh`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'x-tenant-id': settings.tenantId,
+      'content-type': 'application/json'
+    }
+  });
+
+  setSessionToken(refreshed?.token ?? '');
+  setSessionMeta({
+    expiresAt: refreshed?.expiresAt,
+    idleExpiresAt: refreshed?.idleExpiresAt,
+    lastSeenAt: refreshed?.lastSeenAt
+  });
+  log('Dashboard session refreshed.');
 }
 
 function fillSettingsForm(settings) {
@@ -152,6 +203,8 @@ async function loadDashboard(settings) {
     throw new Error('Tenant ID zorunlu.');
   }
 
+  await maybeRefreshSession(settings);
+
   const health = await safeFetchJson(`${settings.baseUrl}/health`);
   document.getElementById('serviceStatus').textContent = `${health.ok ? 'UP' : 'DOWN'} | ${health.service} | ${health.env}`;
 
@@ -184,6 +237,8 @@ async function loadDashboard(settings) {
 }
 
 async function flushMcp(settings) {
+  await maybeRefreshSession(settings);
+
   await safeFetchJson(`${settings.baseUrl}/v1/mcp/flush`, {
     method: 'POST',
     headers: authHeaders(settings)
@@ -205,6 +260,11 @@ async function signIn(settings) {
   });
 
   setSessionToken(data?.token ?? '');
+  setSessionMeta({
+    expiresAt: data?.expiresAt,
+    idleExpiresAt: data?.idleExpiresAt,
+    lastSeenAt: data?.lastSeenAt
+  });
   document.getElementById('apiKey').value = '';
   log('Dashboard oturumu açıldı.');
   return data;
@@ -228,6 +288,7 @@ async function signOut(settings) {
     });
   } finally {
     setSessionToken('');
+    setSessionMeta(null);
   }
 
   log('Dashboard oturumu kapatıldı.');
@@ -315,6 +376,7 @@ async function init() {
   } catch {
     setStatus('Oturum süresi dolmuş olabilir. Tekrar giriş yapın.');
     setSessionToken('');
+    setSessionMeta(null);
   }
 }
 

@@ -146,3 +146,18 @@ UI auth katmanı kısa ömürlü session token modeline geçirildi; test paketi 
   - `service/tests/worker/jobs.test.ts`
     - running job timeout/cancel reason doğrulaması
     - idempotency TTL expiry/prune davranışı doğrulaması
+
+## 2026-03-22 Ek doğrulama (UI session rotation + lifecycle hardening)
+- `npm run typecheck` ✅
+- `npm test` ✅ (**104/104**)
+- `npm audit --omit=dev --audit-level=high` ✅ (0 vulnerability)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+- Yeni testler / güncellemeler:
+  - `service/tests/contract/ui.test.ts`
+    - `GET /ui/session` metadata contract doğrulaması
+    - `POST /ui/session/refresh` token rotation + old-token invalidation doğrulaması
+  - `service/tests/security/ui-session-store.test.ts`
+    - rotate davranışı
+    - tenant session-cap eviction (oldest token drop)
+    - user-agent binding mismatch reject
+    - idle-timeout expiry doğrulaması
