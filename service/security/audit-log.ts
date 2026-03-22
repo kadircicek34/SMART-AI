@@ -3,7 +3,10 @@ import { config } from '../config.js';
 
 export const SECURITY_AUDIT_EVENT_TYPES = [
   'ui_session_issued',
+  'ui_session_rotated',
   'ui_session_revoked',
+  'ui_session_validation_failed',
+  'ui_session_refresh_failed',
   'ui_auth_failed',
   'ui_auth_rate_limited',
   'ui_origin_blocked',
@@ -135,6 +138,8 @@ function evaluateRisk(byType: Record<SecurityAuditEventType, number>): {
   score += byType.api_rate_limited * 2;
   score += byType.api_tenant_mismatch * 5;
   score += byType.ui_origin_blocked * 3;
+  score += byType.ui_session_validation_failed * 2;
+  score += byType.ui_session_refresh_failed * 2;
   score += byType.api_model_rejected * 2;
   score += byType.research_job_limit_exceeded * 2;
   score += byType.research_job_rejected * 2;
@@ -156,6 +161,10 @@ function evaluateRisk(byType: Record<SecurityAuditEventType, number>): {
 
   if (byType.ui_origin_blocked >= 2) {
     flags.push('disallowed_origin_attempts');
+  }
+
+  if (byType.ui_session_validation_failed + byType.ui_session_refresh_failed >= 4) {
+    flags.push('session_token_abuse_attempts');
   }
 
   if (byType.research_job_limit_exceeded >= 3) {

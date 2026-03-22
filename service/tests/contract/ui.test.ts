@@ -9,6 +9,9 @@ before(async () => {
   process.env.KEY_STORE_FILE = '/tmp/smart-ai-test-keys-ui.json';
   process.env.MASTER_KEY_BASE64 = Buffer.alloc(32, 6).toString('base64');
   process.env.UI_SESSION_TTL_SECONDS = '120';
+  process.env.UI_SESSION_MAX_IDLE_SECONDS = '120';
+  process.env.UI_SESSION_MAX_SESSIONS_PER_TENANT = '5';
+  process.env.UI_SESSION_MAX_SESSIONS_GLOBAL = '500';
   process.env.UI_ALLOWED_ORIGINS = 'https://dashboard.example.com';
 
   const mod = await import('../../api/app.js');
@@ -77,6 +80,85 @@ test('POST /ui/session issues short-lived token and token can call /v1/models', 
   });
 
   assert.equal(modelsRes.statusCode, 200);
+});
+
+test('GET /ui/session returns current session metadata', async () => {
+  const sessionRes = await app.inject({
+    method: 'POST',
+    url: '/ui/session',
+    payload: {
+      apiKey: 'test-api-key',
+      tenantId: 'tenant-meta'
+    }
+  });
+
+  assert.equal(sessionRes.statusCode, 200);
+  const sessionBody = sessionRes.json();
+
+  const metaRes = await app.inject({
+    method: 'GET',
+    url: '/ui/session',
+    headers: {
+      authorization: `Bearer ${sessionBody.token}`,
+      'x-tenant-id': 'tenant-meta'
+    }
+  });
+
+  assert.equal(metaRes.statusCode, 200);
+  const metaBody = metaRes.json();
+  assert.equal(metaBody.tenantId, 'tenant-meta');
+  assert.equal(metaBody.token, undefined);
+  assert.equal(typeof metaBody.expiresAt, 'string');
+  assert.equal(typeof metaBody.lastSeenAt, 'string');
+  assert.ok(metaBody.expiresInSeconds > 0);
+  assert.ok(metaBody.idleTimeoutSeconds >= 60);
+});
+
+test('POST /ui/session/refresh rotates token and invalidates old one', async () => {
+  const sessionRes = await app.inject({
+    method: 'POST',
+    url: '/ui/session',
+    payload: {
+      apiKey: 'test-api-key',
+      tenantId: 'tenant-refresh'
+    }
+  });
+
+  const sessionBody = sessionRes.json();
+
+  const refreshRes = await app.inject({
+    method: 'POST',
+    url: '/ui/session/refresh',
+    headers: {
+      authorization: `Bearer ${sessionBody.token}`,
+      'x-tenant-id': 'tenant-refresh'
+    }
+  });
+
+  assert.equal(refreshRes.statusCode, 200);
+  const refreshBody = refreshRes.json();
+  assert.equal(typeof refreshBody.token, 'string');
+  assert.notEqual(refreshBody.token, sessionBody.token);
+
+  const oldTokenRes = await app.inject({
+    method: 'GET',
+    url: '/v1/models',
+    headers: {
+      authorization: `Bearer ${sessionBody.token}`,
+      'x-tenant-id': 'tenant-refresh'
+    }
+  });
+  assert.equal(oldTokenRes.statusCode, 401);
+
+  const newTokenRes = await app.inject({
+    method: 'GET',
+    url: '/v1/models',
+    headers: {
+      authorization: `Bearer ${refreshBody.token}`,
+      'x-tenant-id': 'tenant-refresh'
+    }
+  });
+  assert.equal(newTokenRes.statusCode, 200);
 });
 
 test('UI session token is tenant scoped', async () => {

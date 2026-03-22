@@ -166,8 +166,11 @@ export const config = {
   },
   uiSession: {
     ttlSeconds: Number(process.env.UI_SESSION_TTL_SECONDS ?? 1800),
+    maxIdleSeconds: Number(process.env.UI_SESSION_MAX_IDLE_SECONDS ?? 900),
     maxAuthFailuresPerWindow: Number(process.env.UI_SESSION_MAX_AUTH_FAILURES ?? 5),
-    authBlockSeconds: Number(process.env.UI_SESSION_AUTH_BLOCK_SECONDS ?? 120)
+    authBlockSeconds: Number(process.env.UI_SESSION_AUTH_BLOCK_SECONDS ?? 120),
+    maxSessionsPerTenant: Number(process.env.UI_SESSION_MAX_SESSIONS_PER_TENANT ?? 5),
+    maxSessionsGlobal: Number(process.env.UI_SESSION_MAX_SESSIONS_GLOBAL ?? 2000)
   }
 };
 

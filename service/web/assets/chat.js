@@ -1,5 +1,6 @@
 const SETTINGS_STORAGE_KEY = 'smart_ai_ui_settings_v2';
 const SESSION_STORAGE_KEY = 'smart_ai_ui_session_token_v1';
+const SESSION_META_STORAGE_KEY = 'smart_ai_ui_session_meta_v1';
 
 function defaultSettings() {
   return {
@@ -34,6 +35,26 @@ function setSessionToken(token) {
     return;
   }
   sessionStorage.setItem(SESSION_STORAGE_KEY, token);
+}
+
+function getSessionMeta() {
+  const raw = sessionStorage.getItem(SESSION_META_STORAGE_KEY);
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function setSessionMeta(meta) {
+  if (!meta) {
+    sessionStorage.removeItem(SESSION_META_STORAGE_KEY);
+    return;
+  }
+
+  sessionStorage.setItem(SESSION_META_STORAGE_KEY, JSON.stringify(meta));
 }
 
 function authHeaders(settings) {
@@ -82,6 +103,35 @@ async function fetchJson(url, options = {}) {
   return body;
 }
 
+async function maybeRefreshSession(settings, minRemainingSeconds = 90) {
+  const token = getSessionToken();
+  if (!token) return;
+
+  const sessionMeta = getSessionMeta();
+  const expiresAtMs = Date.parse(String(sessionMeta?.expiresAt ?? ''));
+  const secondsLeft = Number.isFinite(expiresAtMs) ? Math.floor((expiresAtMs - Date.now()) / 1000) : 0;
+
+  if (secondsLeft > minRemainingSeconds) {
+    return;
+  }
+
+  const refreshed = await fetchJson(`${settings.baseUrl}/ui/session/refresh`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'x-tenant-id': settings.tenantId,
+      'content-type': 'application/json'
+    }
+  });
+
+  setSessionToken(refreshed?.token ?? '');
+  setSessionMeta({
+    expiresAt: refreshed?.expiresAt,
+    idleExpiresAt: refreshed?.idleExpiresAt,
+    lastSeenAt: refreshed?.lastSeenAt
+  });
+}
+
 function fillSettingsForm(settings) {
   document.getElementById('baseUrl').value = settings.baseUrl;
   document.getElementById('tenantId').value = settings.tenantId;
@@ -108,6 +158,11 @@ async function signIn(settings) {
   });
 
   setSessionToken(data?.token ?? '');
+  setSessionMeta({
+    expiresAt: data?.expiresAt,
+    idleExpiresAt: data?.idleExpiresAt,
+    lastSeenAt: data?.lastSeenAt
+  });
   document.getElementById('apiKey').value = '';
   setStatus(`Oturum açıldı. Token bitiş: ${data.expiresAt}`);
 }
@@ -130,12 +185,15 @@ async function signOut(settings) {
     });
   } finally {
     setSessionToken('');
+    setSessionMeta(null);
   }
 
   setStatus('Oturum kapatıldı.');
 }
 
 async function loadModels(settings) {
+  await maybeRefreshSession(settings);
+
   const data = await fetchJson(`${settings.baseUrl}/v1/models`, {
     headers: authHeaders(settings)
   });
@@ -162,6 +220,7 @@ async function loadModels(settings) {
 
 async function sendMessage(settings, message) {
   renderMessage('user', message);
+  await maybeRefreshSession(settings);
 
   const payload = {
     model: settings.model || 'openrouter/agentic-default',
@@ -266,6 +325,7 @@ async function init() {
   } catch {
     setStatus('Oturum süresi dolmuş olabilir. Tekrar giriş yapın.', false);
     setSessionToken('');
+    setSessionMeta(null);
   }
 }
 
