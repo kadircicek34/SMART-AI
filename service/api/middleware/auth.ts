@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import '../request-context.js';
+import { config } from '../../config.js';
 import { isAuthorizedApiKey } from '../../security/api-key-auth.js';
 import { securityAuditLog } from '../../security/audit-log.js';
 import { isValidTenantId, normalizeTenantId } from '../../security/tenant-id.js';
@@ -21,6 +22,14 @@ function authErrorReply(reply: FastifyReply) {
       message: 'Invalid or missing Bearer API key.'
     }
   });
+}
+
+function extractUserAgent(req: FastifyRequest): string | undefined {
+  const value = req.headers['user-agent'];
+  if (Array.isArray(value)) {
+    return value[0];
+  }
+  return value;
 }
 
 export async function authMiddleware(req: FastifyRequest, reply: FastifyReply) {
@@ -75,7 +84,14 @@ export async function authMiddleware(req: FastifyRequest, reply: FastifyReply) {
   }
 
   const isApiKey = isAuthorizedApiKey(auth);
-  const session = isApiKey ? null : uiSessionStore.resolve(auth);
+  const sessionResolution = isApiKey
+    ? null
+    : uiSessionStore.resolve(auth, {
+        touch: true,
+        userAgent: extractUserAgent(req),
+        maxIdleSeconds: config.uiSession.maxIdleSeconds
+      });
+  const session = sessionResolution?.session ?? null;
 
   if (!isApiKey && !session) {
     securityAuditLog.record({
@@ -84,7 +100,7 @@ export async function authMiddleware(req: FastifyRequest, reply: FastifyReply) {
       ip: req.ip,
       details: {
         path: req.url,
-        reason: 'invalid_token'
+        reason: sessionResolution?.reason ?? 'invalid_token'
       }
     });
 

@@ -7,7 +7,7 @@ import { securityAuditLog } from '../../security/audit-log.js';
 import { isOriginAllowed } from '../../security/origin-guard.js';
 import { isValidTenantId, normalizeTenantId } from '../../security/tenant-id.js';
 import { uiSessionRateLimiter } from '../../security/ui-session-rate-limit.js';
-import { uiSessionStore } from '../../security/ui-session-store.js';
+import { type UiSessionResolveReason, uiSessionStore } from '../../security/ui-session-store.js';
 
 const UI_ROOT = path.resolve(process.cwd(), 'web');
 
@@ -34,6 +34,14 @@ function extractBearer(header: string | undefined): string | null {
   if (!scheme || !token) return null;
   if (scheme.toLowerCase() !== 'bearer') return null;
   return token.trim() || null;
+}
+
+function extractUserAgent(request: FastifyRequest): string | undefined {
+  const value = request.headers['user-agent'];
+  if (Array.isArray(value)) {
+    return value[0];
+  }
+  return value;
 }
 
 function applySecurityHeaders(reply: FastifyReply, opts?: { isHtml?: boolean }): void {
@@ -91,6 +99,30 @@ function rejectOrigin(reply: FastifyReply) {
   });
 }
 
+function rejectMissingAuthMaterial(reply: FastifyReply) {
+  applySecurityHeaders(reply);
+  reply.header('cache-control', 'no-store');
+
+  return reply.status(400).send({
+    error: {
+      type: 'invalid_request_error',
+      message: 'Missing auth token or tenant header.'
+    }
+  });
+}
+
+function rejectSessionUnauthorized(reply: FastifyReply) {
+  applySecurityHeaders(reply);
+  reply.header('cache-control', 'no-store');
+
+  return reply.status(401).send({
+    error: {
+      type: 'authentication_error',
+      message: 'Invalid or expired session token.'
+    }
+  });
+}
+
 function assertUiOriginAllowed(request: FastifyRequest, reply: FastifyReply, tenantId?: string): boolean {
   const origin = request.headers.origin;
 
@@ -111,6 +143,50 @@ function assertUiOriginAllowed(request: FastifyRequest, reply: FastifyReply, ten
 
   void rejectOrigin(reply);
   return false;
+}
+
+function toSessionResponse(session: {
+  tenantId: string;
+  expiresAt: number;
+  lastSeenAt: number;
+  token?: string;
+}): {
+  token?: string;
+  tenantId: string;
+  expiresAt: string;
+  lastSeenAt: string;
+  expiresInSeconds: number;
+  idleTimeoutSeconds: number;
+  idleExpiresAt: string;
+} {
+  const now = Date.now();
+  const expiresInSeconds = Math.max(0, Math.ceil((session.expiresAt - now) / 1000));
+  const idleTimeoutSeconds = Math.max(60, config.uiSession.maxIdleSeconds);
+  const idleExpiresAtMs = session.lastSeenAt + idleTimeoutSeconds * 1000;
+
+  return {
+    ...(session.token ? { token: session.token } : {}),
+    tenantId: session.tenantId,
+    expiresAt: new Date(session.expiresAt).toISOString(),
+    lastSeenAt: new Date(session.lastSeenAt).toISOString(),
+    expiresInSeconds,
+    idleTimeoutSeconds,
+    idleExpiresAt: new Date(idleExpiresAtMs).toISOString()
+  };
+}
+
+function mapResolveReasonToAudit(reason: UiSessionResolveReason | undefined): string {
+  switch (reason) {
+    case 'expired':
+      return 'expired';
+    case 'idle_timeout':
+      return 'idle_timeout';
+    case 'user_agent_mismatch':
+      return 'fingerprint_mismatch';
+    case 'not_found':
+    default:
+      return 'not_found';
+  }
 }
 
 async function sendUiFile(reply: FastifyReply, relativePath: string): Promise<void> {
@@ -194,25 +270,141 @@ export async function registerUiRoutes(app: FastifyInstance): Promise<void> {
     }
 
     uiSessionRateLimiter.recordSuccess(identityKey);
-    const session = uiSessionStore.issue(tenantId, config.uiSession.ttlSeconds);
+    const session = uiSessionStore.issue(tenantId, config.uiSession.ttlSeconds, {
+      userAgent: extractUserAgent(request),
+      maxSessionsPerTenant: config.uiSession.maxSessionsPerTenant,
+      maxSessionsGlobal: config.uiSession.maxSessionsGlobal
+    });
 
     securityAuditLog.record({
       tenant_id: tenantId,
       type: 'ui_session_issued',
       ip: request.ip,
       details: {
-        ttl_seconds: config.uiSession.ttlSeconds
+        ttl_seconds: config.uiSession.ttlSeconds,
+        max_idle_seconds: config.uiSession.maxIdleSeconds,
+        max_sessions_per_tenant: config.uiSession.maxSessionsPerTenant
       }
     });
 
     applySecurityHeaders(reply);
     reply.header('cache-control', 'no-store');
 
-    return reply.status(200).send({
-      token: session.token,
-      tenantId: session.tenantId,
-      expiresAt: new Date(session.expiresAt).toISOString()
+    return reply.status(200).send(toSessionResponse(session));
+  });
+
+  app.get('/ui/session', async (request, reply) => {
+    const token = extractBearer(request.headers.authorization);
+    const tenantId = normalizeTenantId(request.headers['x-tenant-id']);
+
+    if (!tenantId || !isValidTenantId(tenantId)) {
+      return rejectInvalidTenant(reply);
+    }
+
+    if (!assertUiOriginAllowed(request, reply, tenantId)) {
+      return;
+    }
+
+    if (!token) {
+      return rejectMissingAuthMaterial(reply);
+    }
+
+    const resolved = uiSessionStore.resolve(token, {
+      userAgent: extractUserAgent(request),
+      maxIdleSeconds: config.uiSession.maxIdleSeconds,
+      touch: false
     });
+
+    if (!resolved.session) {
+      securityAuditLog.record({
+        tenant_id: tenantId,
+        type: 'ui_session_validation_failed',
+        ip: request.ip,
+        details: {
+          reason: mapResolveReasonToAudit(resolved.reason)
+        }
+      });
+      return rejectSessionUnauthorized(reply);
+    }
+
+    if (resolved.session.tenantId !== tenantId) {
+      applySecurityHeaders(reply);
+      reply.header('cache-control', 'no-store');
+      return reply.status(403).send({
+        error: {
+          type: 'permission_error',
+          message: 'Session token is not valid for this tenant.'
+        }
+      });
+    }
+
+    applySecurityHeaders(reply);
+    reply.header('cache-control', 'no-store');
+
+    return reply.status(200).send(toSessionResponse(resolved.session));
+  });
+
+  app.post('/ui/session/refresh', async (request, reply) => {
+    const token = extractBearer(request.headers.authorization);
+    const tenantId = normalizeTenantId(request.headers['x-tenant-id']);
+
+    if (!tenantId || !isValidTenantId(tenantId)) {
+      return rejectInvalidTenant(reply);
+    }
+
+    if (!assertUiOriginAllowed(request, reply, tenantId)) {
+      return;
+    }
+
+    if (!token) {
+      return rejectMissingAuthMaterial(reply);
+    }
+
+    const rotated = uiSessionStore.rotate(token, config.uiSession.ttlSeconds, {
+      userAgent: extractUserAgent(request),
+      maxIdleSeconds: config.uiSession.maxIdleSeconds,
+      maxSessionsPerTenant: config.uiSession.maxSessionsPerTenant,
+      maxSessionsGlobal: config.uiSession.maxSessionsGlobal
+    });
+
+    if (!rotated.session) {
+      securityAuditLog.record({
+        tenant_id: tenantId,
+        type: 'ui_session_refresh_failed',
+        ip: request.ip,
+        details: {
+          reason: mapResolveReasonToAudit(rotated.reason)
+        }
+      });
+      return rejectSessionUnauthorized(reply);
+    }
+
+    if (rotated.session.tenantId !== tenantId) {
+      uiSessionStore.revoke(rotated.session.token);
+      applySecurityHeaders(reply);
+      reply.header('cache-control', 'no-store');
+      return reply.status(403).send({
+        error: {
+          type: 'permission_error',
+          message: 'Session token is not valid for this tenant.'
+        }
+      });
+    }
+
+    securityAuditLog.record({
+      tenant_id: tenantId,
+      type: 'ui_session_rotated',
+      ip: request.ip,
+      details: {
+        ttl_seconds: config.uiSession.ttlSeconds,
+        max_idle_seconds: config.uiSession.maxIdleSeconds
+      }
+    });
+
+    applySecurityHeaders(reply);
+    reply.header('cache-control', 'no-store');
+
+    return reply.status(200).send(toSessionResponse(rotated.session));
   });
 
   app.post('/ui/session/revoke', async (request, reply) => {
@@ -228,19 +420,16 @@ export async function registerUiRoutes(app: FastifyInstance): Promise<void> {
     }
 
     if (!token) {
-      applySecurityHeaders(reply);
-      reply.header('cache-control', 'no-store');
-
-      return reply.status(400).send({
-        error: {
-          type: 'invalid_request_error',
-          message: 'Missing auth token or tenant header.'
-        }
-      });
+      return rejectMissingAuthMaterial(reply);
     }
 
-    const session = uiSessionStore.resolve(token);
-    if (!session || session.tenantId !== tenantId) {
+    const resolved = uiSessionStore.resolve(token, {
+      userAgent: extractUserAgent(request),
+      maxIdleSeconds: config.uiSession.maxIdleSeconds,
+      touch: false
+    });
+
+    if (!resolved.session || resolved.session.tenantId !== tenantId) {
       applySecurityHeaders(reply);
       reply.header('cache-control', 'no-store');
       return reply.status(200).send({ revoked: true });

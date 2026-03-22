@@ -214,3 +214,26 @@ Teslimin odağı:
 - Security analytics şu an process-memory audit store üzerinde çalışır; restart sonrası geçmiş korunmaz.
 - IP reputation / geo intelligence veya SIEM dışa aktarımı henüz yok.
 - GitHub push için non-interactive credential (PAT/SSH key) yapılandırılmadıkça otomatik publish tamamlanamaz.
+
+## 2026-03-22 Teslim ek paketi (UI session lifecycle hardening + token rotation)
+### Yapılan ana geliştirme (yeni özellik)
+- UI auth yüzeyine **session lifecycle API** eklendi:
+  - `GET /ui/session` (aktif session introspection)
+  - `POST /ui/session/refresh` (token rotation)
+- Dashboard/Chat frontend, token bitimine yakın otomatik refresh yapacak şekilde güncellendi.
+
+### Aynı koşumdaki ciddi güvenlik iyileştirmeleri
+1. **Idle session timeout enforcement** eklendi (`UI_SESSION_MAX_IDLE_SECONDS`).
+2. **User-Agent fingerprint binding** eklendi; uyumsuz kullanımda token revoke edilir.
+3. **Session abuse/memory-DoS koruması** için tenant/global session cap + oldest eviction eklendi.
+4. Security telemetry, session-anomaly event tipleriyle genişletildi.
+
+### Verification
+- `npm run typecheck` ✅
+- `npm test` ✅ (104/104)
+- `npm audit --omit=dev --audit-level=high` ✅ (0 vulnerability)
+- `delivery-gate` ✅ PASS
+
+### Kalan riskler
+- Session store process-memory olduğu için servis restartında aktif sessionlar düşer (fail-safe; kullanıcı re-login gerekir).
+- User-Agent binding tek başına güçlü cihaz imzası değildir; sonraki fazda multi-signal fingerprint önerilir.

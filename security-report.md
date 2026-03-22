@@ -1,4 +1,4 @@
-# SECURITY REPORT — SMART-AI v1.2
+# SECURITY REPORT — SMART-AI v1.3
 
 ## Kapsam
 Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
@@ -126,3 +126,26 @@ Ek operasyon notu:
 Kalan risk:
 - Job/idempotency store hâlâ process-memory; servis restartında geçmiş state korunmuyor.
 - Model allowlist şu an deployment-level; tenant bazlı farklı model policy yönetimi sonraki fazda ele alınmalı.
+
+## 2026-03-22 Güvenlik sertleştirmesi — UI session lifecycle defense-in-depth
+- **Session rotation + introspection**
+  - `GET /ui/session`: aktif token için expiry/idle penceresi görünürlüğü
+  - `POST /ui/session/refresh`: token rotate; eski token anında invalid
+- **Idle timeout enforcement**
+  - Yeni env: `UI_SESSION_MAX_IDLE_SECONDS`
+  - Auth middleware session resolve akışında idle-expired tokenları otomatik düşürür
+- **User-Agent fingerprint binding**
+  - Session issue sırasında UA hash tutulur
+  - Farklı UA ile kullanılan tokenlar `user_agent_mismatch` ile reddedilip revoke edilir
+- **Session store abuse mitigation**
+  - Tenant/global session cap eklendi:
+    - `UI_SESSION_MAX_SESSIONS_PER_TENANT`
+    - `UI_SESSION_MAX_SESSIONS_GLOBAL`
+  - Cap aşımında en eski tokenların otomatik evict edilmesiyle memory growth kontrol altına alındı
+- **Security telemetry genişletmesi**
+  - Yeni event tipleri: `ui_session_rotated`, `ui_session_validation_failed`, `ui_session_refresh_failed`
+  - Risk summary scoring/flag mekanizması session token abuse sinyallerini içerecek şekilde güncellendi
+
+Kalan risk:
+- Session store process-memory tabanlı olduğu için restart sonrası aktif sessionlar düşer (security açısından fail-safe, UX açısından re-login gerektirir).
+- User-Agent binding tek başına güçlü cihaz kimliği değildir; ileri fazda çoklu sinyal fingerprint + adaptive risk policy önerilir.

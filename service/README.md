@@ -70,6 +70,9 @@
 - `MCP_HEALTH_PERSIST_HTTP_TIMEOUT_MS` (varsayılan: 2500)
 - `MCP_HEALTH_PERSIST_DEBOUNCE_MS` (varsayılan: 750)
 - `UI_ALLOWED_ORIGINS` (opsiyonel CSV allowlist, örn: `https://dashboard.example.com,https://ops.example.com`)
+- `UI_SESSION_MAX_IDLE_SECONDS` (varsayılan: 900)
+- `UI_SESSION_MAX_SESSIONS_PER_TENANT` (varsayılan: 5)
+- `UI_SESSION_MAX_SESSIONS_GLOBAL` (varsayılan: 2000)
 - `SECURITY_AUDIT_MAX_EVENTS_PER_TENANT` (varsayılan: 300)
 - `SECURITY_AUTH_HEADER_MAX_LENGTH` (varsayılan: 4096)
 - `SECURITY_BEARER_TOKEN_MAX_LENGTH` (varsayılan: 2048)
@@ -98,6 +101,9 @@
 - `POST /v1/jobs/:jobId/cancel` → queued/running job iptali (AbortSignal ile aktif işi de keser)
 - `GET /ui/dashboard` → control dashboard (web)
 - `GET /ui/chat` → kullanıcı chatbot arayüzü (web)
+- `GET /ui/session` → aktif UI session metadata (expiry + idle window)
+- `POST /ui/session/refresh` → UI session token rotate/refresh (eski token invalid)
+- `POST /ui/session/revoke` → UI session revoke/logout
 
 ## Tool plane updates
 - `qmd_search` aracı eklendi (VPS'teki kurulu `qmd` CLI ile lokal repo doküman araması)
