@@ -33,7 +33,10 @@ function authHeaders(tenantId = 'tenant-jobs') {
 
 before(async () => {
   process.env.APP_API_KEYS = 'test-api-key';
-  process.env.KEY_STORE_FILE = '/tmp/smart-ai-test-keys-jobs.json';
+  process.env.KEY_STORE_FILE = `/tmp/smart-ai-test-keys-jobs-${process.pid}.json`;
+  process.env.MODEL_POLICY_FILE = `/tmp/smart-ai-test-model-policy-jobs-${process.pid}.json`;
+  process.env.OPENROUTER_ALLOWED_MODELS = 'deepseek/deepseek-chat-v3.1,openai/gpt-4o-mini';
+  process.env.OPENROUTER_DEFAULT_MODEL = 'deepseek/deepseek-chat-v3.1';
   process.env.MASTER_KEY_BASE64 = Buffer.alloc(32, 4).toString('base64');
   process.env.RESEARCH_MAX_ACTIVE_JOBS_PER_TENANT = '1';
 
@@ -222,6 +225,36 @@ test('POST /v1/jobs/research rejects disallowed model', async () => {
   assert.equal(res.statusCode, 403);
   const body = res.json();
   assert.equal(body.error.type, 'permission_error');
+});
+
+test('POST /v1/jobs/research uses tenant default model when request omits model', async () => {
+  const policyRes = await app.inject({
+    method: 'PUT',
+    url: '/v1/model-policy',
+    headers: {
+      ...authHeaders('tenant-jobs-default-model'),
+      'content-type': 'application/json'
+    },
+    payload: {
+      defaultModel: 'openai/gpt-4o-mini',
+      allowedModels: ['openai/gpt-4o-mini']
+    }
+  });
+
+  assert.equal(policyRes.statusCode, 200);
+
+  const created = await app.inject({
+    method: 'POST',
+    url: '/v1/jobs/research',
+    headers: authHeaders('tenant-jobs-default-model'),
+    payload: {
+      query: 'default model ile job oluştur'
+    }
+  });
+
+  assert.equal(created.statusCode, 202);
+  const body = created.json();
+  assert.equal(body.model, 'openai/gpt-4o-mini');
 });
 
 test('POST /v1/jobs/research validates Idempotency-Key header format', async () => {

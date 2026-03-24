@@ -6,7 +6,7 @@ function defaultSettings() {
   return {
     baseUrl: window.location.origin,
     tenantId: 'tenant-a',
-    model: 'openrouter/agentic-default'
+    model: ''
   };
 }
 
@@ -141,7 +141,7 @@ function readSettingsForm() {
   return {
     baseUrl: document.getElementById('baseUrl').value.trim().replace(/\/$/, ''),
     tenantId: document.getElementById('tenantId').value.trim(),
-    model: document.getElementById('modelSelect').value || 'openrouter/agentic-default'
+    model: document.getElementById('modelSelect').value || ''
   };
 }
 
@@ -205,7 +205,7 @@ async function loadModels(settings) {
   for (const item of models) {
     const opt = document.createElement('option');
     opt.value = item.id;
-    opt.textContent = item.id;
+    opt.textContent = item.is_default ? `${item.id} (default)` : item.id;
     select.appendChild(opt);
   }
 
@@ -213,8 +213,16 @@ async function loadModels(settings) {
     select.value = settings.model;
   }
 
+  if (!select.value && data?.meta?.default_model) {
+    select.value = data.meta.default_model;
+  }
+
   if (!select.value && models[0]?.id) {
     select.value = models[0].id;
+  }
+
+  if (data?.meta?.default_model) {
+    setStatus(`Model listesi yüklendi. Default: ${data.meta.default_model}`);
   }
 }
 
@@ -223,7 +231,7 @@ async function sendMessage(settings, message) {
   await maybeRefreshSession(settings);
 
   const payload = {
-    model: settings.model || 'openrouter/agentic-default',
+    ...(settings.model ? { model: settings.model } : {}),
     messages: [{ role: 'user', content: message }],
     stream: false
   };

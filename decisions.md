@@ -640,6 +640,40 @@ Security event feed vardı ancak operasyon ekibi olayları elle okumadan risk se
 - Anomali tespiti için zaman serisi tabanlı ML/istatistiksel model
 - IP reputation/geo intelligence entegrasyonu
 
+## 2026-03-24 — Tenant model policy yönetimi + fail-closed enforcement kararı
+### Problem
+Model allowlist yalnızca deployment seviyesinde tutuluyordu; tenant bazında daha dar, güvenli ve ürün odaklı model seti tanımlanamıyor, ayrıca model parametresi verilmediğinde tutarlı bir tenant default seçimi bulunmuyordu.
+
+### Seçenekler
+- A: Sadece deployment-level allowlist ile devam etmek
+- B: UI tarafında pasif model etiketi gösterip backend davranışını değiştirmemek
+- C: Tenant bazlı model policy API + default model fallback + fail-closed invalid policy enforcement
+
+### Karar
+**C seçildi:**
+1. **Yeni özellik:** `GET/PUT/DELETE /v1/model-policy` ile tenant bazlı allowlist + default model yönetimi eklendi.
+2. **Ciddi güvenlik iyileştirmesi #1:** Chat ve async research job endpointleri artık tenant effective policy dışındaki modelleri reddediyor.
+3. **Ciddi güvenlik iyileştirmesi #2:** Deployment allowlist dışında tenant policy yazılamıyor; invalid/stale tenant policy durumunda sistem fail-closed davranıyor.
+4. **Ops/telemetry iyileştirmesi:** `model_policy_updated`, `model_policy_reset`, `model_policy_change_rejected` audit eventleri eklendi.
+5. **UX iyileştirmesi:** Dashboard policy yönetim paneli eklendi; chat UI tenant default modeli otomatik seçiyor.
+
+### Gerekçe
+- Tenant bazlı model sınırları maliyet, güvenlik ve ürün segmentasyonu için gerekliydi.
+- Model parametresi zorunluluğu istemci entegrasyonunu gereksiz yere kırılgan yapıyordu.
+- Deployment policy değiştiğinde stale tenant kayıtlarının sessizce geniş yetkiye düşmesi kabul edilemezdi.
+
+### Etki
+- Her tenant kendi güvenli model alt kümesine ve varsayılan modeline sahip olabiliyor.
+- Model omission artık kontrollü biçimde tenant default üzerinden çalışıyor.
+- Policy escape denemeleri ve reddedilen konfigürasyonlar security feed’de görünür hale geldi.
+
+### Bilinçli Olarak Ertelenenler
+- Model policy store’un Redis/Postgres gibi shared backend’e taşınması
+- Policy değişiklikleri için role-based admin scopes / approver workflow
+- Dashboard tarafında çok-tenant toplu policy yönetimi
+
+---
+
 ## 2026-03-22 — UI session lifecycle hardening + zero-downtime token rotation kararı
 ### Problem
 UI tarafında session token modeli vardı ancak üç kritik açık bulunuyordu:

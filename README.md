@@ -25,6 +25,7 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - **Deep research budget/concurrency kontrolleri**
 - **Research job runtime hardening** (Idempotency-Key TTL + tenant active-job cap + AbortSignal destekli gerçek cancel/timeout + cancellation reason telemetry)
 - **Model allowlist policy** (`OPENROUTER_ALLOWED_MODELS` + model format doğrulaması + security audit event)
+- **Tenant model policy override** (`/v1/model-policy` ile per-tenant allowlist + default model + fail-closed invalid policy handling)
 - **Tenant Memory Layer** (memorizasyon + retrieval + auto-capture)
 - **QMD Local Search entegrasyonu** (VPS'teki kurulu `qmd` ile proje doküman araması)
 - **Memory hotness scoring + retrieval telemetry** (OpenViking pattern)
@@ -164,6 +165,7 @@ Yeni güvenlik akışı:
 - `/ui/dashboard` ve `/ui/chat` yanıtlarında CSP + güvenlik header’ları uygulanır.
 - Dashboard artık API key’i localStorage’da tutmaz; chat ile aynı kısa ömürlü session token modeli kullanılır.
 - Dashboard ve Chat UI, token bitişine yakın otomatik `refresh` çağırarak kesintisiz oturum yeniler.
+- Dashboard, tenant model policy’yi okuyup güncelleyebilir; Chat UI varsayılan tenant modelini otomatik seçer.
 - Dashboard, `/v1/security/summary` ile 24h risk seviyesi + alarm bayraklarını da gösterir.
 
 UI session lifecycle endpoint örnekleri:
@@ -187,14 +189,32 @@ qmd collection add . --name SMART-AI
 qmd search "memory endpoint" -c SMART-AI --json -n 5
 ```
 
+## Tenant Model Policy
+```bash
+# effective policy görüntüle
+curl http://127.0.0.1:8080/v1/model-policy \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a'
+
+# tenant için daha dar güvenli model kümesi tanımla
+curl -X PUT http://127.0.0.1:8080/v1/model-policy \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a' \
+  -H 'content-type: application/json' \
+  -d '{
+    "defaultModel":"openai/gpt-4o-mini",
+    "allowedModels":["openai/gpt-4o-mini","deepseek/deepseek-chat-v3.1"]
+  }'
+```
+
 ## Chat Completion
 ```bash
+# model alanı opsiyoneldir; tenant default model otomatik uygulanır.
 curl -X POST http://127.0.0.1:8080/v1/chat/completions \
   -H 'Authorization: Bearer dev-admin-key' \
   -H 'x-tenant-id: tenant-a' \
   -H 'content-type: application/json' \
   -d '{
-    "model":"deepseek/deepseek-chat-v3.1",
     "messages":[{"role":"user","content":"NVDA son bilanço etkisini analiz et"}],
     "stream": false
   }'

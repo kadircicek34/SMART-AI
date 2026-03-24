@@ -1,13 +1,44 @@
-# DELIVERY — SMART-AI v1.5 (Async Runtime Cancellation + Model Allowlist Hardening)
+# DELIVERY — SMART-AI v1.6 (Tenant Model Policy + Fail-Closed Enforcement)
 
 ## Özet
-Bu koşumda en yüksek etkili günlük iyileştirme olarak **async runtime güvenlik/dayanıklılık sertleştirmesi** teslim edildi.
+Bu koşumda en yüksek etkili günlük iyileştirme olarak **tenant bazlı model policy yönetimi ve fail-closed model sınırı** teslim edildi.
 
 Teslimin odağı:
-- running research job’lar için gerçek cancel/timeout (AbortSignal zinciri),
-- deployment-level model allowlist enforcement,
-- idempotency/job store büyümesini sınırlayan TTL + prune mekanizması.
+- tenant için özel allowlist + default model yönetimi,
+- chat/research yüzeyinde tenant effective policy enforcement,
+- invalid/stale tenant policy durumunda fail-closed güvenlik davranışı,
+- dashboard/chat UX tarafında model policy görünürlüğü.
 
+## 2026-03-24 Teslim paketi (Tenant model policy + fail-closed enforcement)
+### Yapılanlar
+1. **Yeni özellik — tenant model policy API**
+   - `GET /v1/model-policy` → effective policy görüntüleme
+   - `PUT /v1/model-policy` → tenant allowlist + default model güncelleme
+   - `DELETE /v1/model-policy` → deployment defaults’a reset
+2. **Ciddi güvenlik iyileştirmesi — tenant-level model enforcement**
+   - `/v1/chat/completions` ve `/v1/jobs/research` artık tenant effective policy dışındaki modelleri reddediyor.
+   - `model` alanı verilmezse kontrollü biçimde tenant default model uygulanıyor.
+   - `/v1/models` yanıtı tenant effective model listesi + `default_model` metadata’sı döndürüyor.
+3. **Ciddi güvenlik iyileştirmesi — fail-closed stale policy handling**
+   - Tenant policy yalnızca deployment allowlist içinden yazılabiliyor.
+   - Deployment policy değişip tenant policy stale hale gelirse sistem sessizce geniş yetkiye dönmüyor; invalid policy durumunda istekler güvenli şekilde reddediliyor.
+   - Yeni audit eventleri: `model_policy_updated`, `model_policy_reset`, `model_policy_change_rejected`.
+4. **DX / UX iyileştirmesi**
+   - Dashboard’a tenant model policy yönetim paneli eklendi.
+   - Chat UI, tenant default modeli otomatik seçiyor.
+   - README + service runtime dokümantasyonu yeni env/endpoint yüzeyiyle güncellendi.
+
+### Verification
+- `./node_modules/.bin/tsc --noEmit` ✅
+- `./node_modules/.bin/tsx --test "tests/**/*.test.ts"` ✅ (**113/113**)
+- `APP_API_KEYS=smoke-key ... ./node_modules/.bin/tsx -e "...model policy smoke..."` ✅ (`put=200`, `chat=200`, `models=200`, `selectedModel=openai/gpt-4o-mini`)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+- `npm audit --omit=dev --audit-level=high` ⚠️ Host npm kurulumu `semver` modülü eksik olduğu için çalıştırılamadı.
+
+### Kalan riskler
+- Tenant model policy store dosya tabanlı; multi-instance kurulumda shared store’a taşınmalı.
+- Policy değişiklikleri için RBAC/approval workflow henüz yok.
+- Host npm toolchain kırık olduğu için dependency audit bu koşumda doğrulanamadı.
 
 ## 2026-03-21 Teslim paketi (Async runtime cancellation + model allowlist)
 ### Yapılanlar

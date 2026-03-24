@@ -127,6 +127,30 @@ Kalan risk:
 - Job/idempotency store hâlâ process-memory; servis restartında geçmiş state korunmuyor.
 - Model allowlist şu an deployment-level; tenant bazlı farklı model policy yönetimi sonraki fazda ele alınmalı.
 
+## 2026-03-24 Güvenlik sertleştirmesi — Tenant model policy + fail-closed model boundary
+- **Tenant bazlı model boundary enforcement**
+  - Yeni endpointler: `GET/PUT/DELETE /v1/model-policy`
+  - Tenant artık deployment allowlist içinden daha dar bir model kümesi ve default model tanımlayabiliyor.
+  - Chat + async research job endpointleri tenant effective policy dışındaki modelleri `403` ile reddediyor.
+- **Fail-closed invalid policy handling**
+  - Deployment allowlist değişip tenant policy stale hale gelirse effective allowlist kesişimi hesaplanıyor.
+  - Kesişim boşsa tenant policy `invalid` durumuna düşüyor ve istekler güvenli şekilde reddediliyor; sessizce geniş yetkiye dönülmüyor.
+- **Policy write hardening**
+  - Deployment allowlist dışı model yazılamaz.
+  - `defaultModel`, `allowedModels` içinde olmak zorundadır.
+  - Tenant başına custom allowlist boyutu sınırlandı (`OPENROUTER_MAX_TENANT_ALLOWED_MODELS`).
+- **Security telemetry genişletmesi**
+  - Yeni event tipleri: `model_policy_updated`, `model_policy_reset`, `model_policy_change_rejected`
+  - Risk scoring artık tekrarlayan policy escape denemelerini `tenant_policy_escape_attempts` flag’i ile işaretleyebiliyor.
+- **Browser/UI risk düşürme**
+  - Dashboard tenant model policy’yi backend üzerinden yönetir; deployment dışı model seçimi istemci tarafında da görünür şekilde engellenir.
+  - Chat UI, tenant default modeli otomatik seçerek yanlış/boş model seçiminden kaynaklı operatör hatasını azaltır.
+
+Kalan risk:
+- Tenant model policy store şu an dosya tabanlı; multi-instance/shared ortamda Redis/Postgres gibi merkezi store daha doğru olacaktır.
+- Policy değişiklikleri için RBAC/approval workflow henüz yok; mevcut güvenlik sınırı tenant auth + deployment allowlist validasyonudur.
+- Host npm kurulumu kırık olduğu için bu koşumda `npm audit` çalıştırılamadı; dependency taraması host toolchain düzeltilince tekrar edilmeli.
+
 ## 2026-03-22 Güvenlik sertleştirmesi — UI session lifecycle defense-in-depth
 - **Session rotation + introspection**
   - `GET /ui/session`: aktif token için expiry/idle penceresi görünürlüğü

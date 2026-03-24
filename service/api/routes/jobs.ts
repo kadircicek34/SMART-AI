@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { config } from '../../config.js';
 import { getTenantOpenRouterKey } from '../../security/key-store.js';
 import { securityAuditLog } from '../../security/audit-log.js';
-import { isAllowedModel, validateModelId } from '../../security/model-policy.js';
+import { resolveTenantModel } from '../../security/model-policy.js';
 import {
   cancelResearchJob,
   enqueueResearchJob,
@@ -112,52 +112,35 @@ export async function registerJobsRoute(app: FastifyInstance) {
       }
     }
 
-    const requestedModel = parsed.data.model ?? config.openRouter.defaultModel;
-    const modelValidation = validateModelId(requestedModel);
-    if (!modelValidation.ok) {
+    const modelResolution = await resolveTenantModel(tenantId, parsed.data.model ?? undefined);
+    if (!modelResolution.ok) {
       securityAuditLog.record({
         tenant_id: tenantId,
         type: 'api_model_rejected',
         ip: req.ip,
         request_id: req.requestContext?.requestId,
         details: {
-          reason: 'invalid_model_format'
+          reason: modelResolution.auditReason,
+          model: modelResolution.normalizedModel ?? (parsed.data.model?.trim() || modelResolution.policy.defaultModel || 'none'),
+          policy_source: modelResolution.policy.source,
+          policy_status: modelResolution.policy.policyStatus
         }
       });
 
-      return reply.status(400).send({
+      return reply.status(modelResolution.statusCode).send({
         error: {
-          type: 'invalid_request_error',
-          message: modelValidation.reason
+          type: modelResolution.errorType,
+          message: modelResolution.message
         }
       });
     }
 
-    if (!isAllowedModel(modelValidation.normalized)) {
-      securityAuditLog.record({
-        tenant_id: tenantId,
-        type: 'api_model_rejected',
-        ip: req.ip,
-        request_id: req.requestContext?.requestId,
-        details: {
-          reason: 'model_not_allowed',
-          model: modelValidation.normalized
-        }
-      });
-
-      return reply.status(403).send({
-        error: {
-          type: 'permission_error',
-          message: 'Requested model is not allowed for this deployment.'
-        }
-      });
-    }
-
+    const selectedModel = modelResolution.model;
     const openRouterApiKey = (await getTenantOpenRouterKey(tenantId)) ?? config.openRouter.globalApiKey;
 
     const enqueueResult = enqueueResearchJob({
       tenantId,
-      model: modelValidation.normalized,
+      model: selectedModel,
       query: parsed.data.query,
       openRouterApiKey: openRouterApiKey ?? undefined,
       idempotencyKey: idempotencyKey ?? undefined,
@@ -223,7 +206,9 @@ export async function registerJobsRoute(app: FastifyInstance) {
         ip: req.ip,
         request_id: req.requestContext?.requestId,
         details: {
-          job_id: enqueueResult.job.id
+          job_id: enqueueResult.job.id,
+          model: selectedModel,
+          used_default_model: modelResolution.usedDefault
         }
       });
     }
@@ -232,6 +217,7 @@ export async function registerJobsRoute(app: FastifyInstance) {
       id: enqueueResult.job.id,
       object: 'job',
       status: enqueueResult.job.status,
+      model: enqueueResult.job.model,
       created: Math.floor(enqueueResult.job.createdAt / 1000),
       updated: Math.floor(enqueueResult.job.updatedAt / 1000),
       idempotencyReused: enqueueResult.reused

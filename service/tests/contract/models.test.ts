@@ -6,7 +6,10 @@ let app: FastifyInstance;
 
 before(async () => {
   process.env.APP_API_KEYS = 'test-api-key';
-  process.env.KEY_STORE_FILE = '/tmp/smart-ai-test-keys-models.json';
+  process.env.KEY_STORE_FILE = `/tmp/smart-ai-test-keys-models-${process.pid}.json`;
+  process.env.MODEL_POLICY_FILE = `/tmp/smart-ai-test-model-policy-models-${process.pid}.json`;
+  process.env.OPENROUTER_ALLOWED_MODELS = 'deepseek/deepseek-chat-v3.1,openai/gpt-4o-mini';
+  process.env.OPENROUTER_DEFAULT_MODEL = 'deepseek/deepseek-chat-v3.1';
   process.env.MASTER_KEY_BASE64 = Buffer.alloc(32, 7).toString('base64');
 
   const mod = await import('../../api/app.js');
@@ -50,4 +53,6 @@ test('GET /v1/models returns OpenAI-compatible list', async () => {
   assert.equal(body.object, 'list');
   assert.ok(Array.isArray(body.data));
   assert.ok(body.data.length >= 1);
+  assert.equal(body.meta.default_model, 'deepseek/deepseek-chat-v3.1');
+  assert.equal(body.meta.source, 'deployment');
 });

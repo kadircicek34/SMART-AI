@@ -6,7 +6,10 @@ let app: FastifyInstance;
 
 before(async () => {
   process.env.APP_API_KEYS = 'test-api-key';
-  process.env.KEY_STORE_FILE = '/tmp/smart-ai-test-keys-security-events.json';
+  process.env.KEY_STORE_FILE = `/tmp/smart-ai-test-keys-security-events-${process.pid}.json`;
+  process.env.MODEL_POLICY_FILE = `/tmp/smart-ai-test-model-policy-security-events-${process.pid}.json`;
+  process.env.OPENROUTER_ALLOWED_MODELS = 'deepseek/deepseek-chat-v3.1,openai/gpt-4o-mini';
+  process.env.OPENROUTER_DEFAULT_MODEL = 'deepseek/deepseek-chat-v3.1';
   process.env.MASTER_KEY_BASE64 = Buffer.alloc(32, 2).toString('base64');
   process.env.UI_ALLOWED_ORIGINS = 'https://dashboard.example.com';
 

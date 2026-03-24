@@ -1,6 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { securityAuditLog, type SecurityAuditEventType } from '../../security/audit-log.js';
+import {
+  SECURITY_AUDIT_EVENT_TYPES,
+  securityAuditLog,
+  type SecurityAuditEventType
+} from '../../security/audit-log.js';
 
 const LIST_QUERY_SCHEMA = z.object({
   limit: z
@@ -13,24 +17,7 @@ const LIST_QUERY_SCHEMA = z.object({
       return parsed;
     })
     .refine((value) => value >= 1 && value <= 200, { message: 'limit must be between 1 and 200' }),
-  type: z
-    .enum([
-      'ui_session_issued',
-      'ui_session_revoked',
-      'ui_auth_failed',
-      'ui_auth_rate_limited',
-      'ui_origin_blocked',
-      'api_auth_failed',
-      'api_tenant_mismatch',
-      'api_tenant_invalid',
-      'api_rate_limited',
-      'research_job_queued',
-      'research_job_cancelled',
-      'research_job_limit_exceeded',
-      'research_job_idempotency_reused',
-      'research_job_rejected'
-    ])
-    .optional(),
+  type: z.enum(SECURITY_AUDIT_EVENT_TYPES).optional(),
   since: z.string().datetime().optional()
 });
 

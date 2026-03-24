@@ -14,6 +14,7 @@
 ## Optional env
 - `OPENROUTER_API_KEY` (global fallback)
 - `OPENROUTER_ALLOWED_MODELS` (CSV allowlist, varsayılan: sadece `OPENROUTER_DEFAULT_MODEL`)
+- `OPENROUTER_MAX_TENANT_ALLOWED_MODELS` (tenant custom policy için üst sınır, varsayılan: 12)
 - `OPENROUTER_MODEL_ID_MAX_LENGTH` (varsayılan: 120)
 - `OPENROUTER_MAX_RETRIES` (varsayılan: 2)
 - `OPENROUTER_RETRY_BASE_DELAY_MS` (varsayılan: 400)
@@ -34,6 +35,7 @@
 - `BRAVE_API_KEY` (web_search aracı için Brave Search API)
 - `ALPHA_VANTAGE_API_KEY` (financial_deep_search için ek quote provider)
 - `RAG_STORE_FILE` (tenant bazlı bilgi tabanı dosyası)
+- `MODEL_POLICY_FILE` (tenant model policy storage, varsayılan: `.data/tenant-model-policies.json`)
 - `MEMORY_STORE_FILE` (tenant bazlı memory katmanı dosyası)
 - `MEMORY_DEFAULT_CATEGORY` (varsayılan: `note`)
 - `MEMORY_MAX_ITEMS_PER_TENANT` (varsayılan: 2500)
@@ -93,9 +95,12 @@
 - `GET /v1/mcp/health/:serverId` → tek MCP sunucusu health detayı
 - `POST /v1/mcp/reset` → circuit reset
 - `POST /v1/mcp/flush` → health snapshot’ını diskte flush etme
-- `GET /v1/security/events` → tenant-scope güvenlik olay akışı (auth/rate-limit/origin/session/job)
+- `GET /v1/security/events` → tenant-scope güvenlik olay akışı (auth/rate-limit/origin/session/job/model policy)
 - `GET /v1/security/summary` → tenant güvenlik risk özeti (riskScore/riskLevel/flags/top IP)
-- `POST /v1/jobs/research` → async research job oluştur (Idempotency-Key + model allowlist doğrulaması)
+- `GET /v1/model-policy` → tenant için effective model policy (inherit/custom/invalid durumu)
+- `PUT /v1/model-policy` → tenant bazlı model allowlist + default model güncelleme
+- `DELETE /v1/model-policy` → tenant policy reset → deployment defaults
+- `POST /v1/jobs/research` → async research job oluştur (Idempotency-Key + tenant model policy doğrulaması)
 - `GET /v1/jobs` → tenant job listesi (status + limit filtreli)
 - `GET /v1/jobs/:jobId` → job detay/durum (`started_at`, `completed_at`, `cancellation_reason`)
 - `POST /v1/jobs/:jobId/cancel` → queued/running job iptali (AbortSignal ile aktif işi de keser)

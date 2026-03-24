@@ -198,6 +198,89 @@ function renderSecurityTable(events = []) {
   }
 }
 
+function parseAllowedModelsInput(value) {
+  return [...new Set(String(value || '')
+    .split(/[,\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean))];
+}
+
+function renderModelPolicy(policy) {
+  const summary = document.getElementById('modelPolicySummary');
+  const status = document.getElementById('policyStatus');
+  const select = document.getElementById('policyDefaultModel');
+  const textarea = document.getElementById('policyAllowedModels');
+
+  const deploymentAllowed = Array.isArray(policy?.deployment_allowed_models) ? policy.deployment_allowed_models : [];
+  const allowed = Array.isArray(policy?.allowed_models) ? policy.allowed_models : [];
+  const source = policy?.source ?? 'deployment';
+  const policyStatus = policy?.policy_status ?? 'inherited';
+  const defaultModel = policy?.default_model ?? '';
+
+  summary.textContent = `source=${source}, status=${policyStatus}, default=${defaultModel || '—'}, models=${allowed.length}`;
+  status.value = `${source} / ${policyStatus}`;
+  textarea.value = allowed.join('\n');
+
+  select.innerHTML = '';
+  for (const model of deploymentAllowed) {
+    const option = document.createElement('option');
+    option.value = model;
+    option.textContent = model;
+    select.appendChild(option);
+  }
+
+  if (defaultModel) {
+    select.value = defaultModel;
+  }
+
+  if (!select.value && deploymentAllowed[0]) {
+    select.value = deploymentAllowed[0];
+  }
+}
+
+async function loadModelPolicy(settings) {
+  await maybeRefreshSession(settings);
+
+  const policy = await safeFetchJson(`${settings.baseUrl}/v1/model-policy`, {
+    headers: authHeaders(settings)
+  });
+
+  renderModelPolicy(policy);
+  return policy;
+}
+
+async function saveModelPolicy(settings) {
+  await maybeRefreshSession(settings);
+
+  const allowedModels = parseAllowedModelsInput(document.getElementById('policyAllowedModels').value);
+  const defaultModel = document.getElementById('policyDefaultModel').value;
+
+  if (!allowedModels.length) {
+    throw new Error('En az bir allowed model gerekli.');
+  }
+
+  const policy = await safeFetchJson(`${settings.baseUrl}/v1/model-policy`, {
+    method: 'PUT',
+    headers: authHeaders(settings),
+    body: JSON.stringify({ allowedModels, defaultModel })
+  });
+
+  renderModelPolicy(policy);
+  log(`Tenant model policy güncellendi. default=${policy.default_model}`);
+}
+
+async function resetModelPolicy(settings) {
+  await maybeRefreshSession(settings);
+
+  const policy = await safeFetchJson(`${settings.baseUrl}/v1/model-policy`, {
+    method: 'DELETE',
+    headers: authHeaders(settings)
+  });
+
+  renderModelPolicy(policy);
+  log('Tenant model policy deployment defaultlarına döndürüldü.');
+}
+
 async function loadDashboard(settings) {
   if (!settings.tenantId) {
     throw new Error('Tenant ID zorunlu.');
@@ -233,6 +316,7 @@ async function loadDashboard(settings) {
   document.getElementById('securityEvents').textContent = `events=${events.length}`;
   renderSecurityTable(events);
 
+  await loadModelPolicy(settings);
   log('Dashboard güncellendi.');
 }
 
@@ -316,9 +400,9 @@ async function init() {
     setSettings(next);
 
     try {
-      const session = await signIn(next);
+      await signIn(next);
       await loadDashboard(next);
-      setStatus(`Oturum açıldı. Token bitiş: ${session.expiresAt}`);
+      setStatus('Dashboard oturumu hazır.');
     } catch (error) {
       setStatus(String(error), true);
       log(`Hata: ${String(error)}`);
@@ -344,7 +428,7 @@ async function init() {
 
     try {
       await loadDashboard(next);
-      setStatus('Yenileme başarılı.');
+      setStatus('Dashboard güncellendi.');
     } catch (error) {
       setStatus(String(error), true);
       log(`Hata: ${String(error)}`);
@@ -357,8 +441,33 @@ async function init() {
 
     try {
       await flushMcp(next);
-      await loadDashboard(next);
-      setStatus('MCP flush başarılı.');
+      setStatus('MCP flush tetiklendi.');
+    } catch (error) {
+      setStatus(String(error), true);
+      log(`Hata: ${String(error)}`);
+    }
+  });
+
+  document.getElementById('savePolicy').addEventListener('click', async () => {
+    const next = readSettingsForm();
+    setSettings(next);
+
+    try {
+      await saveModelPolicy(next);
+      setStatus('Tenant model policy kaydedildi.');
+    } catch (error) {
+      setStatus(String(error), true);
+      log(`Hata: ${String(error)}`);
+    }
+  });
+
+  document.getElementById('resetPolicy').addEventListener('click', async () => {
+    const next = readSettingsForm();
+    setSettings(next);
+
+    try {
+      await resetModelPolicy(next);
+      setStatus('Tenant model policy deployment defaultlarına döndü.');
     } catch (error) {
       setStatus(String(error), true);
       log(`Hata: ${String(error)}`);
@@ -366,7 +475,7 @@ async function init() {
   });
 
   if (!getSessionToken()) {
-    setStatus('Önce API Key ile dashboard oturumu açın.');
+    setStatus('Önce API Key ile oturum açın.');
     return;
   }
 
@@ -374,7 +483,7 @@ async function init() {
     await loadDashboard(settings);
     setStatus('Dashboard hazır.');
   } catch {
-    setStatus('Oturum süresi dolmuş olabilir. Tekrar giriş yapın.');
+    setStatus('Oturum süresi dolmuş olabilir. Tekrar giriş yapın.', false);
     setSessionToken('');
     setSessionMeta(null);
   }

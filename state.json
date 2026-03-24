@@ -1,18 +1,19 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "UI session lifecycle hardening (refresh/introspection + idle timeout + UA binding + session cap eviction) production-grade teslim edildi",
+  "current_task": "Tenant model policy yönetimi, fail-closed enforcement ve dashboard/chat UX entegrasyonu production-grade teslim edildi",
   "next_actions": [
-    "UI session store'u Redis gibi kalıcı/shared bir backend'e taşı",
-    "User-Agent binding'i multi-signal device fingerprint + adaptive risk scoring ile güçlendir",
-    "Session anomaly eventlerini SIEM/OTEL pipeline'ına aktar",
-    "Tenant bazlı farklı model allowlist/policy yönetimi ekle"
+    "Tenant model policy store'unu Redis/Postgres gibi shared bir backend'e taşı",
+    "Model policy değişiklikleri için RBAC/admin scope veya approval workflow ekle",
+    "Host npm toolchain sorununu giderip dependency audit'i tekrar yeşil doğrula",
+    "Security audit / model policy eventlerini SIEM/OTEL pipeline'ına aktar"
   ],
   "risks": [
     "Job/idempotency state process-memory tutulduğu için servis restartında geçmiş durum korunmaz",
     "UI session store process-memory olduğu için restart sonrası aktif UI oturumları düşer",
-    "Model allowlist deployment-level; tenant bazlı ayrık model politikası henüz yok",
-    "User-Agent binding tek başına güçlü cihaz kimliği değildir (spoof edilebilir)"
+    "Tenant model policy store dosya tabanlı olduğu için multi-instance kurulumda shared-state riski var",
+    "Policy değişiklikleri için RBAC/approval workflow henüz yok",
+    "Host npm kurulumu kırık olduğu için bu koşumda npm audit çalıştırılamadı"
   ],
   "decisions": [
     "Mimari: Modüler monolith + async worker",
@@ -24,7 +25,8 @@
     "Security intelligence summary: /v1/security/summary + risk scoring + alert flags + top IP",
     "Auth/UI header abuse hardening: Authorization/Bearer/Tenant size guard + oversized UI API key reject",
     "Runtime cancellation + model allowlist: AbortSignal chain, OPENROUTER_ALLOWED_MODELS, idempotency TTL/store cap",
-    "UI session lifecycle: GET /ui/session introspection + POST /ui/session/refresh rotation + idle timeout + UA binding + session cap eviction"
+    "UI session lifecycle: GET /ui/session introspection + POST /ui/session/refresh rotation + idle timeout + UA binding + session cap eviction",
+    "Tenant model policy: /v1/model-policy API + tenant default model fallback + fail-closed invalid policy enforcement"
   ],
   "artifacts": [
     "README.md",
@@ -36,14 +38,22 @@
     "service/.env.example",
     "service/README.md",
     "service/config.ts",
-    "service/api/middleware/auth.ts",
-    "service/api/routes/ui.ts",
+    "service/api/app.ts",
+    "service/api/routes/chat-completions.ts",
+    "service/api/routes/jobs.ts",
+    "service/api/routes/model-policy.ts",
+    "service/api/routes/models.ts",
+    "service/api/routes/security-events.ts",
     "service/security/audit-log.ts",
-    "service/security/ui-session-store.ts",
-    "service/tests/contract/ui.test.ts",
-    "service/tests/security/ui-session-store.test.ts",
+    "service/security/model-policy.ts",
+    "service/tests/contract/chat-completions.test.ts",
+    "service/tests/contract/jobs.test.ts",
+    "service/tests/contract/model-policy.test.ts",
+    "service/tests/contract/models.test.ts",
+    "service/tests/security/model-policy.test.ts",
     "service/web/assets/chat.js",
-    "service/web/assets/dashboard.js"
+    "service/web/assets/dashboard.js",
+    "service/web/dashboard.html"
   ],
-  "updated_at": "2026-03-22T07:13:39+03:00"
+  "updated_at": "2026-03-24T07:00:00+03:00"
 }

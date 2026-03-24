@@ -3,9 +3,9 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { config } from '../../config.js';
 import { runOrchestrator } from '../../orchestrator/run.js';
-import { getTenantOpenRouterKey } from '../../security/key-store.js';
 import { autoCaptureUserMemory } from '../../memory/service.js';
-import { isAllowedModel, validateModelId } from '../../security/model-policy.js';
+import { getTenantOpenRouterKey } from '../../security/key-store.js';
+import { resolveTenantModel } from '../../security/model-policy.js';
 import { securityAuditLog } from '../../security/audit-log.js';
 
 const MessageSchema = z.object({
@@ -14,7 +14,7 @@ const MessageSchema = z.object({
 });
 
 const ChatCompletionRequestSchema = z.object({
-  model: z.string().min(1),
+  model: z.string().optional(),
   messages: z.array(MessageSchema).min(1),
   temperature: z.number().optional(),
   max_tokens: z.number().int().positive().optional(),
@@ -57,52 +57,36 @@ export async function registerChatCompletionsRoute(app: FastifyInstance) {
       });
     }
 
-    const modelValidation = validateModelId(input.model);
-    if (!modelValidation.ok) {
+    const modelResolution = await resolveTenantModel(tenantId, input.model ?? undefined);
+    if (!modelResolution.ok) {
       securityAuditLog.record({
         tenant_id: tenantId,
         type: 'api_model_rejected',
         ip: req.ip,
         request_id: req.requestContext?.requestId,
         details: {
-          reason: 'invalid_model_format'
+          reason: modelResolution.auditReason,
+          model: modelResolution.normalizedModel ?? (input.model?.trim() || modelResolution.policy.defaultModel || 'none'),
+          policy_source: modelResolution.policy.source,
+          policy_status: modelResolution.policy.policyStatus
         }
       });
 
-      return reply.status(400).send({
+      return reply.status(modelResolution.statusCode).send({
         error: {
-          type: 'invalid_request_error',
-          message: modelValidation.reason
+          type: modelResolution.errorType,
+          message: modelResolution.message
         }
       });
     }
 
-    if (!isAllowedModel(modelValidation.normalized)) {
-      securityAuditLog.record({
-        tenant_id: tenantId,
-        type: 'api_model_rejected',
-        ip: req.ip,
-        request_id: req.requestContext?.requestId,
-        details: {
-          reason: 'model_not_allowed',
-          model: modelValidation.normalized
-        }
-      });
-
-      return reply.status(403).send({
-        error: {
-          type: 'permission_error',
-          message: 'Requested model is not allowed for this deployment.'
-        }
-      });
-    }
-
-    const openRouterApiKey = (await getTenantOpenRouterKey(tenantId)) ?? config.openRouter.globalApiKey;
+    const selectedModel = modelResolution.model;
+    const openRouterApiKey = (await getTenantOpenRouterKey(tenantId)) ?? config.openRouter.globalApiKey ?? undefined;
 
     const out = await runOrchestrator({
       tenantId,
-      model: modelValidation.normalized,
-      openRouterApiKey: openRouterApiKey ?? undefined,
+      model: selectedModel,
+      openRouterApiKey,
       messages: input.messages,
       temperature: input.temperature,
       maxTokens: input.max_tokens,
@@ -180,6 +164,9 @@ export async function registerChatCompletionsRoute(app: FastifyInstance) {
       },
       metadata: {
         tenant_id: tenantId,
+        selected_model: selectedModel,
+        model_policy_source: modelResolution.policy.source,
+        used_default_model: modelResolution.usedDefault,
         plan: out.plan,
         tool_count: out.toolResults.length
       }

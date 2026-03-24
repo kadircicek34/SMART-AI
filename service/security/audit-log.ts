@@ -15,6 +15,9 @@ export const SECURITY_AUDIT_EVENT_TYPES = [
   'api_tenant_invalid',
   'api_rate_limited',
   'api_model_rejected',
+  'model_policy_updated',
+  'model_policy_reset',
+  'model_policy_change_rejected',
   'research_job_queued',
   'research_job_cancelled',
   'research_job_timed_out',
@@ -141,6 +144,7 @@ function evaluateRisk(byType: Record<SecurityAuditEventType, number>): {
   score += byType.ui_session_validation_failed * 2;
   score += byType.ui_session_refresh_failed * 2;
   score += byType.api_model_rejected * 2;
+  score += byType.model_policy_change_rejected * 2;
   score += byType.research_job_limit_exceeded * 2;
   score += byType.research_job_rejected * 2;
   score += byType.research_job_timed_out * 3;
@@ -177,6 +181,10 @@ function evaluateRisk(byType: Record<SecurityAuditEventType, number>): {
 
   if (byType.api_model_rejected >= 4) {
     flags.push('model_allowlist_probing');
+  }
+
+  if (byType.model_policy_change_rejected >= 3) {
+    flags.push('tenant_policy_escape_attempts');
   }
 
   if (byType.research_job_timed_out >= 2) {

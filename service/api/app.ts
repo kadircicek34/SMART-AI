@@ -7,6 +7,7 @@ import { registerChatCompletionsRoute } from './routes/chat-completions.js';
 import { registerJobsRoute } from './routes/jobs.js';
 import { registerKeysRoute } from './routes/keys.js';
 import { registerModelsRoute } from './routes/models.js';
+import { registerModelPolicyRoute } from './routes/model-policy.js';
 import { registerRagRoutes } from './routes/rag.js';
 import { registerMemoryRoutes } from './routes/memory.js';
 import { registerMcpHealthRoutes } from './routes/mcp-health.js';
@@ -26,6 +27,7 @@ export function buildApp(): FastifyInstance {
   app.addHook('onRequest', rateLimitMiddleware);
 
   void registerModelsRoute(app);
+  void registerModelPolicyRoute(app);
   void registerChatCompletionsRoute(app);
   void registerKeysRoute(app);
   void registerJobsRoute(app);

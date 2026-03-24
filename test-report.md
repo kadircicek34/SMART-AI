@@ -147,6 +147,28 @@ UI auth katmanı kısa ömürlü session token modeline geçirildi; test paketi 
     - running job timeout/cancel reason doğrulaması
     - idempotency TTL expiry/prune davranışı doğrulaması
 
+## 2026-03-24 Ek doğrulama (Tenant model policy + fail-closed enforcement)
+- `./node_modules/.bin/tsc --noEmit` ✅
+- `./node_modules/.bin/tsx --test "tests/**/*.test.ts"` ✅ (**113/113**)
+- `APP_API_KEYS=smoke-key ... ./node_modules/.bin/tsx -e "...model policy + chat + models smoke..."` ✅ (`put=200`, `chat=200`, `models=200`, `selectedModel=openai/gpt-4o-mini`)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+- `npm audit --omit=dev --audit-level=high` ⚠️ Çalıştırılamadı: host npm kurulumu `semver` modülü eksik olduğu için process başlatamıyor.
+- Yeni testler / güncellemeler:
+  - `service/tests/contract/model-policy.test.ts`
+    - effective deployment default policy contract doğrulaması
+    - tenant allowlist daraltma + `/v1/models` yansıması
+    - deployment dışı model reject (`403`)
+    - reset → deployment defaults dönüşü
+  - `service/tests/contract/chat-completions.test.ts`
+    - model alanı olmadan tenant default model seçimi doğrulaması
+  - `service/tests/contract/jobs.test.ts`
+    - async research job için tenant default model fallback doğrulaması
+  - `service/tests/security/model-policy.test.ts`
+    - stale/invalid tenant policy için fail-closed davranışı
+    - effective allowed model kalmadığında request reject doğrulaması
+  - `service/tests/contract/models.test.ts`
+    - `/v1/models` meta.default_model + source doğrulaması
+
 ## 2026-03-22 Ek doğrulama (UI session rotation + lifecycle hardening)
 - `npm run typecheck` ✅
 - `npm test` ✅ (**104/104**)

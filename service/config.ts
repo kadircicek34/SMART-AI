@@ -75,6 +75,7 @@ export const config = {
 
       return [process.env.OPENROUTER_DEFAULT_MODEL ?? 'deepseek/deepseek-chat-v3.1'];
     })(),
+    maxTenantAllowedModels: Number(process.env.OPENROUTER_MAX_TENANT_ALLOWED_MODELS ?? 12),
     modelIdMaxLength: Number(process.env.OPENROUTER_MODEL_ID_MAX_LENGTH ?? 120),
     globalApiKey: process.env.OPENROUTER_API_KEY,
     maxRetries: Number(process.env.OPENROUTER_MAX_RETRIES ?? 2),
@@ -119,7 +120,8 @@ export const config = {
   },
   storage: {
     root: process.env.DATA_DIR ?? path.resolve(process.cwd(), '.data'),
-    keyStoreFile: process.env.KEY_STORE_FILE ?? path.resolve(process.cwd(), '.data', 'tenant-keys.json')
+    keyStoreFile: process.env.KEY_STORE_FILE ?? path.resolve(process.cwd(), '.data', 'tenant-keys.json'),
+    modelPolicyFile: process.env.MODEL_POLICY_FILE ?? path.resolve(process.cwd(), '.data', 'tenant-model-policies.json')
   },
   rag: {
     storeFile: process.env.RAG_STORE_FILE ?? path.resolve(process.cwd(), '.data', 'rag-store.json'),

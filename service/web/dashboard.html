@@ -66,6 +66,33 @@
           <h3>Security Events (24h)</h3>
           <p id="securityEvents">—</p>
         </article>
+        <article class="card metric">
+          <h3>Model Policy</h3>
+          <p id="modelPolicySummary">—</p>
+        </article>
+      </section>
+
+      <section class="card">
+        <h2>Tenant Model Policy</h2>
+        <div class="grid-2">
+          <label>
+            Varsayılan Model
+            <select id="policyDefaultModel"></select>
+          </label>
+          <label>
+            Effective Source / Status
+            <input id="policyStatus" type="text" readonly />
+          </label>
+        </div>
+        <label>
+          Allowed Models (satır başına bir model)
+          <textarea id="policyAllowedModels" rows="6" placeholder="deepseek/deepseek-chat-v3.1"></textarea>
+        </label>
+        <div class="actions">
+          <button id="savePolicy">Policy Kaydet</button>
+          <button id="resetPolicy" class="secondary">Deployment Default'a Dön</button>
+        </div>
+        <p class="muted">Tenant modeli, deployment allowlist içindeki güvenli alt kümeyle sınırlandırılır.</p>
       </section>
 
       <section class="card">
