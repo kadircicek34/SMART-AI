@@ -717,3 +717,50 @@ UI tarafında session token modeli vardı ancak üç kritik açık bulunuyordu:
 - Multi-signal device fingerprint (IP + UA + client-hints) ile adaptif risk scoring
 - Session store’un process-memory yerine Redis’e taşınması
 - Revoked token bloom-filter/denylist ile distributed revoke propagation
+
+## 2026-03-25 — Scoped API keys + auth context + UI session origin binding
+
+### Problem
+1. Tenant auth modeli tek seviyeli olduğu için dashboard/read-only kullanım ile admin operasyonları arasında yetki ayrımı yoktu.
+2. `PUT /v1/model-policy`, `/v1/keys/openrouter*`, `/v1/mcp/reset|flush` gibi hassas yüzeyler çalınmış veya aşırı yetkili credential ile gereksiz yere açık kalıyordu.
+3. UI session token’ları `/v1/*` state-changing çağrılarda origin-bound değildi; token ele geçirilirse browser dışı/kötü origin kullanım penceresi gereğinden genişti.
+
+### Seçenekler
+- A: Mevcut tek-seviye anahtar modelini koruyup sadece dashboard tarafında buton gizlemek
+- B: Tam tenant/user RBAC sistemi kurmak (yüksek etki ama tek günlük koşum için aşırı büyük)
+- C: Scope tabanlı credential modeli + auth introspection + hassas endpoint gating + UI session origin binding
+
+### Karar
+**C seçildi:**
+1. **Yeni özellik:**
+   - `APP_API_KEY_DEFINITIONS` ile scope tanımlı credential registry eklendi.
+   - Yeni endpoint: `GET /v1/auth/context`
+   - Dashboard ve Chat UI artık aktif credential’ın scope’larını okuyup kontrol yüzeyini yetkiye göre otomatik ayarlıyor.
+2. **Ciddi güvenlik iyileştirmesi #1:**
+   - Scope hiyerarşisi tanımlandı: `tenant:read` → `tenant:operate` → `tenant:admin`
+   - `/v1/model-policy`, `/v1/keys/openrouter*`, `/v1/mcp/reset`, `/v1/mcp/flush` admin scope gerektiriyor.
+   - Legacy `APP_API_KEYS` backward-compatible olarak full admin davranışını koruyor.
+3. **Ciddi güvenlik iyileştirmesi #2:**
+   - UI session’lar artık giriş yapılan principal adını ve scope setini taşır; refresh/rotation akışında da bu yetki korunur.
+   - Böylece read-only veya operate-only anahtarlar UI üzerinden admin aksiyonuna sıçrayamaz.
+4. **Ciddi güvenlik iyileştirmesi #3:**
+   - UI session token ile yapılan state-changing `/v1/*` çağrıları allowlisted Origin’e bağlandı.
+   - Eksik veya uygunsuz origin, audit event ile 403 döner.
+5. **Telemetry genişletmesi:**
+   - Yeni event tipi: `api_scope_denied`
+   - Risk summary artık tekrar eden privilege probing denemelerini `privilege_escalation_attempts` bayrağı ile işaretleyebilir.
+
+### Gerekçe
+- Tek turda production-grade ve geri uyumlu bir en düşük ayrıcalık (least privilege) katmanı kurmak mümkün oldu.
+- Auth introspection sayesinde yalnızca backend enforcement değil, frontend operatör deneyimi de güvenli varsayılanlara geçti.
+- Origin binding, UI session token’larının browser-tab context dışına taşınmasını zorlaştırarak gerçek saldırı yüzeyini küçültür.
+
+### Etki
+- Read-only dashboard erişimi ile admin operasyonları artık güvenli şekilde ayrışıyor.
+- Chat UI, operate yetkisi olmayan session ile yanlışlıkla iş yükü başlatamıyor.
+- Admin yüzeylerinde yetkisiz denemeler güvenlik feed’ine görünür şekilde düşüyor.
+
+### Bilinçli Olarak Ertelenenler
+- Tenant içi kullanıcı bazlı tam RBAC/approval workflow
+- API key registry’nin env yerine merkezi secret backend’den yönetilmesi
+- UI session store ve audit store’un shared/distributed persistence’a taşınması
