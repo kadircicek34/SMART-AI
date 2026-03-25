@@ -183,3 +183,19 @@ UI auth katmanı kısa ömürlü session token modeline geçirildi; test paketi 
     - tenant session-cap eviction (oldest token drop)
     - user-agent binding mismatch reject
     - idle-timeout expiry doğrulaması
+
+## 2026-03-25 Ek doğrulama (Scoped auth + UI origin binding)
+- `npm run typecheck` ✅
+- `npm test` ✅ (**118/118**)
+- `npx tsx --test tests/contract/auth-context.test.ts` ✅ (**5/5**)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+- Yeni testler / güncellemeler:
+  - `service/tests/contract/auth-context.test.ts`
+    - `GET /v1/auth/context` principal/scope contract doğrulaması
+    - read-only credential için operate deny + audit feed görünürlüğü
+    - operate credential için admin-only route deny doğrulaması
+    - UI session scope inheritance + unsafe `/v1/*` origin binding doğrulaması
+    - admin credential için protected key/model-policy route erişimi
+  - `service/tests/security/ui-session-store.test.ts`
+    - rotation sonrası principal/scopes korunumu doğrulaması

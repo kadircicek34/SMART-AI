@@ -173,3 +173,27 @@ Kalan risk:
 Kalan risk:
 - Session store process-memory tabanlı olduğu için restart sonrası aktif sessionlar düşer (security açısından fail-safe, UX açısından re-login gerektirir).
 - User-Agent binding tek başına güçlü cihaz kimliği değildir; ileri fazda çoklu sinyal fingerprint + adaptive risk policy önerilir.
+
+## 2026-03-25 Güvenlik sertleştirmesi — Scoped authZ + UI session origin binding
+- **Least-privilege credential modeli**
+  - Yeni env yüzeyi: `APP_API_KEY_DEFINITIONS`
+  - Scope hiyerarşisi: `tenant:read` → `tenant:operate` → `tenant:admin`
+  - Legacy `APP_API_KEYS` backward-compatible olarak full admin davranışını korur.
+- **Hassas yönetim yüzeylerinde admin gate**
+  - `GET/POST/DELETE /v1/keys/openrouter*`
+  - `PUT/DELETE /v1/model-policy`
+  - `POST /v1/mcp/reset`
+  - `POST /v1/mcp/flush`
+  - Yetkisiz denemeler `api_scope_denied` security event’i üretir.
+- **UI session privilege inheritance**
+  - `/ui/session` ile açılan token artık principal adı + scope setini taşır.
+  - `/ui/session/refresh` rotation akışında bu privilege set korunur; read-only token UI üzerinden admin’e yükselemez.
+- **Origin-bound unsafe API writes**
+  - UI session token ile yapılan state-changing `/v1/*` çağrıları allowlisted Origin’e bağlandı.
+  - Eksik veya kötü origin 403 + audit event ile reddedilir.
+- **Security analytics genişletmesi**
+  - Risk summary scoring artık tekrar eden scope probing denemelerini `privilege_escalation_attempts` bayrağı ile yükseltebilir.
+
+Kalan risk:
+- API key tanımları hâlâ env tabanlı; büyük ölçekli prod kurulumda secret manager/DB-backed registry daha doğru olacaktır.
+- UI session ve audit store process-memory tabanlı; multi-instance ortamda merkezi persistence gerekecek.

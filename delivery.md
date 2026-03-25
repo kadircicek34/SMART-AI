@@ -268,3 +268,35 @@ Teslimin odağı:
 ### Kalan riskler
 - Session store process-memory olduğu için servis restartında aktif sessionlar düşer (fail-safe; kullanıcı re-login gerekir).
 - User-Agent binding tek başına güçlü cihaz imzası değildir; sonraki fazda multi-signal fingerprint önerilir.
+
+## 2026-03-25 Teslim paketi (Scoped API keys + auth context + UI session origin binding)
+### Yapılanlar
+1. **Yeni özellik — scoped credential + auth context introspection**
+   - `APP_API_KEY_DEFINITIONS` ile read / operate / admin ayrımı eklendi.
+   - Yeni endpoint: `GET /v1/auth/context`
+   - Dashboard ve Chat UI artık aktif session/credential yetkisini okuyup arayüzü otomatik kısıtlıyor.
+2. **Ciddi güvenlik iyileştirmesi — admin yüzeyi least-privilege gating**
+   - `/v1/model-policy`, `/v1/keys/openrouter*`, `/v1/mcp/reset`, `/v1/mcp/flush` artık admin scope gerektiriyor.
+   - Read-only ve operate-only credential’lar tenant gözlem/operasyon akışını bozmazken admin aksiyonları çalıştıramıyor.
+3. **Ciddi güvenlik iyileştirmesi — UI session scope inheritance**
+   - `/ui/session` ve `/ui/session/refresh` akışları principal adı + scope setini taşıyor.
+   - Böylece sınırlı bir API key ile açılan browser oturumu, arka kapıdan admin yetkisine sıçrayamıyor.
+4. **Ciddi güvenlik iyileştirmesi — origin-bound unsafe API writes**
+   - UI session token ile yapılan state-changing `/v1/*` çağrıları allowlisted Origin’e bağlandı.
+   - Token replay / cross-origin kötüye kullanım penceresi daraltıldı.
+5. **Telemetry + UX iyileştirmesi**
+   - Yeni audit event: `api_scope_denied`
+   - Risk summary privilege probing sinyallerini yükseltebiliyor.
+   - Dashboard/Chat UI yetkiye göre admin/operate kontrollerini disable edip kullanıcıya görünür capability özeti veriyor.
+
+### Verification
+- `npm run typecheck` ✅
+- `npm test` ✅ (**118/118**)
+- `npx tsx --test tests/contract/auth-context.test.ts` ✅ (**5/5**)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+
+### Kalan riskler
+- API key registry env tabanlı; secret manager veya merkezi store ile rotation yönetimi daha iyi olacaktır.
+- UI session ve audit event store process-memory; multi-instance kurulumda shared persistence gerekecektir.
+- Tenant içi kullanıcı bazlı tam RBAC/approval workflow sonraki iterasyon konusudur.

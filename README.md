@@ -14,6 +14,7 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 ## Öne Çıkanlar
 - OpenAI-compatible endpointler (`/v1/models`, `/v1/chat/completions`)
 - Tenant bazlı güvenlik (`Authorization` + `x-tenant-id`)
+- **Scoped API key registry + auth context introspection** (`APP_API_KEY_DEFINITIONS` + `/v1/auth/context`)
 - Tenant bazlı OpenRouter API key saklama (AES-256-GCM encrypted-at-rest)
 - Policy kontrollü tool erişimi
 - Sync chat + Async research jobs (`/v1/jobs/research`) + job list/cancel lifecycle (`/v1/jobs`, `/v1/jobs/:jobId/cancel`)
@@ -36,7 +37,7 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - **Security Audit Event Feed** (`/v1/security/events`) + dashboard güvenlik olay görünürlüğü
 - **Security Risk Summary** (`/v1/security/summary`) + tenant bazlı risk skoru / alarm bayrakları
 - **Header abuse guard** (Authorization / tenant header boyut limitleri + UI oversized key koruması)
-- **UI session lifecycle hardening** (`/ui/session` introspection + `/ui/session/refresh` token rotation + idle-timeout + session cap eviction)
+- **UI session lifecycle hardening** (`/ui/session` introspection + `/ui/session/refresh` token rotation + idle-timeout + session cap eviction + unsafe `/v1/*` writes için Origin binding)
 
 ## Klasörler
 - `contracts/` → API sözleşmeleri
@@ -62,8 +63,24 @@ npm run dev
 
 ## Auth Header’ları
 Her `/v1/*` isteğinde:
-- `Authorization: Bearer <APP_API_KEYS içinde tanımlı key>`
+- `Authorization: Bearer <APP_API_KEYS veya APP_API_KEY_DEFINITIONS içinde tanımlı key>`
 - `x-tenant-id: <tenant-id>`
+
+### Scope modeli
+- `tenant:read` → tüm `GET /v1/*` endpointleri + dashboard gözlem ekranları
+- `tenant:operate` → tenant veri/işlem yazıları (`/v1/chat/completions`, `/v1/memory/*`, `/v1/rag/*`, async research job çağrıları)
+- `tenant:admin` → hassas yönetim yüzeyleri (`/v1/model-policy`, `/v1/keys/openrouter*`, `/v1/mcp/reset`, `/v1/mcp/flush`)
+
+`tenant:admin`, otomatik olarak `tenant:operate` ve `tenant:read` yetkilerini de içerir.
+
+Örnek `APP_API_KEY_DEFINITIONS`:
+```json
+[
+  { "name": "dashboard-ro", "key": "dashboard-read-key", "scopes": ["tenant:read"] },
+  { "name": "tenant-ops", "key": "tenant-ops-key", "scopes": ["tenant:read", "tenant:operate"] },
+  { "name": "tenant-admin", "key": "tenant-admin-key", "scopes": ["tenant:admin"] }
+]
+```
 
 ## Tenant OpenRouter Key Kaydı
 ```bash
@@ -146,6 +163,15 @@ curl 'http://127.0.0.1:8080/v1/security/summary?window_hours=24&top_ip_limit=5' 
   -H 'x-tenant-id: tenant-a'
 ```
 
+## Auth Context Introspection
+```bash
+curl http://127.0.0.1:8080/v1/auth/context \
+  -H 'Authorization: Bearer dashboard-read-key' \
+  -H 'x-tenant-id: tenant-a'
+```
+
+Bu endpoint, aktif credential’ın hangi principal adına çalıştığını ve hangi scope’lara sahip olduğunu döner. Dashboard ve Chat UI bu endpoint’i kullanarak admin/operate kontrollerini otomatik olarak salt-okunur moda alır.
+
 ## Web UI (Control Dashboard + Chat UI)
 Sunucu kalktıktan sonra:
 - `http://127.0.0.1:8080/ui/dashboard`
@@ -162,9 +188,11 @@ Yeni güvenlik akışı:
 - Tenant/global session cap ile eski tokenlar otomatik evict edilir (memory DoS riskine karşı)
 - Login hata mesajı normalize edilmiştir (`Invalid credentials`).
 - UI state-changing endpoint’lerde Origin allowlist kontrolü (`UI_ALLOWED_ORIGINS`) desteklenir.
+- UI session token’ı ile yapılan state-changing `/v1/*` çağrıları da allowlisted Origin’e bağlanır; eksik/şüpheli origin 403 ile reddedilir.
 - `/ui/dashboard` ve `/ui/chat` yanıtlarında CSP + güvenlik header’ları uygulanır.
 - Dashboard artık API key’i localStorage’da tutmaz; chat ile aynı kısa ömürlü session token modeli kullanılır.
 - Dashboard ve Chat UI, token bitişine yakın otomatik `refresh` çağırarak kesintisiz oturum yeniler.
+- Dashboard ve Chat UI, `/v1/auth/context` ile scope farkındalığı kazanır; admin/operate yetkisi yoksa ilgili kontroller otomatik disable edilir.
 - Dashboard, tenant model policy’yi okuyup güncelleyebilir; Chat UI varsayılan tenant modelini otomatik seçer.
 - Dashboard, `/v1/security/summary` ile 24h risk seviyesi + alarm bayraklarını da gösterir.
 
