@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { config } from '../../config.js';
-import { isAuthorizedApiKey } from '../../security/api-key-auth.js';
+import { resolveApiKey } from '../../security/api-key-auth.js';
 import { securityAuditLog } from '../../security/audit-log.js';
 import { isOriginAllowed } from '../../security/origin-guard.js';
 import { isValidTenantId, normalizeTenantId } from '../../security/tenant-id.js';
@@ -149,10 +149,14 @@ function toSessionResponse(session: {
   tenantId: string;
   expiresAt: number;
   lastSeenAt: number;
+  principalName?: string;
+  scopes?: string[];
   token?: string;
 }): {
   token?: string;
   tenantId: string;
+  principalName?: string;
+  scopes?: string[];
   expiresAt: string;
   lastSeenAt: string;
   expiresInSeconds: number;
@@ -167,6 +171,8 @@ function toSessionResponse(session: {
   return {
     ...(session.token ? { token: session.token } : {}),
     tenantId: session.tenantId,
+    ...(session.principalName ? { principalName: session.principalName } : {}),
+    ...(session.scopes ? { scopes: session.scopes } : {}),
     expiresAt: new Date(session.expiresAt).toISOString(),
     lastSeenAt: new Date(session.lastSeenAt).toISOString(),
     expiresInSeconds,
@@ -256,7 +262,8 @@ export async function registerUiRoutes(app: FastifyInstance): Promise<void> {
       });
     }
 
-    if (!apiKey || !isAuthorizedApiKey(apiKey)) {
+    const apiKeyIdentity = apiKey ? resolveApiKey(apiKey) : null;
+    if (!apiKeyIdentity) {
       uiSessionRateLimiter.recordFailure(identityKey);
       securityAuditLog.record({
         tenant_id: tenantId,
@@ -273,7 +280,9 @@ export async function registerUiRoutes(app: FastifyInstance): Promise<void> {
     const session = uiSessionStore.issue(tenantId, config.uiSession.ttlSeconds, {
       userAgent: extractUserAgent(request),
       maxSessionsPerTenant: config.uiSession.maxSessionsPerTenant,
-      maxSessionsGlobal: config.uiSession.maxSessionsGlobal
+      maxSessionsGlobal: config.uiSession.maxSessionsGlobal,
+      principalName: apiKeyIdentity.name,
+      scopes: apiKeyIdentity.scopes
     });
 
     securityAuditLog.record({
@@ -283,7 +292,9 @@ export async function registerUiRoutes(app: FastifyInstance): Promise<void> {
       details: {
         ttl_seconds: config.uiSession.ttlSeconds,
         max_idle_seconds: config.uiSession.maxIdleSeconds,
-        max_sessions_per_tenant: config.uiSession.maxSessionsPerTenant
+        max_sessions_per_tenant: config.uiSession.maxSessionsPerTenant,
+        principal_name: apiKeyIdentity.name,
+        scopes_count: apiKeyIdentity.scopes.length
       }
     });
 

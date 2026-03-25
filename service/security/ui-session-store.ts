@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { normalizeAuthScopes, type AuthScope } from './authz.js';
 
 type UiSession = {
   tokenHash: string;
@@ -7,12 +8,16 @@ type UiSession = {
   expiresAt: number;
   lastSeenAt: number;
   userAgentHash: string | null;
+  principalName: string;
+  scopes: AuthScope[];
 };
 
 type UiSessionIssueOptions = {
   userAgent?: string;
   maxSessionsPerTenant?: number;
   maxSessionsGlobal?: number;
+  principalName?: string;
+  scopes?: AuthScope[];
 };
 
 type UiSessionResolveOptions = {
@@ -74,7 +79,9 @@ class UiSessionStore {
       createdAt: now,
       expiresAt: now + Math.max(60, ttlSeconds) * 1000,
       lastSeenAt: now,
-      userAgentHash: hashUserAgent(options.userAgent)
+      userAgentHash: hashUserAgent(options.userAgent),
+      principalName: String(options.principalName ?? 'ui-session').trim() || 'ui-session',
+      scopes: normalizeAuthScopes(options.scopes ?? ['tenant:admin'])
     };
 
     this.sessions.set(tokenHash, session);
@@ -139,7 +146,9 @@ class UiSessionStore {
     const rotated = this.issue(resolved.session.tenantId, ttlSeconds, {
       userAgent: options.userAgent,
       maxSessionsPerTenant: options.maxSessionsPerTenant,
-      maxSessionsGlobal: options.maxSessionsGlobal
+      maxSessionsGlobal: options.maxSessionsGlobal,
+      principalName: resolved.session.principalName,
+      scopes: resolved.session.scopes
     });
 
     return { session: rotated };

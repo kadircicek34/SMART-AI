@@ -13,6 +13,7 @@ export const SECURITY_AUDIT_EVENT_TYPES = [
   'api_auth_failed',
   'api_tenant_mismatch',
   'api_tenant_invalid',
+  'api_scope_denied',
   'api_rate_limited',
   'api_model_rejected',
   'model_policy_updated',
@@ -140,6 +141,7 @@ function evaluateRisk(byType: Record<SecurityAuditEventType, number>): {
   score += byType.ui_auth_rate_limited * 3;
   score += byType.api_rate_limited * 2;
   score += byType.api_tenant_mismatch * 5;
+  score += byType.api_scope_denied * 4;
   score += byType.ui_origin_blocked * 3;
   score += byType.ui_session_validation_failed * 2;
   score += byType.ui_session_refresh_failed * 2;
@@ -161,6 +163,10 @@ function evaluateRisk(byType: Record<SecurityAuditEventType, number>): {
 
   if (byType.api_tenant_mismatch >= 2) {
     flags.push('cross_tenant_access_attempts');
+  }
+
+  if (byType.api_scope_denied >= 3) {
+    flags.push('privilege_escalation_attempts');
   }
 
   if (byType.ui_origin_blocked >= 2) {
@@ -201,6 +207,10 @@ function evaluateRisk(byType: Record<SecurityAuditEventType, number>): {
   }
 
   if (flags.includes('cross_tenant_access_attempts') && level === 'medium') {
+    level = 'high';
+  }
+
+  if (flags.includes('privilege_escalation_attempts') && level === 'medium') {
     level = 'high';
   }
 

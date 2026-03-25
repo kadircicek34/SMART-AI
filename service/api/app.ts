@@ -13,6 +13,7 @@ import { registerMemoryRoutes } from './routes/memory.js';
 import { registerMcpHealthRoutes } from './routes/mcp-health.js';
 import { registerUiRoutes } from './routes/ui.js';
 import { registerSecurityEventsRoute } from './routes/security-events.js';
+import { registerAuthContextRoute } from './routes/auth-context.js';
 
 export function buildApp(): FastifyInstance {
   const app = Fastify({ logger: true, bodyLimit: 1_000_000 });
@@ -26,6 +27,7 @@ export function buildApp(): FastifyInstance {
   app.addHook('onRequest', authMiddleware);
   app.addHook('onRequest', rateLimitMiddleware);
 
+  void registerAuthContextRoute(app);
   void registerModelsRoute(app);
   void registerModelPolicyRoute(app);
   void registerChatCompletionsRoute(app);

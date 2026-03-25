@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
+import { normalizeAuthScopes, type AuthScope } from './security/authz.js';
 
 const parseCsv = (value: string | undefined): string[] =>
   (value ?? '')
@@ -11,6 +12,58 @@ const parseOrigins = (value: string | undefined): string[] =>
   parseCsv(value)
     .map((origin) => origin.toLowerCase())
     .filter((origin) => origin.startsWith('http://') || origin.startsWith('https://'));
+
+type AppApiKeyDefinition = {
+  name: string;
+  key: string;
+  scopes: AuthScope[];
+};
+
+function parseAppApiKeyDefinitions(value: string | undefined): AppApiKeyDefinition[] {
+  if (!value?.trim()) {
+    return [];
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch (error) {
+    throw new Error(`Invalid APP_API_KEY_DEFINITIONS JSON: ${(error as Error).message}`);
+  }
+
+  if (!Array.isArray(parsed)) {
+    throw new Error('Invalid APP_API_KEY_DEFINITIONS JSON: expected an array.');
+  }
+
+  return parsed.map((entry, index) => {
+    if (!entry || typeof entry !== 'object') {
+      throw new Error(`Invalid APP_API_KEY_DEFINITIONS entry at index ${index}: expected object.`);
+    }
+
+    const candidate = entry as {
+      name?: unknown;
+      key?: unknown;
+      scopes?: unknown;
+    };
+
+    const key = String(candidate.key ?? '').trim();
+    if (!key) {
+      throw new Error(`Invalid APP_API_KEY_DEFINITIONS entry at index ${index}: key is required.`);
+    }
+
+    const name = String(candidate.name ?? `key-${index + 1}`).trim() || `key-${index + 1}`;
+    const scopes = normalizeAuthScopes(Array.isArray(candidate.scopes) ? candidate.scopes.map((item) => String(item)) : []);
+    if (scopes.length === 0) {
+      throw new Error(`Invalid APP_API_KEY_DEFINITIONS entry at index ${index}: at least one valid scope is required.`);
+    }
+
+    return {
+      name,
+      key,
+      scopes
+    } satisfies AppApiKeyDefinition;
+  });
+}
 
 function getMasterKey(): Buffer {
   const raw = process.env.MASTER_KEY_BASE64;
@@ -42,6 +95,7 @@ export const config = {
   isProd: (process.env.NODE_ENV ?? 'development') === 'production',
   port: Number(process.env.PORT ?? 8080),
   appApiKeys: parseCsv(process.env.APP_API_KEYS),
+  appApiKeyDefinitions: parseAppApiKeyDefinitions(process.env.APP_API_KEY_DEFINITIONS),
   requestTimeoutMs: Number(process.env.REQUEST_TIMEOUT_MS ?? 45_000),
   rateLimitPerMinute: Number(process.env.RATE_LIMIT_PER_MINUTE ?? 60),
   maxSteps: Number(process.env.MAX_STEPS ?? 6),
