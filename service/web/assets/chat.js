@@ -57,6 +57,34 @@ function setSessionMeta(meta) {
   sessionStorage.setItem(SESSION_META_STORAGE_KEY, JSON.stringify(meta));
 }
 
+function setSessionCapabilities(message, isError = false) {
+  const node = document.getElementById('sessionCapabilities');
+  if (!node) return;
+  node.textContent = message;
+  node.style.color = isError ? 'var(--danger)' : 'var(--muted)';
+}
+
+function applyUiPermissions({ canRead = false, canOperate = false } = {}) {
+  for (const id of ['modelSelect', 'loadModels']) {
+    const node = document.getElementById(id);
+    if (node) {
+      node.disabled = !canRead;
+    }
+  }
+
+  for (const id of ['chatInput']) {
+    const node = document.getElementById(id);
+    if (node) {
+      node.disabled = !canOperate;
+    }
+  }
+
+  const submitButton = document.querySelector('#chatForm button[type="submit"]');
+  if (submitButton) {
+    submitButton.disabled = !canOperate;
+  }
+}
+
 function authHeaders(settings) {
   const token = getSessionToken();
   if (!token) {
@@ -128,7 +156,9 @@ async function maybeRefreshSession(settings, minRemainingSeconds = 90) {
   setSessionMeta({
     expiresAt: refreshed?.expiresAt,
     idleExpiresAt: refreshed?.idleExpiresAt,
-    lastSeenAt: refreshed?.lastSeenAt
+    lastSeenAt: refreshed?.lastSeenAt,
+    principalName: refreshed?.principalName,
+    scopes: refreshed?.scopes
   });
 }
 
@@ -143,6 +173,37 @@ function readSettingsForm() {
     tenantId: document.getElementById('tenantId').value.trim(),
     model: document.getElementById('modelSelect').value || ''
   };
+}
+
+function applyAuthContext(context) {
+  const permissions = context?.permissions ?? {};
+  const scopes = Array.isArray(context?.scopes) ? context.scopes.join(', ') : '—';
+  const principalName = context?.principal_name ?? 'unknown';
+  const canOperate = Boolean(permissions.operate);
+
+  applyUiPermissions({
+    canRead: Boolean(permissions.read),
+    canOperate
+  });
+  setSessionCapabilities(
+    `Yetki bilgisi: ${principalName} | scopes=${scopes} | operate=${canOperate ? 'evet' : 'hayır'}`,
+    false
+  );
+
+  if (!canOperate) {
+    renderMessage('system', 'Bu oturum sohbet/işlem gönderme yetkisine sahip değil. Operate scope içeren bir anahtar kullanın.');
+  }
+}
+
+async function loadAuthContext(settings) {
+  await maybeRefreshSession(settings);
+
+  const context = await fetchJson(`${settings.baseUrl}/v1/auth/context`, {
+    headers: authHeaders(settings)
+  });
+
+  applyAuthContext(context);
+  return context;
 }
 
 async function signIn(settings) {
@@ -161,9 +222,14 @@ async function signIn(settings) {
   setSessionMeta({
     expiresAt: data?.expiresAt,
     idleExpiresAt: data?.idleExpiresAt,
-    lastSeenAt: data?.lastSeenAt
+    lastSeenAt: data?.lastSeenAt,
+    principalName: data?.principalName,
+    scopes: data?.scopes
   });
   document.getElementById('apiKey').value = '';
+  if (Array.isArray(data?.scopes)) {
+    setSessionCapabilities(`Yetki bilgisi: ${data?.principalName ?? 'unknown'} | scopes=${data.scopes.join(', ')}`);
+  }
   setStatus(`Oturum açıldı. Token bitiş: ${data.expiresAt}`);
 }
 
@@ -186,6 +252,8 @@ async function signOut(settings) {
   } finally {
     setSessionToken('');
     setSessionMeta(null);
+    applyUiPermissions({ canRead: false, canOperate: false });
+    setSessionCapabilities('Yetki bilgisi: aktif oturum yok.');
   }
 
   setStatus('Oturum kapatıldı.');
@@ -249,6 +317,8 @@ async function sendMessage(settings, message) {
 async function init() {
   const settings = getSettings();
   fillSettingsForm(settings);
+  applyUiPermissions({ canRead: false, canOperate: false });
+  setSessionCapabilities('Yetki bilgisi: aktif oturum yok.');
 
   document.getElementById('saveSettings').addEventListener('click', () => {
     const next = readSettingsForm();
@@ -262,7 +332,10 @@ async function init() {
 
     try {
       await signIn(next);
-      await loadModels(next);
+      const context = await loadAuthContext(next);
+      if (context?.permissions?.read) {
+        await loadModels(next);
+      }
       setStatus('Oturum hazır, model listesi yüklendi.');
     } catch (error) {
       setStatus(String(error), true);
@@ -328,12 +401,17 @@ async function init() {
   }
 
   try {
-    await loadModels(settings);
+    const context = await loadAuthContext(settings);
+    if (context?.permissions?.read) {
+      await loadModels(settings);
+    }
     setStatus('Chat UI hazır.');
   } catch {
     setStatus('Oturum süresi dolmuş olabilir. Tekrar giriş yapın.', false);
     setSessionToken('');
     setSessionMeta(null);
+    applyUiPermissions({ canRead: false, canOperate: false });
+    setSessionCapabilities('Yetki bilgisi: aktif oturum yok.');
   }
 }
 

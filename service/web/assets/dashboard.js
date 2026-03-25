@@ -78,6 +78,22 @@ function setSessionMeta(meta) {
   sessionStorage.setItem(SESSION_META_STORAGE_KEY, JSON.stringify(meta));
 }
 
+function setSessionCapabilities(message, isError = false) {
+  const node = document.getElementById('sessionCapabilities');
+  if (!node) return;
+  node.textContent = message;
+  node.style.color = isError ? 'var(--danger)' : 'var(--muted)';
+}
+
+function setAdminControlsEnabled(enabled) {
+  for (const id of ['flushMcp', 'savePolicy', 'resetPolicy', 'policyDefaultModel', 'policyAllowedModels']) {
+    const node = document.getElementById(id);
+    if (node) {
+      node.disabled = !enabled;
+    }
+  }
+}
+
 function authHeaders(settings) {
   const token = getSessionToken();
   if (!token) {
@@ -134,7 +150,9 @@ async function maybeRefreshSession(settings, minRemainingSeconds = 90) {
   setSessionMeta({
     expiresAt: refreshed?.expiresAt,
     idleExpiresAt: refreshed?.idleExpiresAt,
-    lastSeenAt: refreshed?.lastSeenAt
+    lastSeenAt: refreshed?.lastSeenAt,
+    principalName: refreshed?.principalName,
+    scopes: refreshed?.scopes
   });
   log('Dashboard session refreshed.');
 }
@@ -212,7 +230,7 @@ function renderModelPolicy(policy) {
   const textarea = document.getElementById('policyAllowedModels');
 
   const deploymentAllowed = Array.isArray(policy?.deployment_allowed_models) ? policy.deployment_allowed_models : [];
-  const allowed = Array.isArray(policy?.allowed_models) ? policy.allowed_models : [];
+  const allowed = Array.isArray(policy?.allowed_models) ? policy?.allowed_models : [];
   const source = policy?.source ?? 'deployment';
   const policyStatus = policy?.policy_status ?? 'inherited';
   const defaultModel = policy?.default_model ?? '';
@@ -236,6 +254,34 @@ function renderModelPolicy(policy) {
   if (!select.value && deploymentAllowed[0]) {
     select.value = deploymentAllowed[0];
   }
+}
+
+function applyAuthContext(context) {
+  const permissions = context?.permissions ?? {};
+  const scopes = Array.isArray(context?.scopes) ? context.scopes.join(', ') : '—';
+  const principalName = context?.principal_name ?? 'unknown';
+  const adminEnabled = Boolean(permissions.admin);
+
+  setAdminControlsEnabled(adminEnabled);
+  setSessionCapabilities(
+    `Yetki bilgisi: ${principalName} | scopes=${scopes} | admin=${adminEnabled ? 'evet' : 'hayır'}`,
+    false
+  );
+
+  if (!adminEnabled) {
+    log('Bu oturum admin yetkisine sahip değil; model policy ve MCP flush kontrolleri salt okunur moda alındı.');
+  }
+}
+
+async function loadAuthContext(settings) {
+  await maybeRefreshSession(settings);
+
+  const context = await safeFetchJson(`${settings.baseUrl}/v1/auth/context`, {
+    headers: authHeaders(settings)
+  });
+
+  applyAuthContext(context);
+  return context;
 }
 
 async function loadModelPolicy(settings) {
@@ -287,6 +333,7 @@ async function loadDashboard(settings) {
   }
 
   await maybeRefreshSession(settings);
+  await loadAuthContext(settings);
 
   const health = await safeFetchJson(`${settings.baseUrl}/health`);
   document.getElementById('serviceStatus').textContent = `${health.ok ? 'UP' : 'DOWN'} | ${health.service} | ${health.env}`;
@@ -347,9 +394,14 @@ async function signIn(settings) {
   setSessionMeta({
     expiresAt: data?.expiresAt,
     idleExpiresAt: data?.idleExpiresAt,
-    lastSeenAt: data?.lastSeenAt
+    lastSeenAt: data?.lastSeenAt,
+    principalName: data?.principalName,
+    scopes: data?.scopes
   });
   document.getElementById('apiKey').value = '';
+  if (Array.isArray(data?.scopes)) {
+    setSessionCapabilities(`Yetki bilgisi: ${data?.principalName ?? 'unknown'} | scopes=${data.scopes.join(', ')}`);
+  }
   log('Dashboard oturumu açıldı.');
   return data;
 }
@@ -373,6 +425,8 @@ async function signOut(settings) {
   } finally {
     setSessionToken('');
     setSessionMeta(null);
+    setAdminControlsEnabled(false);
+    setSessionCapabilities('Yetki bilgisi: aktif oturum yok.');
   }
 
   log('Dashboard oturumu kapatıldı.');
@@ -387,6 +441,8 @@ function setStatus(message, isError = false) {
 async function init() {
   const settings = getSettings();
   fillSettingsForm(settings);
+  setAdminControlsEnabled(false);
+  setSessionCapabilities('Yetki bilgisi: aktif oturum yok.');
 
   document.getElementById('saveSettings').addEventListener('click', () => {
     const next = readSettingsForm();
@@ -486,6 +542,8 @@ async function init() {
     setStatus('Oturum süresi dolmuş olabilir. Tekrar giriş yapın.', false);
     setSessionToken('');
     setSessionMeta(null);
+    setAdminControlsEnabled(false);
+    setSessionCapabilities('Yetki bilgisi: aktif oturum yok.', false);
   }
 }
 
