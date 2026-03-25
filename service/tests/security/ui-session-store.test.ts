@@ -14,8 +14,12 @@ test('ui session store issues and revokes token', () => {
   assert.equal(uiSessionStore.resolve(issued.token).session, null);
 });
 
-test('ui session store rotates token and invalidates old token', () => {
-  const issued = uiSessionStore.issue('tenant-rotate', 60, { userAgent: 'agent-a' });
+test('ui session store rotates token and preserves principal scopes', () => {
+  const issued = uiSessionStore.issue('tenant-rotate', 60, {
+    userAgent: 'agent-a',
+    principalName: 'ops-user',
+    scopes: ['tenant:read', 'tenant:operate']
+  });
 
   const rotated = uiSessionStore.rotate(issued.token, 60, {
     userAgent: 'agent-a',
@@ -30,6 +34,8 @@ test('ui session store rotates token and invalidates old token', () => {
 
   const hit = uiSessionStore.resolve(rotated.session!.token, { userAgent: 'agent-a', maxIdleSeconds: 120 });
   assert.ok(hit.session);
+  assert.equal(hit.session?.principalName, 'ops-user');
+  assert.deepEqual(hit.session?.scopes, ['tenant:read', 'tenant:operate']);
 
   uiSessionStore.revoke(rotated.session!.token);
 });
