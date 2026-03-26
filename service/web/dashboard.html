@@ -41,6 +41,7 @@
           <button id="signOut" class="secondary">Oturum Kapat</button>
           <button id="refreshAll" class="secondary">Yenile</button>
           <button id="flushMcp" class="secondary">MCP Flush</button>
+          <button id="revokeOtherSessions" class="secondary">Diğer Oturumları Kapat</button>
         </div>
         <p id="settingsStatus" class="muted"></p>
         <p id="sessionCapabilities" class="muted">Yetki bilgisi: aktif oturum yok.</p>
@@ -70,6 +71,10 @@
         <article class="card metric">
           <h3>Model Policy</h3>
           <p id="modelPolicySummary">—</p>
+        </article>
+        <article class="card metric">
+          <h3>UI Sessions</h3>
+          <p id="uiSessionsSummary">—</p>
         </article>
       </section>
 
@@ -125,6 +130,25 @@
             </tr>
           </thead>
           <tbody id="securityTableBody"></tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h2>Aktif UI Oturumları</h2>
+        <p class="muted">Admin oturumları bu tenant içindeki aktif dashboard/chat oturumlarını görebilir ve gerekirse mevcut oturumu düşürmeden diğerlerini kapatabilir.</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Session</th>
+              <th>Principal</th>
+              <th>Scopes</th>
+              <th>Son Görülme</th>
+              <th>Bitiş</th>
+              <th>Durum</th>
+              <th>Aksiyon</th>
+            </tr>
+          </thead>
+          <tbody id="uiSessionsTableBody"></tbody>
         </table>
       </section>
 

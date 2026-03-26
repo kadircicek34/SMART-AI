@@ -1,5 +1,42 @@
 # DECISIONS — OpenRouter Agentic Intelligence API
 
+## 2026-03-26 — Persistent security control plane + admin session response kararı
+### Problem
+İki üretim açığı aynı anda öne çıktı:
+1. UI session store ve security audit store process-memory olduğu için restart sonrası güvenlik state'i kayboluyordu.
+2. Tenant admin’in çalınmış/unutulmuş dashboard oturumlarını uzaktan görebileceği ve kapatabileceği bir incident-response yüzeyi yoktu.
+3. Dependency taramasında Fastify için `GHSA-444r-cwp2-x5xf` advisory’si göründü; reverse-proxy başlık spoofing riski kapatılmalıydı.
+
+### Seçenekler
+- A: Mevcut memory-only store + manuel restart/re-login yaklaşımı ile devam etmek
+- B: Sadece UI tarafında görünürlük ekleyip persistence katmanını ertelemek
+- C: Hashed session persistence + kalıcı audit evidence + admin session inventory/revoke API + dependency patch aynı koşumda teslim etmek
+
+### Karar
+**C seçildi:**
+1. **Yeni özellik:** `GET /v1/ui/sessions`, `POST /v1/ui/sessions/:sessionId/revoke`, `POST /v1/ui/sessions/revoke-all` ile tenant admin session control plane eklendi.
+2. **Ciddi güvenlik iyileştirmesi #1:** UI session store restart-resistant file-backed persistence'a taşındı; plaintext token saklanmıyor, yalnızca hash+metadata tutuluyor.
+3. **Ciddi güvenlik iyileştirmesi #2:** Security audit log restart-resistant file-backed persistence'a taşındı; bounded retention + sanitize/redaction korunuyor.
+4. **Ciddi güvenlik iyileştirmesi #3:** `fastify` güvenlik advisory’sini kapatmak için bağımlılık güvenli sürüme yükseltildi.
+5. **Ops/UX iyileştirmesi:** Dashboard'a aktif session görünürlüğü ve “Diğer Oturumları Kapat” akışı eklendi.
+
+### Gerekçe
+- Restart sonrası güvenlik evidence ve aktif session state'inin kaybolması hem operasyonel görünürlüğü hem incident-response hızını düşürüyordu.
+- Session revoke-all yüzeyi olmadan ele geçirilmiş browser oturumlarını tenant admin hızlıca düşüremiyordu.
+- Bağımlılık seviyesindeki bilinen advisory kapatılmadan production-grade teslim iddiası eksik kalırdı.
+
+### Etki
+- Tek instance prod kurulumlarında UI session ve audit evidence artık restart sonrası korunur.
+- Dashboard üzerinden güvenli self-preserving bulk revoke akışı sağlandı.
+- Dependency audit tekrar yeşile döndü (`npm audit --omit=dev` → 0 vulnerability).
+
+### Bilinçli Olarak Ertelenenler
+- UI session/audit persistence'ı Redis/Postgres gibi shared/distributed backend'e taşıma
+- Session yönetimi için tenant içi tam kullanıcı/RBAC/approval workflow
+- SIEM/webhook export pipeline
+
+---
+
 ## 2026-03-21 — Async runtime cancellation + model allowlist security hardening kararı
 ### Problem
 Async research işlerinde cancel çağrısı running task’i anında kesemiyor, idempotency kayıtları süresiz büyüyebiliyor ve model parametresi allowlist dışına taşarak maliyet/güvenlik riski üretebiliyordu.

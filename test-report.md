@@ -1,23 +1,48 @@
-# TEST REPORT — SMART-AI v1.2 (UI Session Auth Hardening)
+# TEST REPORT — SMART-AI v1.7 (Persistent Security Control Plane)
 
 ## Test Stratejisi
 - Contract tests: OpenAI-compatible + RAG + Memory + MCP + UI endpointleri
 - Security tests: key-store + policy allowlist + UI session token auth akışı
 - Unit tests: orchestrator/verifier, deep_research, financial runtime, qmd, memory, MCP circuit/store
 
+## 2026-03-26 Ek doğrulama (Persistent security control plane + admin session management)
+- `npm run typecheck` ✅
+- `npm test -- --runInBand` ✅ (**124/124**)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `npx tsx -e "...ui session admin smoke..."` ✅ (`list=200`, `listCount=2`, `revoke=200`, `revoked=1`)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+- Yeni testler / güncellemeler:
+  - `service/tests/contract/ui-sessions.test.ts`
+    - admin session ile active session inventory
+    - targeted revoke
+    - revoke-all (`exceptCurrent=true`)
+    - read-only credential için admin API deny
+  - `service/tests/security/ui-session-store.test.ts`
+    - hashed session persistence restore
+    - session inventory + bulk revoke davranışı
+  - `service/tests/security/audit-log.test.ts`
+    - sanitized audit persistence restore
+
 ## Çalıştırılan Verification Komutları
 | Komut | Sonuç | Kanıt |
 |---|---|---|
 | `npm run typecheck` | ✅ | TS hata yok |
-| `npm test` | ✅ | **59/59 test geçti** |
+| `npm test -- --runInBand` | ✅ | **124/124 test geçti** |
 | `npm audit --omit=dev` | ✅ | 0 vulnerability |
-| `bash scripts/delivery-gate.sh projects/SMART-AI` | ✅ | PASS |
+| `npx tsx -e "...ui session admin smoke..."` | ✅ | `list=200`, `revoke=200` |
+| `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` | ✅ | PASS |
 
 ## Bu Koşumdaki Yeni Testler
-- `service/tests/contract/ui.test.ts` güncellendi ✅
-  - `POST /ui/session` token üretimi
-  - session token ile `/v1/models` erişimi
-  - tenant-scope token izolasyonu (cross-tenant 403)
+- `service/tests/contract/ui-sessions.test.ts` ✅
+  - `GET /v1/ui/sessions`
+  - `POST /v1/ui/sessions/:sessionId/revoke`
+  - `POST /v1/ui/sessions/revoke-all`
+  - read-only scope için admin deny
+- `service/tests/security/ui-session-store.test.ts` güncellendi ✅
+  - hashed persistence restore
+  - session inventory + bulk revoke
+- `service/tests/security/audit-log.test.ts` güncellendi ✅
+  - sanitized persistence restore
 
 ## Regresyon Durumu
 - MCP resilience/persistence regresyonu yok

@@ -1,13 +1,46 @@
-# DELIVERY — SMART-AI v1.6 (Tenant Model Policy + Fail-Closed Enforcement)
+# DELIVERY — SMART-AI v1.7 (Persistent Security Control Plane)
 
 ## Özet
-Bu koşumda en yüksek etkili günlük iyileştirme olarak **tenant bazlı model policy yönetimi ve fail-closed model sınırı** teslim edildi.
+Bu koşumda en yüksek etkili günlük iyileştirme olarak **persistent security control plane + admin session management** teslim edildi.
 
 Teslimin odağı:
-- tenant için özel allowlist + default model yönetimi,
-- chat/research yüzeyinde tenant effective policy enforcement,
-- invalid/stale tenant policy durumunda fail-closed güvenlik davranışı,
-- dashboard/chat UX tarafında model policy görünürlüğü.
+- tenant admin için aktif UI session inventory + targeted revoke + revoke-all,
+- hashed UI session persistence ile restart-resistant session continuity,
+- persisted security audit evidence,
+- dashboard incident-response UX,
+- dependency advisory closure (`fastify`).
+
+## 2026-03-26 Teslim paketi (Persistent security control plane + admin session management)
+### Yapılanlar
+1. **Yeni özellik — tenant admin session control plane**
+   - `GET /v1/ui/sessions` → aktif dashboard/chat session inventory
+   - `POST /v1/ui/sessions/:sessionId/revoke` → hedef session kapatma
+   - `POST /v1/ui/sessions/revoke-all` → bulk revoke (`exceptCurrent=true` desteği)
+2. **Ciddi güvenlik iyileştirmesi — hashed UI session persistence**
+   - `UI_SESSION_STORE_FILE` ile file-backed restore eklendi.
+   - Plaintext token diske yazılmıyor; yalnızca hash + metadata tutuluyor.
+   - Session inventory/revoke akışları restart sonrası da çalışabilir hale geldi.
+3. **Ciddi güvenlik iyileştirmesi — persisted security audit evidence**
+   - `SECURITY_AUDIT_STORE_FILE` ile sanitize edilmiş audit eventler restart sonrası korunuyor.
+   - Bounded retention ve redaction kuralları hydrate/persist akışında korunuyor.
+4. **Ciddi güvenlik iyileştirmesi — dependency advisory closure**
+   - `fastify` güvenli sürüme yükseltildi.
+   - `npm audit --omit=dev` yeniden 0 vulnerability durumuna döndü.
+5. **UX / ops iyileştirmesi**
+   - Dashboard'a aktif session tablosu eklendi.
+   - “Diğer Oturumları Kapat” aksiyonu ile operatör mevcut oturumu düşürmeden incident-response uygulayabiliyor.
+
+### Verification
+- `npm run typecheck` ✅
+- `npm test -- --runInBand` ✅ (**124/124**)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `npx tsx -e "...ui session admin smoke..."` ✅ (`list=200`, `listCount=2`, `revoke=200`, `revoked=1`)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+
+### Kalan riskler
+- Session/audit persistence şu an local disk tabanlı; multi-instance kurulumda shared backend gerekecek.
+- Session control plane tenant-admin seviyesinde; tenant içi kullanıcı bazlı sahiplik/RBAC workflow henüz yok.
+- SIEM/webhook export pipeline hâlâ backlog’da.
 
 ## 2026-03-24 Teslim paketi (Tenant model policy + fail-closed enforcement)
 ### Yapılanlar

@@ -12,6 +12,7 @@ import { registerRagRoutes } from './routes/rag.js';
 import { registerMemoryRoutes } from './routes/memory.js';
 import { registerMcpHealthRoutes } from './routes/mcp-health.js';
 import { registerUiRoutes } from './routes/ui.js';
+import { registerUiSessionAdminRoutes } from './routes/ui-sessions.js';
 import { registerSecurityEventsRoute } from './routes/security-events.js';
 import { registerAuthContextRoute } from './routes/auth-context.js';
 
@@ -37,6 +38,7 @@ export function buildApp(): FastifyInstance {
   void registerMemoryRoutes(app);
   void registerMcpHealthRoutes(app);
   void registerSecurityEventsRoute(app);
+  void registerUiSessionAdminRoutes(app);
   void registerUiRoutes(app);
 
   return app;

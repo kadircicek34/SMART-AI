@@ -38,6 +38,7 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - **Security Risk Summary** (`/v1/security/summary`) + tenant bazlı risk skoru / alarm bayrakları
 - **Header abuse guard** (Authorization / tenant header boyut limitleri + UI oversized key koruması)
 - **UI session lifecycle hardening** (`/ui/session` introspection + `/ui/session/refresh` token rotation + idle-timeout + session cap eviction + unsafe `/v1/*` writes için Origin binding)
+- **Persistent security control plane** (hashed UI session restore + kalıcı security audit evidence + tenant admin session inventory/revoke-all)
 
 ## Klasörler
 - `contracts/` → API sözleşmeleri
@@ -69,7 +70,7 @@ Her `/v1/*` isteğinde:
 ### Scope modeli
 - `tenant:read` → tüm `GET /v1/*` endpointleri + dashboard gözlem ekranları
 - `tenant:operate` → tenant veri/işlem yazıları (`/v1/chat/completions`, `/v1/memory/*`, `/v1/rag/*`, async research job çağrıları)
-- `tenant:admin` → hassas yönetim yüzeyleri (`/v1/model-policy`, `/v1/keys/openrouter*`, `/v1/mcp/reset`, `/v1/mcp/flush`)
+- `tenant:admin` → hassas yönetim yüzeyleri (`/v1/model-policy`, `/v1/keys/openrouter*`, `/v1/mcp/reset`, `/v1/mcp/flush`, `/v1/ui/sessions*`)
 
 `tenant:admin`, otomatik olarak `tenant:operate` ve `tenant:read` yetkilerini de içerir.
 
@@ -195,6 +196,9 @@ Yeni güvenlik akışı:
 - Dashboard ve Chat UI, `/v1/auth/context` ile scope farkındalığı kazanır; admin/operate yetkisi yoksa ilgili kontroller otomatik disable edilir.
 - Dashboard, tenant model policy’yi okuyup güncelleyebilir; Chat UI varsayılan tenant modelini otomatik seçer.
 - Dashboard, `/v1/security/summary` ile 24h risk seviyesi + alarm bayraklarını da gösterir.
+- UI session ve security audit state artık restart sonrası korunur; session token plaintext halde değil yalnızca hash+metadata olarak saklanır.
+- `GET /v1/ui/sessions`, `POST /v1/ui/sessions/:sessionId/revoke` ve `POST /v1/ui/sessions/revoke-all` ile admin kullanıcı tenant içindeki aktif web oturumlarını yönetebilir.
+- Dashboard, mevcut oturumu düşürmeden “Diğer Oturumları Kapat” aksiyonu ile güvenli incident-response akışı sunar.
 
 UI session lifecycle endpoint örnekleri:
 ```bash
@@ -207,6 +211,25 @@ curl http://127.0.0.1:8080/ui/session \
 curl -X POST http://127.0.0.1:8080/ui/session/refresh \
   -H 'Authorization: Bearer <ui-session-token>' \
   -H 'x-tenant-id: tenant-a'
+
+# tenant içindeki aktif web oturumlarını listele (admin)
+curl http://127.0.0.1:8080/v1/ui/sessions \
+  -H 'Authorization: Bearer <ui-session-token-or-admin-key>' \
+  -H 'x-tenant-id: tenant-a'
+
+# tek bir session kapat
+curl -X POST http://127.0.0.1:8080/v1/ui/sessions/<session-id>/revoke \
+  -H 'Authorization: Bearer <ui-session-token-or-admin-key>' \
+  -H 'x-tenant-id: tenant-a' \
+  -H 'Origin: https://dashboard.example.com'
+
+# mevcut session açık kalırken diğerlerini kapat
+curl -X POST http://127.0.0.1:8080/v1/ui/sessions/revoke-all \
+  -H 'Authorization: Bearer <ui-session-token-or-admin-key>' \
+  -H 'x-tenant-id: tenant-a' \
+  -H 'Origin: https://dashboard.example.com' \
+  -H 'content-type: application/json' \
+  -d '{"exceptCurrent":true}'
 ```
 
 ## QMD Collection Bootstrap (opsiyonel manuel)

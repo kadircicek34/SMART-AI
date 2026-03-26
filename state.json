@@ -1,24 +1,19 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "Scoped API keys, auth context introspection ve UI session origin binding production-grade olarak teslim edildi",
+  "current_task": "Persistent security control plane, admin UI session management ve dependency security patch production-grade olarak teslim edildi",
   "next_actions": [
-    "API key registry'yi env yerine secret manager veya merkezi store'a taşı",
-    "UI session ve audit store için Redis/Postgres tabanlı shared persistence ekle",
-    "Tenant içi kullanıcı bazlı tam RBAC/approval workflow tasarla",
-    "Security event feed'i SIEM/OTEL pipeline'ına aktar"
+    "UI session ve security audit persistence katmanını Redis/Postgres gibi shared backend'e taşı",
+    "Tenant içi kullanıcı bazlı session ownership / RBAC / approval workflow tasarla",
+    "Security event/audit verisini SIEM veya webhook export pipeline'ına bağla",
+    "Dashboard ve chat UI için CSP nonce / strict-dynamic tabanlı ileri browser isolation katmanı ekle"
   ],
   "risks": [
-    "UI session store process-memory olduğu için servis restartında aktif browser oturumları düşer",
-    "Security audit/event store process-memory olduğu için multi-instance kurulumda ortak görünüm oluşmaz",
-    "API key tanımları env tabanlı olduğu için production rotation ve delegation için merkezi secret yönetimi daha uygundur"
+    "UI session ve security audit persistence şu an local disk tabanlı; multi-instance dağıtımda ortak state oluşmaz",
+    "Session control plane tenant-admin scope ile çalışıyor; tenant içi kullanıcı bazlı sahiplik/approval modeli henüz yok",
+    "Audit evidence store persisted olsa da merkezi SIEM/export entegrasyonu henüz bulunmuyor"
   ],
   "decisions": [
-    {
-      "date": "2026-03-17",
-      "decision": "UI auth modelini kısa ömürlü session token lifecycle ile sertleştir",
-      "reason": "API key'i tarayıcıda tutmadan dashboard/chat erişimini güvenli ve yönetilebilir yapmak"
-    },
     {
       "date": "2026-03-20",
       "decision": "Security summary + audit analytics katmanını tenant bazlı görünür hale getir",
@@ -33,6 +28,11 @@
       "date": "2026-03-25",
       "decision": "Scoped credential modeli + /v1/auth/context + UI session origin binding ekle",
       "reason": "Least-privilege authZ kurup hassas admin yüzeylerini read/operate credential'lardan ayırmak ve UI session replay yüzeyini daraltmak"
+    },
+    {
+      "date": "2026-03-26",
+      "decision": "Persistent security control plane + admin session management + fastify advisory patch teslim et",
+      "reason": "Restart sonrası güvenlik state continuity sağlamak, tenant admin incident-response hızını artırmak ve dependency advisory riskini kapatmak"
     }
   ],
   "artifacts": [
@@ -43,21 +43,21 @@
     "test-report.md",
     "service/.env.example",
     "service/config.ts",
+    "service/package.json",
+    "service/package-lock.json",
+    "service/persistence/json-file.ts",
     "service/api/app.ts",
-    "service/api/middleware/auth.ts",
-    "service/api/request-context.ts",
-    "service/api/routes/auth-context.ts",
     "service/api/routes/ui.ts",
-    "service/security/api-key-auth.ts",
+    "service/api/routes/ui-sessions.ts",
     "service/security/audit-log.ts",
     "service/security/authz.ts",
     "service/security/ui-session-store.ts",
-    "service/tests/contract/auth-context.test.ts",
+    "service/tests/contract/ui-sessions.test.ts",
+    "service/tests/security/audit-log.test.ts",
     "service/tests/security/ui-session-store.test.ts",
-    "service/web/assets/chat.js",
+    "service/web/assets/app.css",
     "service/web/assets/dashboard.js",
-    "service/web/chat.html",
     "service/web/dashboard.html"
   ],
-  "updated_at": "2026-03-25T07:00:00+03:00"
+  "updated_at": "2026-03-26T07:00:00+03:00"
 }

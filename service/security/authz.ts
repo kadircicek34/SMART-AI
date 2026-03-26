@@ -63,7 +63,7 @@ export function resolveRequiredScope(method: string, url: string): AuthScope {
   const normalizedMethod = String(method || 'GET').toUpperCase();
   const pathname = normalizePath(url);
 
-  if (pathname.startsWith('/v1/keys/openrouter')) {
+  if (pathname.startsWith('/v1/keys/openrouter') || pathname.startsWith('/v1/ui/sessions')) {
     return 'tenant:admin';
   }
 

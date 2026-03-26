@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { config } from '../config.js';
+import { readJsonFileSync, writeJsonFileAtomic } from '../persistence/json-file.js';
 
 export const SECURITY_AUDIT_EVENT_TYPES = [
   'ui_session_issued',
@@ -50,6 +51,17 @@ type SecurityAuditSummaryQuery = {
   topIpLimit?: number;
 };
 
+type SecurityAuditLogOptions = {
+  filePath?: string;
+  persistDebounceMs?: number;
+};
+
+type PersistedAuditSnapshot = {
+  version: 1;
+  updatedAt: string;
+  tenants: Record<string, SecurityAuditEvent[]>;
+};
+
 export type SecurityAuditSummary = {
   windowStart: string;
   windowEnd: string;
@@ -62,6 +74,9 @@ export type SecurityAuditSummary = {
   riskLevel: 'low' | 'medium' | 'high' | 'critical';
 };
 
+const SNAPSHOT_VERSION = 1;
+const DEFAULT_PERSIST_DEBOUNCE_MS = 250;
+const SECURITY_AUDIT_TYPE_SET = new Set<string>(SECURITY_AUDIT_EVENT_TYPES);
 const CONTROL_CHARS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
 const WHITESPACE = /\s+/g;
 
@@ -82,9 +97,7 @@ function sanitizeString(input: string, maxLen = 220): string {
   return `${compact.slice(0, Math.max(1, maxLen - 3))}...`;
 }
 
-function sanitizeDetails(
-  details: SecurityAuditEvent['details']
-): SecurityAuditEvent['details'] | undefined {
+function sanitizeDetails(details: SecurityAuditEvent['details']): SecurityAuditEvent['details'] | undefined {
   if (!details) return undefined;
 
   const entries = Object.entries(details).slice(0, 30);
@@ -217,10 +230,50 @@ function evaluateRisk(byType: Record<SecurityAuditEventType, number>): {
   return { score, level, flags };
 }
 
+function sanitizeLoadedEvent(value: unknown): SecurityAuditEvent | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  const tenantId = String(candidate.tenant_id ?? '').trim();
+  const type = String(candidate.type ?? '').trim();
+  const timestamp = String(candidate.timestamp ?? '').trim();
+  const parsedTimestamp = Date.parse(timestamp);
+
+  if (!tenantId || !SECURITY_AUDIT_TYPE_SET.has(type) || !Number.isFinite(parsedTimestamp)) {
+    return null;
+  }
+
+  const eventId = String(candidate.event_id ?? '').trim() || crypto.randomUUID();
+  const requestId = String(candidate.request_id ?? '').trim();
+
+  return {
+    event_id: sanitizeString(eventId, 96),
+    tenant_id: tenantId,
+    type: type as SecurityAuditEventType,
+    timestamp: new Date(parsedTimestamp).toISOString(),
+    ip: sanitizeIp(typeof candidate.ip === 'string' ? candidate.ip : undefined),
+    request_id: requestId ? sanitizeString(requestId, 96) : undefined,
+    details: sanitizeDetails(
+      candidate.details && typeof candidate.details === 'object'
+        ? (candidate.details as Record<string, string | number | boolean | null>)
+        : undefined
+    )
+  };
+}
+
 class SecurityAuditLog {
   private readonly eventsByTenant = new Map<string, SecurityAuditEvent[]>();
+  private persistTimer: NodeJS.Timeout | null = null;
+  private persistPromise: Promise<void> = Promise.resolve();
 
-  constructor(private readonly maxEventsPerTenant: number) {}
+  constructor(
+    private readonly maxEventsPerTenant: number,
+    private readonly options: SecurityAuditLogOptions = {}
+  ) {
+    this.hydrateFromDisk();
+  }
 
   record(event: Omit<SecurityAuditEvent, 'event_id' | 'timestamp'>): SecurityAuditEvent {
     const now = Date.now();
@@ -228,6 +281,7 @@ class SecurityAuditLog {
     const normalized: SecurityAuditEvent = {
       ...event,
       ip: sanitizeIp(event.ip),
+      request_id: event.request_id ? sanitizeString(event.request_id, 96) : undefined,
       details: sanitizeDetails(event.details),
       event_id: crypto.randomUUID(),
       timestamp: new Date(now).toISOString()
@@ -242,6 +296,7 @@ class SecurityAuditLog {
     }
 
     this.eventsByTenant.set(event.tenant_id, bucket);
+    this.schedulePersist();
     return normalized;
   }
 
@@ -255,7 +310,6 @@ class SecurityAuditLog {
     });
 
     const limit = Math.max(1, Math.min(query.limit ?? 50, 200));
-
     return filtered.slice(-limit).reverse();
   }
 
@@ -299,10 +353,94 @@ class SecurityAuditLog {
       riskLevel: risk.level
     };
   }
+
+  async flushPersistedState(): Promise<void> {
+    await this.persistNow();
+  }
+
+  private hydrateFromDisk(): void {
+    const snapshot = readJsonFileSync<PersistedAuditSnapshot>(this.options.filePath);
+    if (!snapshot?.tenants || typeof snapshot.tenants !== 'object') {
+      return;
+    }
+
+    for (const [tenantId, rawEvents] of Object.entries(snapshot.tenants)) {
+      const events = Array.isArray(rawEvents)
+        ? rawEvents.map((event) => sanitizeLoadedEvent(event)).filter((event): event is SecurityAuditEvent => Boolean(event))
+        : [];
+
+      if (events.length === 0) {
+        continue;
+      }
+
+      events.sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+      const bounded = events.slice(-this.maxEventsPerTenant);
+      this.eventsByTenant.set(tenantId, bounded);
+    }
+  }
+
+  private buildSnapshot(): PersistedAuditSnapshot {
+    return {
+      version: SNAPSHOT_VERSION,
+      updatedAt: new Date().toISOString(),
+      tenants: Object.fromEntries(
+        [...this.eventsByTenant.entries()].map(([tenantId, events]) => [
+          tenantId,
+          events.slice(-this.maxEventsPerTenant)
+        ])
+      )
+    };
+  }
+
+  private schedulePersist(): void {
+    if (!this.options.filePath) {
+      return;
+    }
+
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+    }
+
+    const delayMs = Math.max(25, this.options.persistDebounceMs ?? DEFAULT_PERSIST_DEBOUNCE_MS);
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = null;
+      this.persistPromise = this.persistPromise.catch(() => undefined).then(() => this.persistSnapshot());
+    }, delayMs);
+
+    this.persistTimer.unref?.();
+  }
+
+  private async persistNow(): Promise<void> {
+    if (!this.options.filePath) {
+      return;
+    }
+
+    if (this.persistTimer) {
+      clearTimeout(this.persistTimer);
+      this.persistTimer = null;
+    }
+
+    this.persistPromise = this.persistPromise.catch(() => undefined).then(() => this.persistSnapshot());
+    await this.persistPromise;
+  }
+
+  private async persistSnapshot(): Promise<void> {
+    if (!this.options.filePath) {
+      return;
+    }
+
+    await writeJsonFileAtomic(this.options.filePath, this.buildSnapshot());
+  }
 }
 
-export function createSecurityAuditLog(maxEventsPerTenant = 300): SecurityAuditLog {
-  return new SecurityAuditLog(Math.max(1, maxEventsPerTenant));
+export function createSecurityAuditLog(
+  maxEventsPerTenant = 300,
+  options: SecurityAuditLogOptions = {}
+): SecurityAuditLog {
+  return new SecurityAuditLog(Math.max(1, maxEventsPerTenant), options);
 }
 
-export const securityAuditLog = createSecurityAuditLog(config.security.auditMaxEventsPerTenant);
+export const securityAuditLog = createSecurityAuditLog(config.security.auditMaxEventsPerTenant, {
+  filePath: config.storage.securityAuditStoreFile,
+  persistDebounceMs: config.security.auditPersistDebounceMs
+});

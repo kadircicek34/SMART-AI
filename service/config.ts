@@ -175,7 +175,9 @@ export const config = {
   storage: {
     root: process.env.DATA_DIR ?? path.resolve(process.cwd(), '.data'),
     keyStoreFile: process.env.KEY_STORE_FILE ?? path.resolve(process.cwd(), '.data', 'tenant-keys.json'),
-    modelPolicyFile: process.env.MODEL_POLICY_FILE ?? path.resolve(process.cwd(), '.data', 'tenant-model-policies.json')
+    modelPolicyFile: process.env.MODEL_POLICY_FILE ?? path.resolve(process.cwd(), '.data', 'tenant-model-policies.json'),
+    uiSessionStoreFile: process.env.UI_SESSION_STORE_FILE ?? path.resolve(process.cwd(), '.data', 'ui-sessions.json'),
+    securityAuditStoreFile: process.env.SECURITY_AUDIT_STORE_FILE ?? path.resolve(process.cwd(), '.data', 'security-audit.json')
   },
   rag: {
     storeFile: process.env.RAG_STORE_FILE ?? path.resolve(process.cwd(), '.data', 'rag-store.json'),
@@ -212,6 +214,7 @@ export const config = {
   security: {
     masterKey: getMasterKey(),
     auditMaxEventsPerTenant: Number(process.env.SECURITY_AUDIT_MAX_EVENTS_PER_TENANT ?? 300),
+    auditPersistDebounceMs: Number(process.env.SECURITY_AUDIT_PERSIST_DEBOUNCE_MS ?? 250),
     authorizationHeaderMaxLength: Number(process.env.SECURITY_AUTH_HEADER_MAX_LENGTH ?? 4096),
     bearerTokenMaxLength: Number(process.env.SECURITY_BEARER_TOKEN_MAX_LENGTH ?? 2048),
     tenantHeaderMaxLength: Number(process.env.SECURITY_TENANT_HEADER_MAX_LENGTH ?? 128),
@@ -226,7 +229,8 @@ export const config = {
     maxAuthFailuresPerWindow: Number(process.env.UI_SESSION_MAX_AUTH_FAILURES ?? 5),
     authBlockSeconds: Number(process.env.UI_SESSION_AUTH_BLOCK_SECONDS ?? 120),
     maxSessionsPerTenant: Number(process.env.UI_SESSION_MAX_SESSIONS_PER_TENANT ?? 5),
-    maxSessionsGlobal: Number(process.env.UI_SESSION_MAX_SESSIONS_GLOBAL ?? 2000)
+    maxSessionsGlobal: Number(process.env.UI_SESSION_MAX_SESSIONS_GLOBAL ?? 2000),
+    persistDebounceMs: Number(process.env.UI_SESSION_PERSIST_DEBOUNCE_MS ?? 250)
   }
 };
 

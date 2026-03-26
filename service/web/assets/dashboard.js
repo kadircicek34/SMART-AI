@@ -86,7 +86,7 @@ function setSessionCapabilities(message, isError = false) {
 }
 
 function setAdminControlsEnabled(enabled) {
-  for (const id of ['flushMcp', 'savePolicy', 'resetPolicy', 'policyDefaultModel', 'policyAllowedModels']) {
+  for (const id of ['flushMcp', 'savePolicy', 'resetPolicy', 'policyDefaultModel', 'policyAllowedModels', 'revokeOtherSessions']) {
     const node = document.getElementById(id);
     if (node) {
       node.disabled = !enabled;
@@ -148,6 +148,7 @@ async function maybeRefreshSession(settings, minRemainingSeconds = 90) {
 
   setSessionToken(refreshed?.token ?? '');
   setSessionMeta({
+    sessionId: refreshed?.sessionId,
     expiresAt: refreshed?.expiresAt,
     idleExpiresAt: refreshed?.idleExpiresAt,
     lastSeenAt: refreshed?.lastSeenAt,
@@ -216,6 +217,43 @@ function renderSecurityTable(events = []) {
   }
 }
 
+function renderUiSessionsTable(sessions = []) {
+  const tbody = document.getElementById('uiSessionsTableBody');
+  tbody.innerHTML = '';
+
+  if (!sessions.length) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="7">Aktif UI session yok</td>';
+    tbody.appendChild(tr);
+    return;
+  }
+
+  for (const session of sessions) {
+    const tr = document.createElement('tr');
+    const sessionLabel = session.is_current
+      ? `${session.session_id.slice(0, 8)}… <span class="badge success">current</span>`
+      : `${session.session_id.slice(0, 8)}…`;
+    const scopes = Array.isArray(session.scopes) ? session.scopes.join(', ') : '—';
+    const status = session.user_agent_bound ? 'UA-bound' : 'Token-only';
+
+    tr.innerHTML = `
+      <td>${sessionLabel}</td>
+      <td>${escapeHtml(session.principal_name ?? 'unknown')}</td>
+      <td>${escapeHtml(scopes)}</td>
+      <td>${escapeHtml(new Date(session.last_seen_at).toLocaleString('tr-TR'))}</td>
+      <td>${escapeHtml(new Date(session.expires_at).toLocaleString('tr-TR'))}</td>
+      <td>${escapeHtml(status)}</td>
+      <td>
+        <button class="secondary compact revoke-session-btn" data-session-id="${escapeHtml(session.session_id)}" ${session.is_current ? 'disabled' : ''}>
+          Kapat
+        </button>
+      </td>
+    `;
+
+    tbody.appendChild(tr);
+  }
+}
+
 function parseAllowedModelsInput(value) {
   return [...new Set(String(value || '')
     .split(/[,\n]/)
@@ -269,7 +307,9 @@ function applyAuthContext(context) {
   );
 
   if (!adminEnabled) {
-    log('Bu oturum admin yetkisine sahip değil; model policy ve MCP flush kontrolleri salt okunur moda alındı.');
+    document.getElementById('uiSessionsSummary').textContent = 'admin gerekli';
+    renderUiSessionsTable([]);
+    log('Bu oturum admin yetkisine sahip değil; model policy, session control ve MCP flush kontrolleri salt okunur moda alındı.');
   }
 }
 
@@ -327,13 +367,56 @@ async function resetModelPolicy(settings) {
   log('Tenant model policy deployment defaultlarına döndürüldü.');
 }
 
+async function loadUiSessions(settings) {
+  await maybeRefreshSession(settings);
+
+  const response = await safeFetchJson(`${settings.baseUrl}/v1/ui/sessions?limit=20`, {
+    headers: authHeaders(settings)
+  });
+
+  const sessions = Array.isArray(response?.data) ? response.data : [];
+  document.getElementById('uiSessionsSummary').textContent = `active=${sessions.length}`;
+  renderUiSessionsTable(sessions);
+  return sessions;
+}
+
+async function revokeUiSession(settings, sessionId) {
+  await maybeRefreshSession(settings);
+
+  await safeFetchJson(`${settings.baseUrl}/v1/ui/sessions/${encodeURIComponent(sessionId)}/revoke`, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(settings),
+      origin: window.location.origin
+    }
+  });
+
+  log(`UI session kapatıldı: ${sessionId}`);
+}
+
+async function revokeOtherSessions(settings) {
+  await maybeRefreshSession(settings);
+
+  const response = await safeFetchJson(`${settings.baseUrl}/v1/ui/sessions/revoke-all`, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(settings),
+      origin: window.location.origin
+    },
+    body: JSON.stringify({ exceptCurrent: true })
+  });
+
+  log(`Diğer UI oturumları kapatıldı. revoked=${response?.revoked_count ?? 0}`);
+  return response;
+}
+
 async function loadDashboard(settings) {
   if (!settings.tenantId) {
     throw new Error('Tenant ID zorunlu.');
   }
 
   await maybeRefreshSession(settings);
-  await loadAuthContext(settings);
+  const authContext = await loadAuthContext(settings);
 
   const health = await safeFetchJson(`${settings.baseUrl}/health`);
   document.getElementById('serviceStatus').textContent = `${health.ok ? 'UP' : 'DOWN'} | ${health.service} | ${health.env}`;
@@ -364,6 +447,9 @@ async function loadDashboard(settings) {
   renderSecurityTable(events);
 
   await loadModelPolicy(settings);
+  if (authContext?.permissions?.admin) {
+    await loadUiSessions(settings);
+  }
   log('Dashboard güncellendi.');
 }
 
@@ -392,6 +478,7 @@ async function signIn(settings) {
 
   setSessionToken(data?.token ?? '');
   setSessionMeta({
+    sessionId: data?.sessionId,
     expiresAt: data?.expiresAt,
     idleExpiresAt: data?.idleExpiresAt,
     lastSeenAt: data?.lastSeenAt,
@@ -427,6 +514,8 @@ async function signOut(settings) {
     setSessionMeta(null);
     setAdminControlsEnabled(false);
     setSessionCapabilities('Yetki bilgisi: aktif oturum yok.');
+    document.getElementById('uiSessionsSummary').textContent = '—';
+    renderUiSessionsTable([]);
   }
 
   log('Dashboard oturumu kapatıldı.');
@@ -443,6 +532,8 @@ async function init() {
   fillSettingsForm(settings);
   setAdminControlsEnabled(false);
   setSessionCapabilities('Yetki bilgisi: aktif oturum yok.');
+  document.getElementById('uiSessionsSummary').textContent = '—';
+  renderUiSessionsTable([]);
 
   document.getElementById('saveSettings').addEventListener('click', () => {
     const next = readSettingsForm();
@@ -504,6 +595,24 @@ async function init() {
     }
   });
 
+  document.getElementById('revokeOtherSessions').addEventListener('click', async () => {
+    const next = readSettingsForm();
+    setSettings(next);
+
+    if (!window.confirm('Mevcut oturumu açık tutup diğer dashboard/chat oturumlarını kapatayım mı?')) {
+      return;
+    }
+
+    try {
+      await revokeOtherSessions(next);
+      await loadUiSessions(next);
+      setStatus('Diğer UI oturumları kapatıldı.');
+    } catch (error) {
+      setStatus(String(error), true);
+      log(`Hata: ${String(error)}`);
+    }
+  });
+
   document.getElementById('savePolicy').addEventListener('click', async () => {
     const next = readSettingsForm();
     setSettings(next);
@@ -524,6 +633,34 @@ async function init() {
     try {
       await resetModelPolicy(next);
       setStatus('Tenant model policy deployment defaultlarına döndü.');
+    } catch (error) {
+      setStatus(String(error), true);
+      log(`Hata: ${String(error)}`);
+    }
+  });
+
+  document.getElementById('uiSessionsTableBody').addEventListener('click', async (event) => {
+    const button = event.target.closest('.revoke-session-btn');
+    if (!button || button.disabled) {
+      return;
+    }
+
+    const sessionId = button.dataset.sessionId;
+    if (!sessionId) {
+      return;
+    }
+
+    if (!window.confirm(`Session ${sessionId.slice(0, 8)}… kapatılsın mı?`)) {
+      return;
+    }
+
+    const next = readSettingsForm();
+    setSettings(next);
+
+    try {
+      await revokeUiSession(next, sessionId);
+      await loadUiSessions(next);
+      setStatus('Seçilen UI oturumu kapatıldı.');
     } catch (error) {
       setStatus(String(error), true);
       log(`Hata: ${String(error)}`);

@@ -146,6 +146,7 @@ function assertUiOriginAllowed(request: FastifyRequest, reply: FastifyReply, ten
 }
 
 function toSessionResponse(session: {
+  sessionId?: string;
   tenantId: string;
   expiresAt: number;
   lastSeenAt: number;
@@ -154,6 +155,7 @@ function toSessionResponse(session: {
   token?: string;
 }): {
   token?: string;
+  sessionId?: string;
   tenantId: string;
   principalName?: string;
   scopes?: string[];
@@ -170,6 +172,7 @@ function toSessionResponse(session: {
 
   return {
     ...(session.token ? { token: session.token } : {}),
+    ...(session.sessionId ? { sessionId: session.sessionId } : {}),
     tenantId: session.tenantId,
     ...(session.principalName ? { principalName: session.principalName } : {}),
     ...(session.scopes ? { scopes: session.scopes } : {}),
@@ -450,7 +453,10 @@ export async function registerUiRoutes(app: FastifyInstance): Promise<void> {
     securityAuditLog.record({
       tenant_id: tenantId,
       type: 'ui_session_revoked',
-      ip: request.ip
+      ip: request.ip,
+      details: {
+        mode: 'self'
+      }
     });
 
     applySecurityHeaders(reply);

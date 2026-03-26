@@ -1,4 +1,4 @@
-# SECURITY REPORT — SMART-AI v1.3
+# SECURITY REPORT — SMART-AI v1.7
 
 ## Kapsam
 Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
@@ -21,11 +21,29 @@ Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
 | MCP persistence güvenliği | ✅ | snapshot atomik tmp→rename ile yazılıyor |
 | Dependencies | ✅ | `npm audit --omit=dev` sonucu 0 vuln |
 
+## 2026-03-26 Güvenlik sertleştirmesi — persistent session/audit state + dependency patch
+- **UI session persistence hardening**
+  - `UI_SESSION_STORE_FILE` ile hashed session metadata file-backed saklanıyor.
+  - Plaintext session token diskte tutulmuyor; yalnızca hash + metadata restore ediliyor.
+  - `GET /v1/ui/sessions`, `POST /v1/ui/sessions/:sessionId/revoke`, `POST /v1/ui/sessions/revoke-all` admin gate altında çalışıyor.
+- **Audit evidence persistence**
+  - `SECURITY_AUDIT_STORE_FILE` ile sanitize edilmiş audit eventler restart sonrası korunuyor.
+  - Bounded retention korunuyor; event detayları yeniden sanitize edilerek hydrate ediliyor.
+- **Incident-response UX**
+  - Dashboard'a aktif session görünürlüğü ve “Diğer Oturumları Kapat” aksiyonu eklendi.
+  - `exceptCurrent=true` akışı mevcut operatör session’ını düşürmeden bulk revoke yapabiliyor.
+- **Dependency advisory closure**
+  - `fastify` güvenli sürüme yükseltildi; `npm audit --omit=dev` tekrar 0 vulnerability döndü.
+
+Kalan risk:
+- Session/audit persistence tek instance local disk üzerinde; multi-instance dağıtımda shared backend gerekecek.
+- Session kontrol yüzeyi tenant içi kullanıcı/RBAC ayrımına henüz sahip değil; mevcut sınır tenant admin scope.
+
 ## Kalan İyileştirme Alanları
-1. UI session revoke endpoint + active session sayısı limiti
-2. UI için rate-limit / brute-force koruması (`/ui/session`)
-3. CSP header hardening + nonce bazlı script policy
-4. Memory/RAG encrypt-at-rest data key + KMS
+1. UI session ve audit store'u Redis/Postgres gibi shared persistence backend'ine taşı
+2. Tenant içi kullanıcı bazlı session ownership / RBAC / approval workflow ekle
+3. CSP nonce/strict-dynamic ve daha ileri browser isolation politikaları ekle
+4. Memory/RAG encrypt-at-rest data key + KMS entegrasyonu
 
 ## Sonuç
 UI güvenlik modeli güçlendirildi: API key artık kalıcı tarayıcı saklamasında tutulmuyor, `/v1/*` erişimleri tenant-scope kısa ömürlü session token ile sürdürülebiliyor.
