@@ -1,9 +1,28 @@
-# TEST REPORT — SMART-AI v1.7 (Persistent Security Control Plane)
+# TEST REPORT — SMART-AI v1.8 (Secure Remote RAG URL Ingest)
 
 ## Test Stratejisi
 - Contract tests: OpenAI-compatible + RAG + Memory + MCP + UI endpointleri
 - Security tests: key-store + policy allowlist + UI session token auth akışı
 - Unit tests: orchestrator/verifier, deep_research, financial runtime, qmd, memory, MCP circuit/store
+
+## 2026-03-27 Ek doğrulama (Secure remote RAG URL ingest + preview gate)
+- `npm run typecheck` ✅
+- `npm test` ✅ (**133/133**)
+- `npm audit --omit=dev --audit-level=high` ✅ (0 vulnerability)
+- `npx tsx - <<'EOF' ... remote preview + ingest + search smoke ... EOF` ✅ (`preview=200 ingest=200 search=200 hits=1`)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+- Yeni testler / güncellemeler:
+  - `service/tests/contract/rag.test.ts`
+    - `POST /v1/rag/url-preview` contract doğrulaması
+    - remote URL ingest → redirect/final URL/searchable content smoke
+    - private-network target block + security event evidence doğrulaması
+  - `service/tests/rag/rag-service.test.ts`
+    - preview + final URL metadata doğrulaması
+  - `service/tests/rag/remote-url.test.ts`
+    - direct private/link-local block
+    - credentialed URL block
+    - redirect revalidation
+    - content-type / oversized response guard
 
 ## 2026-03-26 Ek doğrulama (Persistent security control plane + admin session management)
 - `npm run typecheck` ✅
