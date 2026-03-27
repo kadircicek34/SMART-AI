@@ -1,28 +1,28 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "Persistent security control plane, admin UI session management ve dependency security patch production-grade olarak teslim edildi",
+  "current_task": "Secure remote RAG URL ingest + preview gate production-grade olarak teslim edildi",
   "next_actions": [
-    "UI session ve security audit persistence katmanını Redis/Postgres gibi shared backend'e taşı",
-    "Tenant içi kullanıcı bazlı session ownership / RBAC / approval workflow tasarla",
-    "Security event/audit verisini SIEM veya webhook export pipeline'ına bağla",
-    "Dashboard ve chat UI için CSP nonce / strict-dynamic tabanlı ileri browser isolation katmanı ekle"
+    "DNS rebinding riskini daha da düşürmek için lookup→connect pinning veya egress proxy katmanı ekle",
+    "Tenant bazlı domain allowlist / approval workflow tasarla",
+    "Security audit verisini SIEM veya webhook export pipeline'ına bağla",
+    "UI session ve security audit persistence katmanını shared backend'e taşı"
   ],
   "risks": [
-    "UI session ve security audit persistence şu an local disk tabanlı; multi-instance dağıtımda ortak state oluşmaz",
-    "Session control plane tenant-admin scope ile çalışıyor; tenant içi kullanıcı bazlı sahiplik/approval modeli henüz yok",
-    "Audit evidence store persisted olsa da merkezi SIEM/export entegrasyonu henüz bulunmuyor"
+    "Remote URL fetch hattında lookup ile gerçek connect arasında tam pinning yok; ileri anti-rebinding katmanı backlog'da",
+    "Tenant bazlı domain allowlist veya manual approval workflow henüz yok",
+    "Security event export/SIEM entegrasyonu henüz bulunmuyor"
   ],
   "decisions": [
     {
-      "date": "2026-03-20",
-      "decision": "Security summary + audit analytics katmanını tenant bazlı görünür hale getir",
-      "reason": "Operasyon ekiplerinin risk seviyesini event feed üstünden tek bakışta değerlendirebilmesi"
+      "date": "2026-03-27",
+      "decision": "Secure remote RAG URL preview + SSRF-safe ingest gate teslim et",
+      "reason": "Arbitrary remote fetch yüzeyini production-grade fail-closed güvenlik sınırlarına çekmek ve operatöre ingest öncesi güvenli preview vermek"
     },
     {
-      "date": "2026-03-24",
-      "decision": "Tenant model policy'yi fail-closed enforcement ile canlıya al",
-      "reason": "Deployment allowlist içinde tenant bazlı model sınırlarını üretim güvenliğiyle yönetmek"
+      "date": "2026-03-26",
+      "decision": "Persistent security control plane + admin session management + fastify advisory patch teslim et",
+      "reason": "Restart sonrası güvenlik state continuity sağlamak, tenant admin incident-response hızını artırmak ve dependency advisory riskini kapatmak"
     },
     {
       "date": "2026-03-25",
@@ -30,9 +30,14 @@
       "reason": "Least-privilege authZ kurup hassas admin yüzeylerini read/operate credential'lardan ayırmak ve UI session replay yüzeyini daraltmak"
     },
     {
-      "date": "2026-03-26",
-      "decision": "Persistent security control plane + admin session management + fastify advisory patch teslim et",
-      "reason": "Restart sonrası güvenlik state continuity sağlamak, tenant admin incident-response hızını artırmak ve dependency advisory riskini kapatmak"
+      "date": "2026-03-24",
+      "decision": "Tenant model policy'yi fail-closed enforcement ile canlıya al",
+      "reason": "Deployment allowlist içinde tenant bazlı model sınırlarını üretim güvenliğiyle yönetmek"
+    },
+    {
+      "date": "2026-03-20",
+      "decision": "Security summary + audit analytics katmanını tenant bazlı görünür hale getir",
+      "reason": "Operasyon ekiplerinin risk seviyesini event feed üstünden tek bakışta değerlendirebilmesi"
     }
   ],
   "artifacts": [
@@ -42,22 +47,16 @@
     "security-report.md",
     "test-report.md",
     "service/.env.example",
+    "service/README.md",
     "service/config.ts",
-    "service/package.json",
-    "service/package-lock.json",
-    "service/persistence/json-file.ts",
-    "service/api/app.ts",
-    "service/api/routes/ui.ts",
-    "service/api/routes/ui-sessions.ts",
+    "service/api/routes/rag.ts",
+    "service/rag/remote-url.ts",
+    "service/rag/service.ts",
+    "service/rag/types.ts",
     "service/security/audit-log.ts",
-    "service/security/authz.ts",
-    "service/security/ui-session-store.ts",
-    "service/tests/contract/ui-sessions.test.ts",
-    "service/tests/security/audit-log.test.ts",
-    "service/tests/security/ui-session-store.test.ts",
-    "service/web/assets/app.css",
-    "service/web/assets/dashboard.js",
-    "service/web/dashboard.html"
+    "service/tests/contract/rag.test.ts",
+    "service/tests/rag/rag-service.test.ts",
+    "service/tests/rag/remote-url.test.ts"
   ],
-  "updated_at": "2026-03-26T07:00:00+03:00"
+  "updated_at": "2026-03-27T07:00:00+03:00"
 }

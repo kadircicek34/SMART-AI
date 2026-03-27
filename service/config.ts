@@ -13,6 +13,11 @@ const parseOrigins = (value: string | undefined): string[] =>
     .map((origin) => origin.toLowerCase())
     .filter((origin) => origin.startsWith('http://') || origin.startsWith('https://'));
 
+const parseNumberCsv = (value: string | undefined): number[] =>
+  parseCsv(value)
+    .map((entry) => Number(entry))
+    .filter((entry) => Number.isInteger(entry) && entry > 0);
+
 type AppApiKeyDefinition = {
   name: string;
   key: string;
@@ -182,7 +187,22 @@ export const config = {
   rag: {
     storeFile: process.env.RAG_STORE_FILE ?? path.resolve(process.cwd(), '.data', 'rag-store.json'),
     defaultChunkSize: Number(process.env.RAG_DEFAULT_CHUNK_SIZE ?? 1_200),
-    defaultChunkOverlap: Number(process.env.RAG_DEFAULT_CHUNK_OVERLAP ?? 180)
+    defaultChunkOverlap: Number(process.env.RAG_DEFAULT_CHUNK_OVERLAP ?? 180),
+    remoteFetchTimeoutMs: Number(process.env.RAG_REMOTE_FETCH_TIMEOUT_MS ?? 15_000),
+    remoteFetchMaxBytes: Number(process.env.RAG_REMOTE_FETCH_MAX_BYTES ?? 1_000_000),
+    remoteFetchMaxRedirects: Number(process.env.RAG_REMOTE_FETCH_MAX_REDIRECTS ?? 3),
+    remotePreviewChars: Number(process.env.RAG_REMOTE_PREVIEW_CHARS ?? 600),
+    remoteUserAgent: process.env.RAG_REMOTE_USER_AGENT?.trim() || 'SMART-AI-RAG/1.0',
+    remoteAllowedPorts: (() => {
+      const parsed = parseNumberCsv(process.env.RAG_REMOTE_ALLOWED_PORTS);
+      return parsed.length > 0 ? parsed : [80, 443];
+    })(),
+    remoteAllowedContentTypes: (() => {
+      const parsed = parseCsv(process.env.RAG_REMOTE_ALLOWED_CONTENT_TYPES).map((entry) => entry.toLowerCase());
+      return parsed.length > 0
+        ? parsed
+        : ['text/html', 'text/plain', 'text/markdown', 'application/json', 'application/xml', 'text/xml', 'application/xhtml+xml'];
+    })()
   },
   memory: {
     storeFile: process.env.MEMORY_STORE_FILE ?? path.resolve(process.cwd(), '.data', 'memory-store.json'),

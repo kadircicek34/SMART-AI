@@ -39,3 +39,18 @@ export type RagSearchHit = {
   content: string;
   score: number;
 };
+
+export type RagRemoteUrlMetadata = {
+  normalizedUrl: string;
+  finalUrl: string;
+  redirects: string[];
+  statusCode: number;
+  contentType: string;
+  contentLengthBytes: number;
+  excerpt: string;
+  excerptTruncated: boolean;
+};
+
+export type RagRemoteUrlPreview = RagRemoteUrlMetadata & {
+  title?: string;
+};

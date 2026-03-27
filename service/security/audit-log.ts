@@ -25,7 +25,11 @@ export const SECURITY_AUDIT_EVENT_TYPES = [
   'research_job_timed_out',
   'research_job_limit_exceeded',
   'research_job_idempotency_reused',
-  'research_job_rejected'
+  'research_job_rejected',
+  'rag_remote_url_blocked',
+  'rag_remote_url_fetch_failed',
+  'rag_remote_url_previewed',
+  'rag_remote_url_ingested'
 ] as const;
 
 export type SecurityAuditEventType = (typeof SECURITY_AUDIT_EVENT_TYPES)[number];
@@ -163,6 +167,8 @@ function evaluateRisk(byType: Record<SecurityAuditEventType, number>): {
   score += byType.research_job_limit_exceeded * 2;
   score += byType.research_job_rejected * 2;
   score += byType.research_job_timed_out * 3;
+  score += byType.rag_remote_url_blocked * 3;
+  score += byType.rag_remote_url_fetch_failed * 2;
 
   const flags: string[] = [];
 
@@ -208,6 +214,14 @@ function evaluateRisk(byType: Record<SecurityAuditEventType, number>): {
 
   if (byType.research_job_timed_out >= 2) {
     flags.push('long_running_job_timeout_spike');
+  }
+
+  if (byType.rag_remote_url_blocked >= 3) {
+    flags.push('remote_fetch_policy_violations');
+  }
+
+  if (byType.rag_remote_url_fetch_failed >= 3) {
+    flags.push('remote_fetch_upstream_instability');
   }
 
   let level: SecurityAuditSummary['riskLevel'] = 'low';

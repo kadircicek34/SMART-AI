@@ -6,12 +6,15 @@ import { config } from '../../config.js';
 import {
   deleteTenantDocument,
   ingestDocumentsForTenant,
+  ingestUrlForTenant,
   listTenantDocuments,
+  previewUrlForTenant,
   searchTenantKnowledge
 } from '../../rag/service.js';
 
 let tempStoreFile = '';
 let originalStoreFile = '';
+const originalFetch = globalThis.fetch;
 
 beforeEach(async () => {
   originalStoreFile = config.rag.storeFile;
@@ -21,6 +24,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   config.rag.storeFile = originalStoreFile;
+  globalThis.fetch = originalFetch;
   await fs.rm(tempStoreFile, { force: true });
 });
 
@@ -95,4 +99,55 @@ test('lists and deletes tenant documents', async () => {
 
   const listedAfter = await listTenantDocuments({ tenantId: 'tenant-a' });
   assert.ok(!listedAfter.some((doc) => doc.documentId === 'doc-to-delete'));
+});
+
+test('previews and ingests remote URLs with final URL metadata', async () => {
+  const responses = [
+    new Response(null, {
+      status: 301,
+      headers: {
+        location: 'https://93.184.216.34/final-guide'
+      }
+    }),
+    new Response('<html><title>Guide</title><body>Remote URL ingest preview is working securely.</body></html>', {
+      status: 200,
+      headers: {
+        'content-type': 'text/html; charset=utf-8'
+      }
+    }),
+    new Response(null, {
+      status: 301,
+      headers: {
+        location: 'https://93.184.216.34/final-guide'
+      }
+    }),
+    new Response('<html><title>Guide</title><body>Remote URL ingest preview is working securely.</body></html>', {
+      status: 200,
+      headers: {
+        'content-type': 'text/html; charset=utf-8'
+      }
+    })
+  ];
+
+  globalThis.fetch = (async () => responses.shift() ?? new Response('missing response', { status: 500 })) as typeof fetch;
+
+  const preview = await previewUrlForTenant({
+    tenantId: 'tenant-a',
+    url: 'https://93.184.216.34/start-guide'
+  });
+
+  assert.equal(preview.finalUrl, 'https://93.184.216.34/final-guide');
+  assert.equal(preview.title, 'Guide');
+  assert.match(preview.excerpt, /working securely/i);
+
+  const ingest = await ingestUrlForTenant({
+    tenantId: 'tenant-a',
+    url: 'https://93.184.216.34/start-guide'
+  });
+
+  assert.equal(ingest.remoteUrl.finalUrl, 'https://93.184.216.34/final-guide');
+  assert.ok(ingest.ingestedChunks >= 1);
+
+  const docs = await listTenantDocuments({ tenantId: 'tenant-a' });
+  assert.ok(docs.some((doc) => doc.source === 'https://93.184.216.34/final-guide'));
 });

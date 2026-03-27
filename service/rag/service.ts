@@ -1,10 +1,13 @@
 import crypto from 'node:crypto';
 import { config } from '../config.js';
+import { inspectRemoteUrl } from './remote-url.js';
 import { collectTenantChunks, collectTenantDocuments, readOnlyRagStore, withRagStore } from './store.js';
 import type {
   RagChunkRecord,
   RagDocumentInput,
   RagDocumentRecord,
+  RagRemoteUrlMetadata,
+  RagRemoteUrlPreview,
   RagSearchHit,
   RagStorePayload
 } from './types.js';
@@ -31,15 +34,6 @@ function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
 
-function stripHtml(value: string): string {
-  return normalizeWhitespace(
-    value
-      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-      .replace(/<[^>]+>/g, ' ')
-  );
-}
-
 function chunkText(text: string, chunkSize: number, overlap: number): string[] {
   const cleaned = normalizeWhitespace(text);
   if (!cleaned) return [];
@@ -51,7 +45,6 @@ function chunkText(text: string, chunkSize: number, overlap: number): string[] {
     const end = Math.min(cleaned.length, start + chunkSize);
     const slice = cleaned.slice(start, end);
 
-    // Prefer word-boundary endings when possible.
     const boundary = end < cleaned.length ? Math.max(slice.lastIndexOf('. '), slice.lastIndexOf(' ')) : -1;
     const normalizedSlice = normalizeWhitespace(boundary > chunkSize * 0.55 ? slice.slice(0, boundary + 1) : slice);
 
@@ -80,6 +73,28 @@ function sanitizeSource(source: string | undefined): string {
 function sanitizeTitle(title: string | undefined, fallback = 'Untitled Document'): string {
   const normalized = (title ?? '').trim();
   return normalized ? normalized.slice(0, 200) : fallback;
+}
+
+function buildRemoteUrlMetadata(params: {
+  normalizedUrl: string;
+  finalUrl: string;
+  redirects: string[];
+  statusCode: number;
+  contentType: string;
+  contentLengthBytes: number;
+  excerpt: string;
+  excerptTruncated: boolean;
+}): RagRemoteUrlMetadata {
+  return {
+    normalizedUrl: params.normalizedUrl,
+    finalUrl: params.finalUrl,
+    redirects: params.redirects,
+    statusCode: params.statusCode,
+    contentType: params.contentType,
+    contentLengthBytes: params.contentLengthBytes,
+    excerpt: params.excerpt,
+    excerptTruncated: params.excerptTruncated
+  };
 }
 
 function computeChunkScore(params: {
@@ -186,7 +201,6 @@ export async function ingestDocumentsForTenant(params: {
     let ingestedChunks = 0;
 
     for (const doc of prepared) {
-      // Remove previous version for same tenant/documentId to keep replace semantics deterministic.
       const previous = store.documents[doc.documentId];
       if (previous && previous.tenantId === tenantId) {
         for (const chunkId of previous.chunkIds) {
@@ -241,53 +255,63 @@ export async function ingestDocumentsForTenant(params: {
   });
 }
 
+export async function previewUrlForTenant(params: {
+  tenantId: string;
+  url: string;
+}): Promise<RagRemoteUrlPreview> {
+  const tenantId = params.tenantId.trim();
+  ensureTenantIsolation(tenantId);
+
+  const inspection = await inspectRemoteUrl({
+    url: params.url
+  });
+
+  return {
+    ...buildRemoteUrlMetadata(inspection),
+    title: sanitizeTitle(inspection.title, new URL(inspection.finalUrl).hostname)
+  };
+}
+
 export async function ingestUrlForTenant(params: {
   tenantId: string;
   url: string;
   title?: string;
   chunkSize?: number;
   chunkOverlap?: number;
-}): Promise<{ documentIds: string[]; ingestedDocuments: number; ingestedChunks: number }> {
+}): Promise<{
+  documentIds: string[];
+  ingestedDocuments: number;
+  ingestedChunks: number;
+  remoteUrl: RagRemoteUrlMetadata;
+}> {
   const tenantId = params.tenantId.trim();
   ensureTenantIsolation(tenantId);
 
-  let parsedUrl: URL;
-  try {
-    parsedUrl = new URL(params.url);
-  } catch {
-    throw new Error('invalid_url');
-  }
-
-  if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
-    throw new Error('invalid_url_protocol');
-  }
-
-  const response = await fetch(parsedUrl, {
-    signal: AbortSignal.timeout(15_000)
+  const inspection = await inspectRemoteUrl({
+    url: params.url
   });
 
-  if (!response.ok) {
-    throw new Error(`url_fetch_failed_${response.status}`);
-  }
+  const finalUrl = new URL(inspection.finalUrl);
+  const title = sanitizeTitle(params.title, inspection.title ?? finalUrl.hostname);
+  const remoteUrl = buildRemoteUrlMetadata(inspection);
 
-  const contentType = response.headers.get('content-type') ?? '';
-  const raw = await response.text();
-
-  const text = /html|xml/i.test(contentType) ? stripHtml(raw) : normalizeWhitespace(raw);
-  const title = sanitizeTitle(params.title, parsedUrl.hostname);
-
-  return ingestDocumentsForTenant({
+  const ingestResult = await ingestDocumentsForTenant({
     tenantId,
     documents: [
       {
         title,
-        source: parsedUrl.toString(),
-        content: text.slice(0, MAX_DOCUMENT_CHARS)
+        source: inspection.finalUrl,
+        content: inspection.text.slice(0, MAX_DOCUMENT_CHARS)
       }
     ],
     chunkSize: params.chunkSize,
     chunkOverlap: params.chunkOverlap
   });
+
+  return {
+    ...ingestResult,
+    remoteUrl
+  };
 }
 
 export async function searchTenantKnowledge(params: {
