@@ -35,6 +35,13 @@
 - `BRAVE_API_KEY` (web_search aracı için Brave Search API)
 - `ALPHA_VANTAGE_API_KEY` (financial_deep_search için ek quote provider)
 - `RAG_STORE_FILE` (tenant bazlı bilgi tabanı dosyası)
+- `RAG_REMOTE_FETCH_TIMEOUT_MS` (remote URL ingest timeout, varsayılan: 15000)
+- `RAG_REMOTE_FETCH_MAX_BYTES` (remote URL body byte cap, varsayılan: 1000000)
+- `RAG_REMOTE_FETCH_MAX_REDIRECTS` (redirect upper bound, varsayılan: 3)
+- `RAG_REMOTE_PREVIEW_CHARS` (preview/snippet uzunluğu, varsayılan: 600)
+- `RAG_REMOTE_ALLOWED_PORTS` (CSV port allowlist, varsayılan: `80,443`)
+- `RAG_REMOTE_ALLOWED_CONTENT_TYPES` (CSV MIME allowlist; örn `text/html,text/plain,application/json`)
+- `RAG_REMOTE_USER_AGENT` (remote URL fetch User-Agent, varsayılan: `SMART-AI-RAG/1.0`)
 - `MODEL_POLICY_FILE` (tenant model policy storage, varsayılan: `.data/tenant-model-policies.json`)
 - `MEMORY_STORE_FILE` (tenant bazlı memory katmanı dosyası)
 - `MEMORY_DEFAULT_CATEGORY` (varsayılan: `note`)
@@ -82,6 +89,7 @@
 - `SECURITY_UI_API_KEY_MAX_LENGTH` (varsayılan: 512)
 
 ## New endpoints
+- `POST /v1/rag/url-preview` → remote URL validate + safe metadata/snippet preview
 - `POST /v1/rag/documents` → belge veya URL ingest
 - `POST /v1/rag/search` → tenant bilgi tabanında retrieval
 - `GET /v1/rag/documents` → tenant belge listesi
@@ -109,6 +117,13 @@
 - `GET /ui/session` → aktif UI session metadata (expiry + idle window)
 - `POST /ui/session/refresh` → UI session token rotate/refresh (eski token invalid)
 - `POST /ui/session/revoke` → UI session revoke/logout
+
+## Remote RAG URL hardening
+- URL preview ve ingest artık aynı güvenli remote-inspection katmanını kullanır.
+- SSRF/private-network korumaları: localhost, private IPv4, link-local metadata IP’leri, IPv6 local/link-local ranges, credential içeren URL’ler ve allowlist dışı portlar fail-closed reddedilir.
+- Redirect zinciri manuel izlenir; her hop yeniden validate edilir.
+- Content-Type allowlist, body byte cap ve timeout guardrail’leri uygulanır.
+- Güvenlik olayları `rag_remote_url_previewed`, `rag_remote_url_ingested`, `rag_remote_url_blocked`, `rag_remote_url_fetch_failed` tipleriyle audit log’a yazılır.
 
 ## Tool plane updates
 - `qmd_search` aracı eklendi (VPS'teki kurulu `qmd` CLI ile lokal repo doküman araması)

@@ -1,4 +1,4 @@
-# SECURITY REPORT — SMART-AI v1.7
+# SECURITY REPORT — SMART-AI v1.8
 
 ## Kapsam
 Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
@@ -20,6 +20,26 @@ Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
 | MCP call güvenliği | ✅ | sabit command template + JSON args + adaptive timeout + circuit guard |
 | MCP persistence güvenliği | ✅ | snapshot atomik tmp→rename ile yazılıyor |
 | Dependencies | ✅ | `npm audit --omit=dev` sonucu 0 vuln |
+
+## 2026-03-27 Güvenlik sertleştirmesi — secure remote RAG URL ingest
+- **SSRF / private-network koruması**
+  - Remote URL ingest ve preview akışları artık localhost, RFC1918, link-local, CGNAT, reserved IP aralıklarını fail-closed şekilde reddediyor.
+  - Credential gömülü URL’ler (`https://user:pass@...`) ve allowlist dışı portlar engelleniyor.
+- **Redirect güvenliği**
+  - Her redirect hop’u yeniden validate ediliyor.
+  - Redirect loop, missing location ve unsafe redirect target senaryoları bloklanıyor.
+- **Payload abuse guard**
+  - `RAG_REMOTE_FETCH_TIMEOUT_MS`, `RAG_REMOTE_FETCH_MAX_BYTES`, `RAG_REMOTE_FETCH_MAX_REDIRECTS`, `RAG_REMOTE_ALLOWED_PORTS`, `RAG_REMOTE_ALLOWED_CONTENT_TYPES` ile remote fetch policy explicit hale getirildi.
+  - Binary/disallowed MIME yanıtları ve oversized body’ler ingest öncesi reddediliyor.
+- **Yeni operator-facing güvenli özellik**
+  - `POST /v1/rag/url-preview` ile ingest öncesi kontrollü metadata/snippet preview alınabiliyor.
+- **Security telemetry genişletmesi**
+  - Yeni event tipleri: `rag_remote_url_blocked`, `rag_remote_url_fetch_failed`, `rag_remote_url_previewed`, `rag_remote_url_ingested`
+  - Tekrarlayan blocked fetch denemeleri risk summary scoring’ine dahil edildi.
+
+Kalan risk:
+- DNS lookup ile gerçek TCP connect arasında tam pinning yapılmıyor; daha sert anti-rebinding için custom dispatcher/egress control katmanı sonraki fazda değerlendirilmeli.
+- Domain allowlist/approval workflow henüz tenant bazlı yönetilmiyor.
 
 ## 2026-03-26 Güvenlik sertleştirmesi — persistent session/audit state + dependency patch
 - **UI session persistence hardening**

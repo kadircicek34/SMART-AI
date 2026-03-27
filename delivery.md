@@ -1,14 +1,41 @@
-# DELIVERY — SMART-AI v1.7 (Persistent Security Control Plane)
+# DELIVERY — SMART-AI v1.8 (Secure Remote RAG URL Ingest)
 
 ## Özet
-Bu koşumda en yüksek etkili günlük iyileştirme olarak **persistent security control plane + admin session management** teslim edildi.
+Bu koşumda en yüksek etkili günlük iyileştirme olarak **secure remote RAG URL ingest + preview gate** teslim edildi.
 
 Teslimin odağı:
-- tenant admin için aktif UI session inventory + targeted revoke + revoke-all,
-- hashed UI session persistence ile restart-resistant session continuity,
-- persisted security audit evidence,
-- dashboard incident-response UX,
-- dependency advisory closure (`fastify`).
+- operator-facing güvenli URL preview endpointi,
+- SSRF/private-network/redirect/content-type/byte-cap hardening,
+- blocked fetch denemeleri için security audit evidence,
+- remote ingest regression testleri,
+- runtime/env dokümantasyonu.
+
+## 2026-03-27 Teslim paketi (Secure remote RAG URL ingest + preview gate)
+### Yapılanlar
+1. **Yeni özellik — güvenli remote URL preview**
+   - `POST /v1/rag/url-preview` ile operatör ingest öncesi `final_url`, `redirects`, `content_type`, `content_length_bytes`, `excerpt` preview alabiliyor.
+2. **Ciddi güvenlik iyileştirmesi — SSRF/private-network blokları**
+   - Remote fetch hattı localhost, private RFC1918 aralıkları, link-local/meta-data IP’leri, credential gömülü URL’ler ve allowlist dışı portları reddediyor.
+3. **Ciddi güvenlik iyileştirmesi — redirect + payload guard**
+   - Redirect hop’ları tekrar validate ediliyor.
+   - Redirect loop / missing location / unsafe target durumları bloklanıyor.
+   - MIME allowlist + byte cap + timeout korumaları eklendi.
+4. **Gözlemlenebilirlik iyileştirmesi**
+   - `rag_remote_url_blocked`, `rag_remote_url_fetch_failed`, `rag_remote_url_previewed`, `rag_remote_url_ingested` eventleri security audit feed’e eklendi.
+5. **DX / dokümantasyon iyileştirmesi**
+   - `README.md`, `service/README.md`, `service/.env.example` remote fetch policy ve yeni endpoint ile güncellendi.
+
+### Verification
+- `npm run typecheck` ✅
+- `npm test` ✅ (**133/133**)
+- `npm audit --omit=dev --audit-level=high` ✅ (0 vulnerability)
+- `npx tsx - <<'EOF' ... remote preview + ingest + search smoke ... EOF` ✅ (`preview=200 ingest=200 search=200 hits=1`)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+
+### Kalan riskler
+- DNS rebinding’e karşı lookup→connect arası tam pinning henüz yok; egress-level enforcement sonraki fazda değerlendirilmeli.
+- Tenant bazlı domain allowlist / approval workflow henüz eklenmedi.
+- Security event export/SIEM bağlantısı hâlâ backlog’da.
 
 ## 2026-03-26 Teslim paketi (Persistent security control plane + admin session management)
 ### Yapılanlar
