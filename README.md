@@ -20,6 +20,8 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - Sync chat + Async research jobs (`/v1/jobs/research`) + job list/cancel lifecycle (`/v1/jobs`, `/v1/jobs/:jobId/cancel`)
 - Stream/non-stream cevap desteği
 - **RAG knowledge base** (tenant izole ingest + retrieval)
+- **Secure remote RAG URL ingest** (`/v1/rag/url-preview` + SSRF/private-network/redirect/content-type/byte-cap hardening)
+- **Secure remote RAG URL preview + ingest hardening** (`/v1/rag/url-preview`, SSRF/private-network guardrails, redirect revalidation, MIME/size/timeout limits, audit telemetry)
 - **Brave Search destekli web_search** (fallback: DuckDuckGo)
 - **Verifier kalite kapıları** (minimum citation + source diversity)
 - **Loop guard** (tekrarlayan tool-pass kırıcı)
@@ -92,6 +94,17 @@ curl -X POST http://127.0.0.1:8080/v1/keys/openrouter \
   -d '{"apiKey":"sk-or-v1-..."}'
 ```
 
+## RAG URL Preview (safe inspect before ingest)
+```bash
+curl -X POST http://127.0.0.1:8080/v1/rag/url-preview \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a' \
+  -H 'content-type: application/json' \
+  -d '{"url":"https://example.com/docs"}'
+```
+
+Yanıt; normalized/final URL, redirect zinciri, content-type, byte boyutu ve ingest öncesi güvenli snippet döner.
+
 ## RAG Belge Ingest
 ```bash
 curl -X POST http://127.0.0.1:8080/v1/rag/documents \
@@ -108,6 +121,8 @@ curl -X POST http://127.0.0.1:8080/v1/rag/documents \
   }'
 ```
 
+Remote URL ingest aynı endpoint üzerinden yapılır; artık credentials içeren URL’ler, localhost/private/link-local hedefler, allowlist dışı portlar, şüpheli redirect hop’ları ve allowlist dışı MIME tipleri fail-closed reddedilir.
+
 ## RAG Search
 ```bash
 curl -X POST http://127.0.0.1:8080/v1/rag/search \
@@ -116,6 +131,28 @@ curl -X POST http://127.0.0.1:8080/v1/rag/search \
   -H 'content-type: application/json' \
   -d '{"query":"chat completions endpoint"}'
 ```
+
+## Secure Remote RAG URL Preview
+```bash
+curl -X POST http://127.0.0.1:8080/v1/rag/url-preview \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a' \
+  -H 'content-type: application/json' \
+  -d '{"url":"https://example.com/docs"}'
+```
+
+Bu endpoint, ingest öncesi URL’nin güvenli olup olmadığını doğrular ve `final_url`, `redirects`, `content_type`, `content_length_bytes`, `excerpt` alanlarıyla operatöre kontrollü bir önizleme verir.
+
+## Remote URL ile RAG Ingest
+```bash
+curl -X POST http://127.0.0.1:8080/v1/rag/documents \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a' \
+  -H 'content-type: application/json' \
+  -d '{"url":"https://example.com/docs"}'
+```
+
+Remote URL ingest akışı; localhost/private IP/link-local hedefleri, credential gömülü URL’leri, güvenli olmayan redirect zincirlerini, allowlist dışı MIME türlerini ve boyut limiti aşan cevapları fail-closed şekilde reddeder. Bloklanan denemeler `/v1/security/events` içine audit evidence olarak yazılır.
 
 ## Memory Ingest
 ```bash

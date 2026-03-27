@@ -1,5 +1,42 @@
 # DECISIONS — OpenRouter Agentic Intelligence API
 
+## 2026-03-27 — Secure remote RAG URL ingest + preview gate kararı
+### Problem
+RAG URL ingest hattı doğrudan arbitrary remote fetch yaptığı için production riskleri oluşuyordu:
+1. SSRF ile localhost / private-network / metadata IP hedeflerine erişim denenebilirdi.
+2. Redirect zinciri, credential gömülü URL, disallowed MIME ve aşırı büyük body senaryolarında fail-closed guard yoktu.
+3. Operatörün ingest öncesi URL’yi güvenli biçimde preview etmesini sağlayan kullanıcı-facing bir yüzey yoktu.
+
+### Seçenekler
+- A: Mevcut URL ingest akışını koruyup sadece dokümantasyon uyarısı eklemek
+- B: URL ingest’i tamamen kapatmak
+- C: Güvenli remote fetch policy + preview endpoint + audit telemetry + regression test paketi ile aynı koşumda production-grade sertleştirme yapmak
+
+### Karar
+**C seçildi:**
+1. **Yeni özellik:** `POST /v1/rag/url-preview` endpointi eklendi; operatör ingest öncesi `final_url`, `redirects`, `content_type`, `content_length_bytes`, `excerpt` gibi güvenli metadata ile preview alabiliyor.
+2. **Ciddi güvenlik iyileştirmesi #1:** Remote fetch hattı localhost / RFC1918 / link-local / CGNAT / reserved IP blokları, credential gömülü URL reddi ve port allowlist ile fail-closed hale getirildi.
+3. **Ciddi güvenlik iyileştirmesi #2:** Redirect zinciri her hop’ta yeniden doğrulanıyor; redirect loop / missing location / unsafe target durumları bloklanıyor.
+4. **Ciddi güvenlik iyileştirmesi #3:** MIME allowlist + byte cap + timeout guard eklendi; binary/oversized cevaplar ingest öncesi reddediliyor.
+5. **Ops görünürlüğü:** `rag_remote_url_blocked`, `rag_remote_url_fetch_failed`, `rag_remote_url_previewed`, `rag_remote_url_ingested` audit eventleri eklendi.
+
+### Gerekçe
+- RAG surface doğrudan dış URL aldığı için SSRF ve payload-abuse riski diğer yüzeylerden daha yüksekti.
+- Preview endpointi operatörün hatalı veya riskli kaynakları ingest etmeden önce ayıklamasını sağlıyor.
+- Güvenlik, test ve docs aynı koşumda güncellenmeden bu alan production-grade sayılmazdı.
+
+### Etki
+- Remote RAG ingest artık public-safe URL policy ile çalışıyor.
+- Tenant admin / operator akışı preview → ingest şeklinde daha kontrollü hale geldi.
+- Bloklanan remote fetch denemeleri security feed’e düşerek incident-response görünürlüğü kazandı.
+
+### Bilinçli Olarak Ertelenenler
+- DNS pinning / custom dispatcher ile lookup→connect arası daha sert anti-rebinding koruması
+- Tenant bazlı domain allowlist / approval workflow
+- SIEM/webhook export ile blocked fetch eventlerinin dış sisteme aktarılması
+
+---
+
 ## 2026-03-26 — Persistent security control plane + admin session response kararı
 ### Problem
 İki üretim açığı aynı anda öne çıktı:
