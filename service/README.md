@@ -41,8 +41,12 @@
 - `RAG_REMOTE_PREVIEW_CHARS` (preview/snippet uzunluğu, varsayılan: 600)
 - `RAG_REMOTE_ALLOWED_PORTS` (CSV port allowlist, varsayılan: `80,443`)
 - `RAG_REMOTE_ALLOWED_CONTENT_TYPES` (CSV MIME allowlist; örn `text/html,text/plain,application/json`)
+- `RAG_REMOTE_POLICY_DEFAULT_MODE` (`preview_only|allowlist_only|open|disabled`, varsayılan: `preview_only`)
+- `RAG_REMOTE_POLICY_DEFAULT_ALLOWED_HOSTS` (CSV host allowlist; wildcard için `*.example.com`)
+- `RAG_REMOTE_POLICY_MAX_ALLOWED_HOSTS` (tenant başına üst sınır, varsayılan: 32)
 - `RAG_REMOTE_USER_AGENT` (remote URL fetch User-Agent, varsayılan: `SMART-AI-RAG/1.0`)
 - `MODEL_POLICY_FILE` (tenant model policy storage, varsayılan: `.data/tenant-model-policies.json`)
+- `RAG_REMOTE_POLICY_FILE` (tenant remote source policy storage, varsayılan: `.data/tenant-rag-remote-policies.json`)
 - `MEMORY_STORE_FILE` (tenant bazlı memory katmanı dosyası)
 - `MEMORY_DEFAULT_CATEGORY` (varsayılan: `note`)
 - `MEMORY_MAX_ITEMS_PER_TENANT` (varsayılan: 2500)
@@ -89,6 +93,9 @@
 - `SECURITY_UI_API_KEY_MAX_LENGTH` (varsayılan: 512)
 
 ## New endpoints
+- `GET /v1/rag/remote-policy` → tenant için effective remote source policy (deployment/tenant)
+- `PUT /v1/rag/remote-policy` → tenant bazlı remote source policy güncelleme (mode + allowed hosts)
+- `DELETE /v1/rag/remote-policy` → tenant remote source policy reset → deployment defaults
 - `POST /v1/rag/url-preview` → remote URL validate + safe metadata/snippet preview
 - `POST /v1/rag/documents` → belge veya URL ingest
 - `POST /v1/rag/search` → tenant bilgi tabanında retrieval
@@ -119,11 +126,14 @@
 - `POST /ui/session/revoke` → UI session revoke/logout
 
 ## Remote RAG URL hardening
-- URL preview ve ingest artık aynı güvenli remote-inspection katmanını kullanır.
+- URL preview ve ingest aynı güvenli remote-inspection katmanını kullanır.
+- Secure-by-default remote source policy eklendi: deployment varsayılanı `preview_only`, tenant admin isterse `allowlist_only`, `open` veya `disabled` moduna geçebilir.
+- `allowlist_only` modunda ingest yalnızca explicit `allowed_hosts` listesinde olan exact host/IP veya wildcard subdomain kuralları için açılır.
+- Host allowlist girişleri Unicode/punycode normalize edilir; private/local host/IP kuralları fail-closed reddedilir.
 - SSRF/private-network korumaları: localhost, private IPv4, link-local metadata IP’leri, IPv6 local/link-local ranges, credential içeren URL’ler ve allowlist dışı portlar fail-closed reddedilir.
 - Redirect zinciri manuel izlenir; her hop yeniden validate edilir.
 - Content-Type allowlist, body byte cap ve timeout guardrail’leri uygulanır.
-- Güvenlik olayları `rag_remote_url_previewed`, `rag_remote_url_ingested`, `rag_remote_url_blocked`, `rag_remote_url_fetch_failed` tipleriyle audit log’a yazılır.
+- Güvenlik olayları `rag_remote_url_previewed`, `rag_remote_url_ingested`, `rag_remote_url_blocked`, `rag_remote_url_fetch_failed`, `rag_remote_policy_denied`, `rag_remote_policy_updated`, `rag_remote_policy_reset` tipleriyle audit log’a yazılır.
 
 ## Tool plane updates
 - `qmd_search` aracı eklendi (VPS'teki kurulu `qmd` CLI ile lokal repo doküman araması)

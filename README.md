@@ -20,7 +20,7 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - Sync chat + Async research jobs (`/v1/jobs/research`) + job list/cancel lifecycle (`/v1/jobs`, `/v1/jobs/:jobId/cancel`)
 - Stream/non-stream cevap desteği
 - **RAG knowledge base** (tenant izole ingest + retrieval)
-- **Secure remote RAG URL ingest** (`/v1/rag/url-preview` + SSRF/private-network/redirect/content-type/byte-cap hardening)
+- **Remote source policy control plane** (`/v1/rag/remote-policy`, secure-by-default `preview_only`, per-tenant allowlist/open/disabled overrides)
 - **Secure remote RAG URL preview + ingest hardening** (`/v1/rag/url-preview`, SSRF/private-network guardrails, redirect revalidation, MIME/size/timeout limits, audit telemetry)
 - **Brave Search destekli web_search** (fallback: DuckDuckGo)
 - **Verifier kalite kapıları** (minimum citation + source diversity)
@@ -72,7 +72,7 @@ Her `/v1/*` isteğinde:
 ### Scope modeli
 - `tenant:read` → tüm `GET /v1/*` endpointleri + dashboard gözlem ekranları
 - `tenant:operate` → tenant veri/işlem yazıları (`/v1/chat/completions`, `/v1/memory/*`, `/v1/rag/*`, async research job çağrıları)
-- `tenant:admin` → hassas yönetim yüzeyleri (`/v1/model-policy`, `/v1/keys/openrouter*`, `/v1/mcp/reset`, `/v1/mcp/flush`, `/v1/ui/sessions*`)
+- `tenant:admin` → hassas yönetim yüzeyleri (`/v1/model-policy`, `/v1/rag/remote-policy`, `/v1/keys/openrouter*`, `/v1/mcp/reset`, `/v1/mcp/flush`, `/v1/ui/sessions*`)
 
 `tenant:admin`, otomatik olarak `tenant:operate` ve `tenant:read` yetkilerini de içerir.
 
@@ -103,7 +103,26 @@ curl -X POST http://127.0.0.1:8080/v1/rag/url-preview \
   -d '{"url":"https://example.com/docs"}'
 ```
 
-Yanıt; normalized/final URL, redirect zinciri, content-type, byte boyutu ve ingest öncesi güvenli snippet döner.
+Yanıt; normalized/final URL, redirect zinciri, content-type, byte boyutu, `policy.mode`, `policy.allowed_for_ingest`, `policy.matched_host_rule` ve ingest öncesi güvenli snippet döner.
+
+## Remote Source Policy
+```bash
+curl http://127.0.0.1:8080/v1/rag/remote-policy \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a'
+
+curl -X PUT http://127.0.0.1:8080/v1/rag/remote-policy \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a' \
+  -H 'content-type: application/json' \
+  -d '{"mode":"allowlist_only","allowedHosts":["example.com","*.cdn.example.com"]}'
+```
+
+Yeni remote source policy katmanı secure-by-default gelir:
+- `preview_only` → preview serbest, ingest kapalı
+- `allowlist_only` → ingest yalnızca explicit allowlist hostlarında açık
+- `open` → legacy davranış; tüm public-safe URL’ler ingest edilebilir
+- `disabled` → preview + ingest kapalı
 
 ## RAG Belge Ingest
 ```bash
@@ -121,7 +140,7 @@ curl -X POST http://127.0.0.1:8080/v1/rag/documents \
   }'
 ```
 
-Remote URL ingest aynı endpoint üzerinden yapılır; artık credentials içeren URL’ler, localhost/private/link-local hedefler, allowlist dışı portlar, şüpheli redirect hop’ları ve allowlist dışı MIME tipleri fail-closed reddedilir.
+Remote URL ingest aynı endpoint üzerinden yapılır; artık credentials içeren URL’ler, localhost/private/link-local hedefler, allowlist dışı portlar, şüpheli redirect hop’ları ve allowlist dışı MIME tipleri fail-closed reddedilir. Varsayılan `preview_only` modunda ingest kapalıdır; tenant admin gerekli hostları allowlist’e ekleyip `allowlist_only` veya `open` moduna geçmeden URL ingest çalışmaz.
 
 ## RAG Search
 ```bash
@@ -152,7 +171,7 @@ curl -X POST http://127.0.0.1:8080/v1/rag/documents \
   -d '{"url":"https://example.com/docs"}'
 ```
 
-Remote URL ingest akışı; localhost/private IP/link-local hedefleri, credential gömülü URL’leri, güvenli olmayan redirect zincirlerini, allowlist dışı MIME türlerini ve boyut limiti aşan cevapları fail-closed şekilde reddeder. Bloklanan denemeler `/v1/security/events` içine audit evidence olarak yazılır.
+Remote URL ingest akışı; localhost/private IP/link-local hedefleri, credential gömülü URL’leri, güvenli olmayan redirect zincirlerini, allowlist dışı MIME türlerini ve boyut limiti aşan cevapları fail-closed şekilde reddeder. `allowlist_only` modunda exact host/IP veya `*.example.com` wildcard kuralları dışında ingest açılmaz; Unicode host girişleri punycode normalize edilerek bypass denemeleri kapatılır. Bloklanan denemeler `/v1/security/events` içine audit evidence olarak yazılır.
 
 ## Memory Ingest
 ```bash
