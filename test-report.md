@@ -1,9 +1,32 @@
-# TEST REPORT — SMART-AI v1.8 (Secure Remote RAG URL Ingest)
+# TEST REPORT — SMART-AI v1.9 (Tenant Remote Source Policy)
 
 ## Test Stratejisi
 - Contract tests: OpenAI-compatible + RAG + Memory + MCP + UI endpointleri
 - Security tests: key-store + policy allowlist + UI session token auth akışı
 - Unit tests: orchestrator/verifier, deep_research, financial runtime, qmd, memory, MCP circuit/store
+
+## 2026-03-28 Ek doğrulama (Tenant remote source policy control plane)
+- `npm run typecheck` ✅
+- `npm test` ✅ (**143/143**)
+- `npm audit --omit=dev --audit-level=high` ✅ (0 vulnerability)
+- `PORT=3456 npm run start` + `curl /health` + `curl /ui/dashboard` smoke ✅
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+- Yeni testler / güncellemeler:
+  - `service/tests/contract/rag-remote-policy.test.ts`
+    - effective deployment default remote policy
+    - admin update/reset akışı
+    - read-only credential için admin deny
+  - `service/tests/contract/rag.test.ts`
+    - preview response içinde policy verdict doğrulaması
+    - preview-only modda ingest block + `rag_remote_policy_denied` audit event doğrulaması
+    - allowlist onayı sonrası remote ingest contract smoke
+  - `service/tests/security/remote-policy.test.ts`
+    - punycode normalization
+    - wildcard/exact host matching
+    - private-network host rule reject
+  - `service/tests/rag/rag-service.test.ts`
+    - preview-only modda policy verdict
+    - allowlist approval sonrası preview + ingest success
 
 ## 2026-03-27 Ek doğrulama (Secure remote RAG URL ingest + preview gate)
 - `npm run typecheck` ✅

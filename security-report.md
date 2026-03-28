@@ -1,4 +1,4 @@
-# SECURITY REPORT — SMART-AI v1.8
+# SECURITY REPORT — SMART-AI v1.9
 
 ## Kapsam
 Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
@@ -20,6 +20,26 @@ Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
 | MCP call güvenliği | ✅ | sabit command template + JSON args + adaptive timeout + circuit guard |
 | MCP persistence güvenliği | ✅ | snapshot atomik tmp→rename ile yazılıyor |
 | Dependencies | ✅ | `npm audit --omit=dev` sonucu 0 vuln |
+
+## 2026-03-28 Güvenlik sertleştirmesi — tenant remote source policy governance
+- **Secure-by-default remote ingest governance**
+  - Deployment varsayılanı `preview_only` yapıldı; explicit tenant policy olmadan remote URL ingest kapalı.
+  - `GET/PUT/DELETE /v1/rag/remote-policy` admin gate arkasında çalışıyor.
+- **Allowlist sertleştirmesi**
+  - Exact public host/IP ve `*.example.com` wildcard kuralları destekleniyor.
+  - Unicode host girişleri punycode normalize ediliyor; private/local host ve private IP allowlist girdileri fail-closed reddediliyor.
+  - Preview ile ingest yetkisi ayrı gözlemlenebiliyor (`allowed_for_preview`, `allowed_for_ingest`, `matched_host_rule`).
+- **Telemetry + risk scoring**
+  - Yeni event tipleri: `rag_remote_policy_denied`, `rag_remote_policy_updated`, `rag_remote_policy_reset`.
+  - Tekrarlayan deny sinyalleri `remote_fetch_policy_violations` risk bayrağına dahil edildi.
+- **Ops surface hardening**
+  - Dashboard’a remote source policy paneli eklendi; read-only credential’lar salt-okunur kalıyor.
+  - RAG belge metriği doğru veri kaynağıyla düzeltildi.
+
+Kalan risk:
+- `allowlist_only` modunda preview hâlâ public-safe fetch yapabiliyor; daha sert egress governance için preview’ı da allowlist’e bağlayan opsiyonel mod sonraki fazda düşünülebilir.
+- Lookup→connect arası DNS pinning hâlâ yok; anti-rebinding derinleştirmesi backlog’da.
+- Policy event export/SIEM pipeline henüz yok.
 
 ## 2026-03-27 Güvenlik sertleştirmesi — secure remote RAG URL ingest
 - **SSRF / private-network koruması**

@@ -1,19 +1,24 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "Secure remote RAG URL ingest + preview gate production-grade olarak teslim edildi",
+  "current_task": "Tenant remote source policy control plane production-grade olarak teslim edildi",
   "next_actions": [
     "DNS rebinding riskini daha da düşürmek için lookup→connect pinning veya egress proxy katmanı ekle",
-    "Tenant bazlı domain allowlist / approval workflow tasarla",
+    "Remote source policy için staged approval / two-person review workflow tasarla",
     "Security audit verisini SIEM veya webhook export pipeline'ına bağla",
-    "UI session ve security audit persistence katmanını shared backend'e taşı"
+    "UI session, security audit ve remote policy persistence katmanını shared backend'e taşı"
   ],
   "risks": [
+    "allowlist_only modunda preview halen public-safe fetch yapabiliyor; daha sert preview governance bir sonraki fazda değerlendirilmeli",
     "Remote URL fetch hattında lookup ile gerçek connect arasında tam pinning yok; ileri anti-rebinding katmanı backlog'da",
-    "Tenant bazlı domain allowlist veya manual approval workflow henüz yok",
     "Security event export/SIEM entegrasyonu henüz bulunmuyor"
   ],
   "decisions": [
+    {
+      "date": "2026-03-28",
+      "decision": "Tenant remote source policy control plane'i secure-by-default olarak canlıya al",
+      "reason": "Arbitrary remote URL ingest yüzeyini tenant bazlı policy yönetişimiyle kapatmak ve dashboard üzerinden yönetilebilir hale getirmek"
+    },
     {
       "date": "2026-03-27",
       "decision": "Secure remote RAG URL preview + SSRF-safe ingest gate teslim et",
@@ -33,11 +38,6 @@
       "date": "2026-03-24",
       "decision": "Tenant model policy'yi fail-closed enforcement ile canlıya al",
       "reason": "Deployment allowlist içinde tenant bazlı model sınırlarını üretim güvenliğiyle yönetmek"
-    },
-    {
-      "date": "2026-03-20",
-      "decision": "Security summary + audit analytics katmanını tenant bazlı görünür hale getir",
-      "reason": "Operasyon ekiplerinin risk seviyesini event feed üstünden tek bakışta değerlendirebilmesi"
     }
   ],
   "artifacts": [
@@ -50,13 +50,18 @@
     "service/README.md",
     "service/config.ts",
     "service/api/routes/rag.ts",
+    "service/rag/remote-policy.ts",
     "service/rag/remote-url.ts",
     "service/rag/service.ts",
     "service/rag/types.ts",
     "service/security/audit-log.ts",
+    "service/security/authz.ts",
+    "service/web/dashboard.html",
+    "service/web/assets/dashboard.js",
+    "service/tests/contract/rag-remote-policy.test.ts",
     "service/tests/contract/rag.test.ts",
     "service/tests/rag/rag-service.test.ts",
-    "service/tests/rag/remote-url.test.ts"
+    "service/tests/security/remote-policy.test.ts"
   ],
-  "updated_at": "2026-03-27T07:00:00+03:00"
+  "updated_at": "2026-03-28T07:00:00+03:00"
 }

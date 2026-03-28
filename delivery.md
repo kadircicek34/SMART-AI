@@ -1,14 +1,43 @@
-# DELIVERY — SMART-AI v1.8 (Secure Remote RAG URL Ingest)
+# DELIVERY — SMART-AI v1.9 (Tenant Remote Source Policy)
 
 ## Özet
-Bu koşumda en yüksek etkili günlük iyileştirme olarak **secure remote RAG URL ingest + preview gate** teslim edildi.
+Bu koşumda en yüksek etkili günlük iyileştirme olarak **tenant remote source policy control plane** teslim edildi.
 
 Teslimin odağı:
-- operator-facing güvenli URL preview endpointi,
-- SSRF/private-network/redirect/content-type/byte-cap hardening,
-- blocked fetch denemeleri için security audit evidence,
-- remote ingest regression testleri,
-- runtime/env dokümantasyonu.
+- secure-by-default remote ingest governance,
+- tenant bazlı remote source policy API + dashboard yönetimi,
+- punycode/wildcard-safe host allowlist enforcement,
+- policy deny/update/reset audit telemetry,
+- regression + smoke + delivery gate doğrulaması.
+
+## 2026-03-28 Teslim paketi (Tenant remote source policy control plane)
+### Yapılanlar
+1. **Yeni özellik — tenant remote source policy API + dashboard**
+   - `GET/PUT/DELETE /v1/rag/remote-policy` eklendi.
+   - Dashboard’a remote source policy paneli ve özet metriği eklendi.
+2. **Ciddi güvenlik iyileştirmesi — secure-by-default ingest governance**
+   - Deployment varsayılanı `preview_only` oldu; explicit tenant policy olmadan remote URL ingest kapalı.
+   - `allowlist_only`, `open`, `disabled` modları ile operasyonel esneklik korundu.
+3. **Ciddi güvenlik iyileştirmesi — host allowlist sertleştirmesi**
+   - Exact public host/IP ve `*.example.com` wildcard kuralları destekleniyor.
+   - Unicode host girdileri punycode normalize ediliyor; private/local host girdileri reddediliyor.
+4. **Ciddi güvenlik iyileştirmesi — telemetry + risk analytics**
+   - `rag_remote_policy_denied`, `rag_remote_policy_updated`, `rag_remote_policy_reset` eventleri security feed’e ve risk scoring’e eklendi.
+5. **DX / UX iyileştirmesi**
+   - `README.md`, `service/README.md`, `service/.env.example` güncellendi.
+   - Dashboard’daki RAG belge metriği veri eşlemesi düzeltildi.
+
+### Verification
+- `npm run typecheck` ✅
+- `npm test` ✅ (**143/143**)
+- `npm audit --omit=dev --audit-level=high` ✅ (0 vulnerability)
+- `PORT=3456 npm run start` + `curl /health` + `curl /ui/dashboard` ✅ smoke başarılı
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+
+### Kalan riskler
+- `allowlist_only` modunda preview hâlâ public-safe fetch yapabiliyor; daha sert preview governance opsiyonel fazda değerlendirilmeli.
+- DNS rebinding’e karşı lookup→connect arası tam pinning henüz yok.
+- SIEM/webhook export hattı hâlâ backlog’da.
 
 ## 2026-03-27 Teslim paketi (Secure remote RAG URL ingest + preview gate)
 ### Yapılanlar
