@@ -1,5 +1,42 @@
 # DECISIONS — OpenRouter Agentic Intelligence API
 
+## 2026-03-28 — Tenant remote source policy control plane kararı
+### Problem
+Secure remote RAG preview/ingest hattı SSRF açısından fail-closed hale getirilmişti; ancak üretimde iki kritik açık kalmıştı:
+1. Tenant bazlı remote kaynak onayı yoktu, yani arbitrary public URL’ler doğrudan ingest edilebiliyordu.
+2. Unicode host / wildcard eşleşme kenar durumlarında allowlist bypass riski kalıyordu.
+3. Operatörün dashboard üzerinden remote source policy’yi görüp yönetebileceği bir kontrol yüzeyi yoktu.
+
+### Seçenekler
+- A: Mevcut remote preview/ingest hattını koruyup operatör yönergesi ile devam etmek
+- B: Remote URL ingest’i tekrar tamamen kapatmak
+- C: Secure-by-default tenant remote source policy API + dashboard + audit telemetry + regression test paketiyle production-grade governance eklemek
+
+### Karar
+**C seçildi:**
+1. **Yeni özellik:** `GET/PUT/DELETE /v1/rag/remote-policy` endpointleri ve dashboard paneli ile tenant bazlı remote source policy control plane eklendi.
+2. **Ciddi güvenlik iyileştirmesi #1:** Deployment varsayılanı `preview_only` yapıldı; remote URL preview açık kalırken ingest artık explicit policy olmadan kapalı.
+3. **Ciddi güvenlik iyileştirmesi #2:** `allowlist_only` modunda ingest yalnızca exact public host/IP veya `*.example.com` wildcard kurallarıyla açılıyor; Unicode host girişleri punycode normalize edilerek suffix/homograph bypass riski daraltıldı.
+4. **Ciddi güvenlik iyileştirmesi #3:** Yeni audit eventleri (`rag_remote_policy_denied`, `rag_remote_policy_updated`, `rag_remote_policy_reset`) security feed ve risk scoring içine alındı.
+5. **UX / DX iyileştirmesi:** Dashboard’da remote policy görünürlüğü ve düzenleme akışı eklendi; RAG belge metriği bug’ı da düzeltildi.
+
+### Gerekçe
+- Remote fetch güvenliği sadece SSRF bloklarıyla tamamlanmıyor; hangi dış kaynakların ingest edilebildiğinin policy seviyesinde yönetilmesi gerekiyor.
+- Secure-by-default `preview_only` modu, operasyon ekibine gözlem yeteneği verirken doğrudan bilgi tabanı kirlenmesini ve kontrolsüz egress’i azaltıyor.
+- Dashboard yönetimi olmadan bu yüzey yalnızca API seviyesinde kalacak ve operasyonel benimsenmesi zayıf olacaktı.
+
+### Etki
+- Remote URL ingest artık tenant onayı olmadan çalışmıyor.
+- Allowlist kuralları daha deterministik ve denetlenebilir hale geldi.
+- Security summary tekrarlayan remote policy deny sinyallerini risk göstergesi olarak sayabiliyor.
+
+### Bilinçli Olarak Ertelenenler
+- DNS lookup→connect pinning ile daha sert anti-rebinding koruması
+- Multi-tenant approval workflow / insan-onaylı staged source approvals
+- Security event webhook/SIEM export pipeline
+
+---
+
 ## 2026-03-27 — Secure remote RAG URL ingest + preview gate kararı
 ### Problem
 RAG URL ingest hattı doğrudan arbitrary remote fetch yaptığı için production riskleri oluşuyordu:
