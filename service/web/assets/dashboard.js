@@ -86,7 +86,18 @@ function setSessionCapabilities(message, isError = false) {
 }
 
 function setAdminControlsEnabled(enabled) {
-  for (const id of ['flushMcp', 'savePolicy', 'resetPolicy', 'policyDefaultModel', 'policyAllowedModels', 'revokeOtherSessions']) {
+  for (const id of [
+    'flushMcp',
+    'savePolicy',
+    'resetPolicy',
+    'policyDefaultModel',
+    'policyAllowedModels',
+    'saveRemotePolicy',
+    'resetRemotePolicy',
+    'remotePolicyMode',
+    'remotePolicyAllowedHosts',
+    'revokeOtherSessions'
+  ]) {
     const node = document.getElementById(id);
     if (node) {
       node.disabled = !enabled;
@@ -294,6 +305,25 @@ function renderModelPolicy(policy) {
   }
 }
 
+function renderRemotePolicy(policy) {
+  const summary = document.getElementById('remotePolicySummary');
+  const mode = document.getElementById('remotePolicyMode');
+  const status = document.getElementById('remotePolicyStatus');
+  const textarea = document.getElementById('remotePolicyAllowedHosts');
+
+  const source = policy?.source ?? 'deployment';
+  const policyStatus = policy?.policy_status ?? 'inherited';
+  const selectedMode = policy?.mode ?? 'preview_only';
+  const allowedHosts = Array.isArray(policy?.allowed_hosts) ? policy.allowed_hosts : [];
+
+  summary.textContent = `source=${source}, status=${policyStatus}, mode=${selectedMode}, hosts=${allowedHosts.length}`;
+  if (status) {
+    status.value = `${source} / ${policyStatus}`;
+  }
+  mode.value = selectedMode;
+  textarea.value = allowedHosts.join('\n');
+}
+
 function applyAuthContext(context) {
   const permissions = context?.permissions ?? {};
   const scopes = Array.isArray(context?.scopes) ? context.scopes.join(', ') : '—';
@@ -309,7 +339,7 @@ function applyAuthContext(context) {
   if (!adminEnabled) {
     document.getElementById('uiSessionsSummary').textContent = 'admin gerekli';
     renderUiSessionsTable([]);
-    log('Bu oturum admin yetkisine sahip değil; model policy, session control ve MCP flush kontrolleri salt okunur moda alındı.');
+    log('Bu oturum admin yetkisine sahip değil; model policy, remote policy, session control ve MCP flush kontrolleri salt okunur moda alındı.');
   }
 }
 
@@ -365,6 +395,45 @@ async function resetModelPolicy(settings) {
 
   renderModelPolicy(policy);
   log('Tenant model policy deployment defaultlarına döndürüldü.');
+}
+
+async function loadRemotePolicy(settings) {
+  await maybeRefreshSession(settings);
+
+  const policy = await safeFetchJson(`${settings.baseUrl}/v1/rag/remote-policy`, {
+    headers: authHeaders(settings)
+  });
+
+  renderRemotePolicy(policy);
+  return policy;
+}
+
+async function saveRemotePolicy(settings) {
+  await maybeRefreshSession(settings);
+
+  const mode = document.getElementById('remotePolicyMode').value;
+  const allowedHosts = parseAllowedModelsInput(document.getElementById('remotePolicyAllowedHosts').value);
+
+  const policy = await safeFetchJson(`${settings.baseUrl}/v1/rag/remote-policy`, {
+    method: 'PUT',
+    headers: authHeaders(settings),
+    body: JSON.stringify({ mode, allowedHosts })
+  });
+
+  renderRemotePolicy(policy);
+  log(`Remote source policy güncellendi. mode=${policy.mode}, hosts=${policy.allowed_hosts?.length ?? 0}`);
+}
+
+async function resetRemotePolicy(settings) {
+  await maybeRefreshSession(settings);
+
+  const policy = await safeFetchJson(`${settings.baseUrl}/v1/rag/remote-policy`, {
+    method: 'DELETE',
+    headers: authHeaders(settings)
+  });
+
+  renderRemotePolicy(policy);
+  log('Remote source policy deployment defaultlarına döndürüldü.');
 }
 
 async function loadUiSessions(settings) {
@@ -435,7 +504,7 @@ async function loadDashboard(settings) {
   const ragDocs = await safeFetchJson(`${settings.baseUrl}/v1/rag/documents`, {
     headers: authHeaders(settings)
   });
-  const docs = Array.isArray(ragDocs.documents) ? ragDocs.documents.length : 0;
+  const docs = Array.isArray(ragDocs.data) ? ragDocs.data.length : 0;
   document.getElementById('ragStats').textContent = `documents=${docs}`;
 
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
@@ -447,6 +516,7 @@ async function loadDashboard(settings) {
   renderSecurityTable(events);
 
   await loadModelPolicy(settings);
+  await loadRemotePolicy(settings);
   if (authContext?.permissions?.admin) {
     await loadUiSessions(settings);
   }
@@ -515,6 +585,7 @@ async function signOut(settings) {
     setAdminControlsEnabled(false);
     setSessionCapabilities('Yetki bilgisi: aktif oturum yok.');
     document.getElementById('uiSessionsSummary').textContent = '—';
+    document.getElementById('remotePolicySummary').textContent = '—';
     renderUiSessionsTable([]);
   }
 
@@ -533,6 +604,7 @@ async function init() {
   setAdminControlsEnabled(false);
   setSessionCapabilities('Yetki bilgisi: aktif oturum yok.');
   document.getElementById('uiSessionsSummary').textContent = '—';
+  document.getElementById('remotePolicySummary').textContent = '—';
   renderUiSessionsTable([]);
 
   document.getElementById('saveSettings').addEventListener('click', () => {
@@ -633,6 +705,32 @@ async function init() {
     try {
       await resetModelPolicy(next);
       setStatus('Tenant model policy deployment defaultlarına döndü.');
+    } catch (error) {
+      setStatus(String(error), true);
+      log(`Hata: ${String(error)}`);
+    }
+  });
+
+  document.getElementById('saveRemotePolicy').addEventListener('click', async () => {
+    const next = readSettingsForm();
+    setSettings(next);
+
+    try {
+      await saveRemotePolicy(next);
+      setStatus('Remote source policy kaydedildi.');
+    } catch (error) {
+      setStatus(String(error), true);
+      log(`Hata: ${String(error)}`);
+    }
+  });
+
+  document.getElementById('resetRemotePolicy').addEventListener('click', async () => {
+    const next = readSettingsForm();
+    setSettings(next);
+
+    try {
+      await resetRemotePolicy(next);
+      setStatus('Remote source policy deployment defaultlarına döndü.');
     } catch (error) {
       setStatus(String(error), true);
       log(`Hata: ${String(error)}`);

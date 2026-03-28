@@ -73,6 +73,10 @@
           <p id="modelPolicySummary">—</p>
         </article>
         <article class="card metric">
+          <h3>Remote Source Policy</h3>
+          <p id="remotePolicySummary">—</p>
+        </article>
+        <article class="card metric">
           <h3>UI Sessions</h3>
           <p id="uiSessionsSummary">—</p>
         </article>
@@ -99,6 +103,34 @@
           <button id="resetPolicy" class="secondary">Deployment Default'a Dön</button>
         </div>
         <p class="muted">Tenant modeli, deployment allowlist içindeki güvenli alt kümeyle sınırlandırılır.</p>
+      </section>
+
+      <section class="card">
+        <h2>Remote Source Policy</h2>
+        <div class="grid-2">
+          <label>
+            Mod
+            <select id="remotePolicyMode">
+              <option value="preview_only">preview_only</option>
+              <option value="allowlist_only">allowlist_only</option>
+              <option value="open">open</option>
+              <option value="disabled">disabled</option>
+            </select>
+          </label>
+          <label>
+            Özet
+            <input id="remotePolicyStatus" type="text" value="source / status metric kartında gösterilir" readonly />
+          </label>
+        </div>
+        <label>
+          Allowed Hosts (satır başına bir host, wildcard için *.example.com)
+          <textarea id="remotePolicyAllowedHosts" rows="6" placeholder="docs.example.com&#10;*.cdn.example.com&#10;93.184.216.34"></textarea>
+        </label>
+        <div class="actions">
+          <button id="saveRemotePolicy">Remote Policy Kaydet</button>
+          <button id="resetRemotePolicy" class="secondary">Deployment Default'a Dön</button>
+        </div>
+        <p class="muted">Varsayılan secure mode <code>preview_only</code>: preview serbest, ingest kapalı. <code>allowlist_only</code> modunda yalnızca allowlist hostları ingest edilebilir.</p>
       </section>
 
       <section class="card">
