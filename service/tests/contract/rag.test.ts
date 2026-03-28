@@ -6,6 +6,7 @@ import type { FastifyInstance } from 'fastify';
 
 let app: FastifyInstance;
 let ragStoreFile = '';
+let remotePolicyFile = '';
 const originalFetch = globalThis.fetch;
 
 before(async () => {
@@ -14,9 +15,20 @@ before(async () => {
   process.env.MASTER_KEY_BASE64 = Buffer.alloc(32, 7).toString('base64');
 
   ragStoreFile = path.join('/tmp', `smart-ai-rag-route-${Date.now()}-${Math.random().toString(16).slice(2)}.json`);
+  remotePolicyFile = path.join(
+    '/tmp',
+    `smart-ai-rag-remote-policy-route-${Date.now()}-${Math.random().toString(16).slice(2)}.json`
+  );
+
+  process.env.RAG_REMOTE_POLICY_FILE = remotePolicyFile;
+  process.env.RAG_REMOTE_POLICY_DEFAULT_MODE = 'preview_only';
+  process.env.RAG_REMOTE_POLICY_DEFAULT_ALLOWED_HOSTS = '';
 
   const configMod = await import('../../config.js');
   configMod.config.rag.storeFile = ragStoreFile;
+  configMod.config.storage.ragRemotePolicyFile = remotePolicyFile;
+  configMod.config.rag.remotePolicyDefaultMode = 'preview_only';
+  configMod.config.rag.remotePolicyDefaultAllowedHosts = [];
   configMod.config.rag.remoteFetchMaxBytes = 32_768;
   configMod.config.rag.remoteFetchMaxRedirects = 3;
   configMod.config.rag.remoteAllowedPorts = [80, 443];
@@ -34,6 +46,7 @@ after(async () => {
   globalThis.fetch = originalFetch;
   await app.close();
   await fs.rm(ragStoreFile, { force: true });
+  await fs.rm(remotePolicyFile, { force: true });
 });
 
 test('RAG ingest + search endpoints work for tenant', async () => {
@@ -100,7 +113,7 @@ test('RAG search is tenant isolated', async () => {
   assert.equal(body.data.length, 0);
 });
 
-test('RAG URL preview returns safe metadata before ingest', async () => {
+test('RAG URL preview returns safe metadata and policy verdict before ingest', async () => {
   globalThis.fetch = (async () =>
     new Response('<html><title>Preview Title</title><body>SMART-AI remote ingest docs</body></html>', {
       status: 200,
@@ -131,9 +144,62 @@ test('RAG URL preview returns safe metadata before ingest', async () => {
   assert.ok(body.content_length_bytes > 0);
   assert.match(body.excerpt, /SMART-AI remote ingest docs/i);
   assert.equal(body.excerpt_truncated, false);
+  assert.equal(body.policy.mode, 'preview_only');
+  assert.equal(body.policy.allowed_for_preview, true);
+  assert.equal(body.policy.allowed_for_ingest, false);
+  assert.equal(body.policy.reason, 'preview_only_mode');
 });
 
-test('RAG URL ingest returns remote metadata and searchable content', async () => {
+test('RAG URL ingest is blocked until the tenant allowlist approves the host', async () => {
+  const denied = await app.inject({
+    method: 'POST',
+    url: '/v1/rag/documents',
+    headers: {
+      authorization: 'Bearer test-api-key',
+      'x-tenant-id': 'tenant-preview',
+      'content-type': 'application/json'
+    },
+    payload: {
+      url: 'https://93.184.216.34/start-doc'
+    }
+  });
+
+  assert.equal(denied.statusCode, 403);
+  const deniedBody = denied.json();
+  assert.equal(deniedBody.error.type, 'permission_error');
+  assert.match(deniedBody.error.message, /remote_url_ingest_not_allowed_by_policy/);
+
+  const events = await app.inject({
+    method: 'GET',
+    url: '/v1/security/events?type=rag_remote_policy_denied&limit=5',
+    headers: {
+      authorization: 'Bearer test-api-key',
+      'x-tenant-id': 'tenant-preview'
+    }
+  });
+
+  assert.equal(events.statusCode, 200);
+  const eventsBody = events.json();
+  assert.ok(eventsBody.data.some((event: any) => event.type === 'rag_remote_policy_denied'));
+});
+
+test('RAG URL ingest returns remote metadata and searchable content after allowlist approval', async () => {
+  const policyRes = await app.inject({
+    method: 'PUT',
+    url: '/v1/rag/remote-policy',
+    headers: {
+      authorization: 'Bearer test-api-key',
+      'x-tenant-id': 'tenant-remote',
+      'content-type': 'application/json'
+    },
+    payload: {
+      mode: 'allowlist_only',
+      allowedHosts: ['93.184.216.34']
+    }
+  });
+
+  assert.equal(policyRes.statusCode, 200);
+
   const responses = [
     new Response(null, {
       status: 302,
@@ -170,6 +236,8 @@ test('RAG URL ingest returns remote metadata and searchable content', async () =
   assert.equal(ingestBody.mode, 'url');
   assert.equal(ingestBody.remote_url.final_url, 'https://93.184.216.34/final-doc');
   assert.equal(ingestBody.remote_url.content_type, 'text/html');
+  assert.equal(ingestBody.remote_url.policy.allowed_for_ingest, true);
+  assert.equal(ingestBody.remote_url.policy.matched_host_rule, '93.184.216.34');
   assert.ok(ingestBody.ingestedChunks >= 1);
 
   const search = await app.inject({
@@ -191,6 +259,22 @@ test('RAG URL ingest returns remote metadata and searchable content', async () =
 });
 
 test('RAG URL ingest blocks private-network targets and emits security audit evidence', async () => {
+  const policyRes = await app.inject({
+    method: 'PUT',
+    url: '/v1/rag/remote-policy',
+    headers: {
+      authorization: 'Bearer test-api-key',
+      'x-tenant-id': 'tenant-preview',
+      'content-type': 'application/json'
+    },
+    payload: {
+      mode: 'open',
+      allowedHosts: []
+    }
+  });
+
+  assert.equal(policyRes.statusCode, 200);
+
   const blocked = await app.inject({
     method: 'POST',
     url: '/v1/rag/documents',
