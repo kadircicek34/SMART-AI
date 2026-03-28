@@ -68,6 +68,7 @@ export function resolveRequiredScope(method: string, url: string): AuthScope {
   }
 
   if ((pathname === '/v1/model-policy' && normalizedMethod !== 'GET' && normalizedMethod !== 'HEAD') ||
+      (pathname === '/v1/rag/remote-policy' && normalizedMethod !== 'GET' && normalizedMethod !== 'HEAD') ||
       pathname === '/v1/mcp/reset' ||
       pathname === '/v1/mcp/flush') {
     return 'tenant:admin';

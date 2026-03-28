@@ -29,7 +29,10 @@ export const SECURITY_AUDIT_EVENT_TYPES = [
   'rag_remote_url_blocked',
   'rag_remote_url_fetch_failed',
   'rag_remote_url_previewed',
-  'rag_remote_url_ingested'
+  'rag_remote_url_ingested',
+  'rag_remote_policy_denied',
+  'rag_remote_policy_updated',
+  'rag_remote_policy_reset'
 ] as const;
 
 export type SecurityAuditEventType = (typeof SECURITY_AUDIT_EVENT_TYPES)[number];
@@ -169,6 +172,7 @@ function evaluateRisk(byType: Record<SecurityAuditEventType, number>): {
   score += byType.research_job_timed_out * 3;
   score += byType.rag_remote_url_blocked * 3;
   score += byType.rag_remote_url_fetch_failed * 2;
+  score += byType.rag_remote_policy_denied * 3;
 
   const flags: string[] = [];
 
@@ -216,7 +220,7 @@ function evaluateRisk(byType: Record<SecurityAuditEventType, number>): {
     flags.push('long_running_job_timeout_spike');
   }
 
-  if (byType.rag_remote_url_blocked >= 3) {
+  if (byType.rag_remote_url_blocked + byType.rag_remote_policy_denied >= 3) {
     flags.push('remote_fetch_policy_violations');
   }
 

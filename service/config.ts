@@ -181,6 +181,8 @@ export const config = {
     root: process.env.DATA_DIR ?? path.resolve(process.cwd(), '.data'),
     keyStoreFile: process.env.KEY_STORE_FILE ?? path.resolve(process.cwd(), '.data', 'tenant-keys.json'),
     modelPolicyFile: process.env.MODEL_POLICY_FILE ?? path.resolve(process.cwd(), '.data', 'tenant-model-policies.json'),
+    ragRemotePolicyFile:
+      process.env.RAG_REMOTE_POLICY_FILE ?? path.resolve(process.cwd(), '.data', 'tenant-rag-remote-policies.json'),
     uiSessionStoreFile: process.env.UI_SESSION_STORE_FILE ?? path.resolve(process.cwd(), '.data', 'ui-sessions.json'),
     securityAuditStoreFile: process.env.SECURITY_AUDIT_STORE_FILE ?? path.resolve(process.cwd(), '.data', 'security-audit.json')
   },
@@ -192,6 +194,10 @@ export const config = {
     remoteFetchMaxBytes: Number(process.env.RAG_REMOTE_FETCH_MAX_BYTES ?? 1_000_000),
     remoteFetchMaxRedirects: Number(process.env.RAG_REMOTE_FETCH_MAX_REDIRECTS ?? 3),
     remotePreviewChars: Number(process.env.RAG_REMOTE_PREVIEW_CHARS ?? 600),
+    remotePolicyDefaultMode: ((process.env.RAG_REMOTE_POLICY_DEFAULT_MODE ?? 'preview_only').trim().toLowerCase() ||
+      'preview_only') as 'disabled' | 'preview_only' | 'allowlist_only' | 'open',
+    remotePolicyDefaultAllowedHosts: parseCsv(process.env.RAG_REMOTE_POLICY_DEFAULT_ALLOWED_HOSTS),
+    remotePolicyMaxAllowedHosts: Number(process.env.RAG_REMOTE_POLICY_MAX_ALLOWED_HOSTS ?? 32),
     remoteUserAgent: process.env.RAG_REMOTE_USER_AGENT?.trim() || 'SMART-AI-RAG/1.0',
     remoteAllowedPorts: (() => {
       const parsed = parseNumberCsv(process.env.RAG_REMOTE_ALLOWED_PORTS);

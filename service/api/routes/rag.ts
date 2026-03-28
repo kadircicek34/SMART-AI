@@ -1,6 +1,12 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { securityAuditLog } from '../../security/audit-log.js';
+import {
+  getEffectiveTenantRemotePolicy,
+  resetTenantRemotePolicy,
+  setTenantRemotePolicy,
+  type EffectiveTenantRemotePolicy
+} from '../../rag/remote-policy.js';
 import { RemoteUrlFetchError } from '../../rag/remote-url.js';
 import {
   deleteTenantDocument,
@@ -11,7 +17,7 @@ import {
   previewUrlForTenant,
   searchTenantKnowledge
 } from '../../rag/service.js';
-import type { RagRemoteUrlMetadata, RagRemoteUrlPreview } from '../../rag/types.js';
+import type { RagRemotePolicyDecision, RagRemoteUrlMetadata, RagRemoteUrlPreview } from '../../rag/types.js';
 
 const DocumentInputSchema = z.object({
   document_id: z.string().min(1).max(128).optional(),
@@ -35,6 +41,11 @@ const IngestRequestSchema = z
 
 const UrlPreviewRequestSchema = z.object({
   url: z.string().url()
+});
+
+const UpdateRemotePolicySchema = z.object({
+  mode: z.enum(['disabled', 'preview_only', 'allowlist_only', 'open']),
+  allowedHosts: z.array(z.string().min(1)).max(128).optional().default([])
 });
 
 const SearchRequestSchema = z.object({
@@ -63,6 +74,32 @@ function authError() {
   };
 }
 
+function toRemotePolicyDecisionPayload(value: RagRemotePolicyDecision) {
+  return {
+    source: value.source,
+    mode: value.mode,
+    hostname: value.hostname,
+    allowed_for_preview: value.allowedForPreview,
+    allowed_for_ingest: value.allowedForIngest,
+    matched_host_rule: value.matchedHostRule,
+    reason: value.reason
+  };
+}
+
+function toRemotePolicyPayload(policy: EffectiveTenantRemotePolicy) {
+  return {
+    object: 'rag.remote_policy',
+    tenant_id: policy.tenantId,
+    source: policy.source,
+    policy_status: policy.policyStatus,
+    mode: policy.mode,
+    allowed_hosts: policy.allowedHosts,
+    deployment_default_mode: policy.deploymentDefaultMode,
+    deployment_default_allowed_hosts: policy.deploymentDefaultAllowedHosts,
+    updated_at: policy.updatedAt
+  };
+}
+
 function toRemoteUrlPayload(value: RagRemoteUrlMetadata | RagRemoteUrlPreview) {
   return {
     normalized_url: value.normalizedUrl,
@@ -73,6 +110,7 @@ function toRemoteUrlPayload(value: RagRemoteUrlMetadata | RagRemoteUrlPreview) {
     content_length_bytes: value.contentLengthBytes,
     excerpt: value.excerpt,
     excerpt_truncated: value.excerptTruncated,
+    policy: toRemotePolicyDecisionPayload(value.policy),
     ...(Object.prototype.hasOwnProperty.call(value, 'title') ? { title: (value as RagRemoteUrlPreview).title } : {})
   };
 }
@@ -80,8 +118,15 @@ function toRemoteUrlPayload(value: RagRemoteUrlMetadata | RagRemoteUrlPreview) {
 function recordRemoteUrlAudit(params: {
   req: FastifyRequest;
   tenantId: string;
-  type: 'rag_remote_url_previewed' | 'rag_remote_url_ingested' | 'rag_remote_url_blocked' | 'rag_remote_url_fetch_failed';
-  url: string;
+  type:
+    | 'rag_remote_url_previewed'
+    | 'rag_remote_url_ingested'
+    | 'rag_remote_url_blocked'
+    | 'rag_remote_url_fetch_failed'
+    | 'rag_remote_policy_denied'
+    | 'rag_remote_policy_updated'
+    | 'rag_remote_policy_reset';
+  url?: string;
   details?: Record<string, string | number | boolean | null>;
 }) {
   securityAuditLog.record({
@@ -91,7 +136,7 @@ function recordRemoteUrlAudit(params: {
     request_id: params.req.requestContext?.requestId,
     details: {
       path: params.req.url,
-      url: params.url,
+      ...(params.url ? { url: params.url } : {}),
       ...params.details
     }
   });
@@ -105,11 +150,17 @@ function replyWithRouteError(params: {
   url?: string;
 }) {
   if (params.error instanceof RemoteUrlFetchError) {
+    const isPolicyDenied = params.error.statusCode === 403 && params.error.code.endsWith('_not_allowed_by_policy');
+
     if (params.tenantId && params.req && params.url) {
       recordRemoteUrlAudit({
         req: params.req,
         tenantId: params.tenantId,
-        type: params.error.statusCode >= 500 ? 'rag_remote_url_fetch_failed' : 'rag_remote_url_blocked',
+        type: isPolicyDenied
+          ? 'rag_remote_policy_denied'
+          : params.error.statusCode >= 500
+            ? 'rag_remote_url_fetch_failed'
+            : 'rag_remote_url_blocked',
         url: params.url,
         details: {
           code: params.error.code,
@@ -120,7 +171,11 @@ function replyWithRouteError(params: {
 
     return params.reply.status(params.error.statusCode).send({
       error: {
-        type: params.error.statusCode >= 500 ? 'api_error' : 'invalid_request_error',
+        type: isPolicyDenied
+          ? 'permission_error'
+          : params.error.statusCode >= 500
+            ? 'api_error'
+            : 'invalid_request_error',
         message: params.error.message,
         details: params.error.details
       }
@@ -136,6 +191,82 @@ function replyWithRouteError(params: {
 }
 
 export async function registerRagRoutes(app: FastifyInstance) {
+  app.get('/v1/rag/remote-policy', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    const policy = await getEffectiveTenantRemotePolicy(tenantId);
+    return toRemotePolicyPayload(policy);
+  });
+
+  app.put('/v1/rag/remote-policy', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    const parsed = UpdateRemotePolicySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return reply.status(400).send({
+        error: {
+          type: 'invalid_request_error',
+          message: 'Invalid body for remote RAG policy update.',
+          details: parsed.error.flatten()
+        }
+      });
+    }
+
+    const result = await setTenantRemotePolicy(tenantId, parsed.data);
+    if (!result.ok) {
+      return reply.status(result.statusCode).send({
+        error: {
+          type: result.statusCode === 403 ? 'permission_error' : 'invalid_request_error',
+          message: result.reason
+        }
+      });
+    }
+
+    recordRemoteUrlAudit({
+      req,
+      tenantId,
+      type: 'rag_remote_policy_updated',
+      details: {
+        mode: result.policy.mode,
+        allowed_hosts: result.policy.allowedHosts.length
+      }
+    });
+
+    const policy = await getEffectiveTenantRemotePolicy(tenantId);
+    return toRemotePolicyPayload(policy);
+  });
+
+  app.delete('/v1/rag/remote-policy', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    const existed = await resetTenantRemotePolicy(tenantId);
+    if (existed) {
+      recordRemoteUrlAudit({
+        req,
+        tenantId,
+        type: 'rag_remote_policy_reset',
+        details: {
+          reason: 'reset_to_deployment_defaults'
+        }
+      });
+    }
+
+    const policy = await getEffectiveTenantRemotePolicy(tenantId);
+    return {
+      reset: existed,
+      ...toRemotePolicyPayload(policy)
+    };
+  });
+
   app.post('/v1/rag/url-preview', async (req, reply) => {
     const tenantId = req.requestContext?.tenantId;
     if (!tenantId) {
@@ -168,7 +299,10 @@ export async function registerRagRoutes(app: FastifyInstance) {
           final_url: preview.finalUrl,
           content_type: preview.contentType,
           redirects: preview.redirects.length,
-          bytes: preview.contentLengthBytes
+          bytes: preview.contentLengthBytes,
+          policy_mode: preview.policy.mode,
+          allowed_for_ingest: preview.policy.allowedForIngest,
+          matched_host_rule: preview.policy.matchedHostRule
         }
       });
 
@@ -229,7 +363,9 @@ export async function registerRagRoutes(app: FastifyInstance) {
             redirects: result.remoteUrl.redirects.length,
             bytes: result.remoteUrl.contentLengthBytes,
             ingested_documents: result.ingestedDocuments,
-            ingested_chunks: result.ingestedChunks
+            ingested_chunks: result.ingestedChunks,
+            policy_mode: result.remoteUrl.policy.mode,
+            matched_host_rule: result.remoteUrl.policy.matchedHostRule
           }
         });
 
