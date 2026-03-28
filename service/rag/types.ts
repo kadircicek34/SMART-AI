@@ -40,6 +40,16 @@ export type RagSearchHit = {
   score: number;
 };
 
+export type RagRemotePolicyDecision = {
+  source: 'deployment' | 'tenant';
+  mode: 'disabled' | 'preview_only' | 'allowlist_only' | 'open';
+  hostname: string;
+  allowedForPreview: boolean;
+  allowedForIngest: boolean;
+  matchedHostRule: string | null;
+  reason: 'policy_disabled' | 'preview_only_mode' | 'allowlist_match' | 'host_not_in_allowlist' | 'open_mode';
+};
+
 export type RagRemoteUrlMetadata = {
   normalizedUrl: string;
   finalUrl: string;
@@ -49,6 +59,7 @@ export type RagRemoteUrlMetadata = {
   contentLengthBytes: number;
   excerpt: string;
   excerptTruncated: boolean;
+  policy: RagRemotePolicyDecision;
 };
 
 export type RagRemoteUrlPreview = RagRemoteUrlMetadata & {

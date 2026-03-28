@@ -1,5 +1,6 @@
 import dns from 'node:dns/promises';
 import net from 'node:net';
+import { domainToASCII } from 'node:url';
 import { config } from '../config.js';
 
 const IPV4_SEGMENT_MAX = 255;
@@ -66,8 +67,19 @@ function extractHtmlTitle(value: string): string | undefined {
   return title || undefined;
 }
 
-function normalizeHostname(hostname: string): string {
-  return hostname.replace(/^\[/, '').replace(/\]$/, '').split('%')[0]!.toLowerCase();
+export function normalizeRemoteHostname(hostname: string): string {
+  const stripped = hostname.replace(/^\[/, '').replace(/\]$/, '').split('%')[0]!.trim().replace(/\.$/, '');
+  if (!stripped) {
+    return '';
+  }
+
+  const lower = stripped.toLowerCase();
+  if (net.isIP(lower)) {
+    return lower;
+  }
+
+  const ascii = domainToASCII(lower);
+  return ascii.trim().toLowerCase().replace(/\.$/, '');
 }
 
 function extractMimeType(contentTypeHeader: string | null): string {
@@ -120,7 +132,7 @@ function validateUrlShape(url: URL): void {
     throw new RemoteUrlError('remote_url_credentials_not_allowed', 400);
   }
 
-  const hostname = normalizeHostname(url.hostname);
+  const hostname = normalizeRemoteHostname(url.hostname);
   if (!hostname) {
     throw new RemoteUrlError('invalid_url', 400);
   }
@@ -195,7 +207,7 @@ function isSpecialIpv4(address: string): boolean {
 }
 
 function parseIpv6(input: string): bigint | null {
-  const normalized = normalizeHostname(input);
+  const normalized = normalizeRemoteHostname(input);
   const mappedMatch = normalized.match(/^(.*:)(\d+\.\d+\.\d+\.\d+)$/);
   if (mappedMatch) {
     const ipv4Value = parseIpv4(mappedMatch[2]!);
@@ -266,8 +278,8 @@ function isSpecialIpv6(address: string): boolean {
   return IPV6_SPECIAL_RANGES.some(([start, end]) => value >= start && value <= end);
 }
 
-function assertAddressIsPublic(address: string): void {
-  const normalized = normalizeHostname(address);
+export function assertPublicRemoteAddress(address: string): void {
+  const normalized = normalizeRemoteHostname(address);
   const family = net.isIP(normalized);
 
   if (family === 4 && isSpecialIpv4(normalized)) {
@@ -288,10 +300,10 @@ function assertAddressIsPublic(address: string): void {
 }
 
 async function resolveHostname(url: URL, lookupImpl: LookupImpl): Promise<ResolvedAddress[]> {
-  const hostname = normalizeHostname(url.hostname);
+  const hostname = normalizeRemoteHostname(url.hostname);
   const ipFamily = net.isIP(hostname);
   if (ipFamily) {
-    assertAddressIsPublic(hostname);
+    assertPublicRemoteAddress(hostname);
     return [{ address: hostname, family: ipFamily }];
   }
 
@@ -302,7 +314,7 @@ async function resolveHostname(url: URL, lookupImpl: LookupImpl): Promise<Resolv
       family: number;
     }>;
     records = resolved.map((entry) => ({
-      address: normalizeHostname(entry.address),
+      address: normalizeRemoteHostname(entry.address),
       family: entry.family
     }));
   } catch {
@@ -318,7 +330,7 @@ async function resolveHostname(url: URL, lookupImpl: LookupImpl): Promise<Resolv
   }
 
   for (const record of records) {
-    assertAddressIsPublic(record.address);
+    assertPublicRemoteAddress(record.address);
   }
 
   return records;

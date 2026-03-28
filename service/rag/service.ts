@@ -1,11 +1,13 @@
 import crypto from 'node:crypto';
 import { config } from '../config.js';
-import { inspectRemoteUrl } from './remote-url.js';
+import { evaluateTenantRemoteUrlPolicy } from './remote-policy.js';
+import { inspectRemoteUrl, RemoteUrlError } from './remote-url.js';
 import { collectTenantChunks, collectTenantDocuments, readOnlyRagStore, withRagStore } from './store.js';
 import type {
   RagChunkRecord,
   RagDocumentInput,
   RagDocumentRecord,
+  RagRemotePolicyDecision,
   RagRemoteUrlMetadata,
   RagRemoteUrlPreview,
   RagSearchHit,
@@ -75,6 +77,30 @@ function sanitizeTitle(title: string | undefined, fallback = 'Untitled Document'
   return normalized ? normalized.slice(0, 200) : fallback;
 }
 
+function buildRemotePolicyDecision(params: Awaited<ReturnType<typeof evaluateTenantRemoteUrlPolicy>>): RagRemotePolicyDecision {
+  return {
+    source: params.policy.source,
+    mode: params.policy.mode,
+    hostname: params.hostname,
+    allowedForPreview: params.previewAllowed,
+    allowedForIngest: params.ingestAllowed,
+    matchedHostRule: params.matchedHostRule,
+    reason: params.reason
+  };
+}
+
+function buildPolicyDeniedError(params: {
+  code: 'remote_url_preview_not_allowed_by_policy' | 'remote_url_ingest_not_allowed_by_policy';
+  decision: Awaited<ReturnType<typeof evaluateTenantRemoteUrlPolicy>>;
+}): RemoteUrlError {
+  return new RemoteUrlError(params.code, 403, {
+    mode: params.decision.policy.mode,
+    hostname: params.decision.hostname,
+    reason: params.decision.reason,
+    matched_host_rule: params.decision.matchedHostRule
+  });
+}
+
 function buildRemoteUrlMetadata(params: {
   normalizedUrl: string;
   finalUrl: string;
@@ -84,6 +110,7 @@ function buildRemoteUrlMetadata(params: {
   contentLengthBytes: number;
   excerpt: string;
   excerptTruncated: boolean;
+  policy: RagRemotePolicyDecision;
 }): RagRemoteUrlMetadata {
   return {
     normalizedUrl: params.normalizedUrl,
@@ -93,7 +120,8 @@ function buildRemoteUrlMetadata(params: {
     contentType: params.contentType,
     contentLengthBytes: params.contentLengthBytes,
     excerpt: params.excerpt,
-    excerptTruncated: params.excerptTruncated
+    excerptTruncated: params.excerptTruncated,
+    policy: params.policy
   };
 }
 
@@ -262,12 +290,23 @@ export async function previewUrlForTenant(params: {
   const tenantId = params.tenantId.trim();
   ensureTenantIsolation(tenantId);
 
+  const policyDecision = await evaluateTenantRemoteUrlPolicy(tenantId, params.url);
+  if (!policyDecision.previewAllowed) {
+    throw buildPolicyDeniedError({
+      code: 'remote_url_preview_not_allowed_by_policy',
+      decision: policyDecision
+    });
+  }
+
   const inspection = await inspectRemoteUrl({
     url: params.url
   });
 
   return {
-    ...buildRemoteUrlMetadata(inspection),
+    ...buildRemoteUrlMetadata({
+      ...inspection,
+      policy: buildRemotePolicyDecision(policyDecision)
+    }),
     title: sanitizeTitle(inspection.title, new URL(inspection.finalUrl).hostname)
   };
 }
@@ -287,13 +326,24 @@ export async function ingestUrlForTenant(params: {
   const tenantId = params.tenantId.trim();
   ensureTenantIsolation(tenantId);
 
+  const policyDecision = await evaluateTenantRemoteUrlPolicy(tenantId, params.url);
+  if (!policyDecision.ingestAllowed) {
+    throw buildPolicyDeniedError({
+      code: 'remote_url_ingest_not_allowed_by_policy',
+      decision: policyDecision
+    });
+  }
+
   const inspection = await inspectRemoteUrl({
     url: params.url
   });
 
   const finalUrl = new URL(inspection.finalUrl);
   const title = sanitizeTitle(params.title, inspection.title ?? finalUrl.hostname);
-  const remoteUrl = buildRemoteUrlMetadata(inspection);
+  const remoteUrl = buildRemoteUrlMetadata({
+    ...inspection,
+    policy: buildRemotePolicyDecision(policyDecision)
+  });
 
   const ingestResult = await ingestDocumentsForTenant({
     tenantId,
