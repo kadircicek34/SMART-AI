@@ -96,6 +96,7 @@ function setAdminControlsEnabled(enabled) {
     'resetRemotePolicy',
     'remotePolicyMode',
     'remotePolicyAllowedHosts',
+    'exportSecurity',
     'revokeOtherSessions'
   ]) {
     const node = document.getElementById(id);
@@ -479,6 +480,32 @@ async function revokeOtherSessions(settings) {
   return response;
 }
 
+async function downloadSecurityExport(settings) {
+  await maybeRefreshSession(settings);
+
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const bundle = await safeFetchJson(
+    `${settings.baseUrl}/v1/security/export?limit=500&since=${encodeURIComponent(since)}&top_ip_limit=5`,
+    {
+      headers: authHeaders(settings)
+    }
+  );
+
+  const stamp = new Date().toISOString().replaceAll(':', '-');
+  const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `smart-ai-security-export-${settings.tenantId}-${stamp}.json`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+
+  log(
+    `Security export indirildi. events=${bundle?.data?.length ?? 0}, integrity=${bundle?.integrity?.verified ? 'ok' : 'broken'}`
+  );
+  return bundle;
+}
+
 async function loadDashboard(settings) {
   if (!settings.tenantId) {
     throw new Error('Tenant ID zorunlu.');
@@ -508,11 +535,16 @@ async function loadDashboard(settings) {
   document.getElementById('ragStats').textContent = `documents=${docs}`;
 
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const securitySummary = await safeFetchJson(`${settings.baseUrl}/v1/security/summary?window_hours=24&top_ip_limit=5`, {
+    headers: authHeaders(settings)
+  });
   const security = await safeFetchJson(`${settings.baseUrl}/v1/security/events?limit=20&since=${encodeURIComponent(since)}`, {
     headers: authHeaders(settings)
   });
   const events = Array.isArray(security.data) ? security.data : [];
-  document.getElementById('securityEvents').textContent = `events=${events.length}`;
+  document.getElementById('securityEvents').textContent =
+    `risk=${securitySummary.riskLevel}, score=${securitySummary.riskScore}, ` +
+    `events=${securitySummary.totalEvents}, integrity=${securitySummary?.integrity?.verified ? 'ok' : 'broken'}`;
   renderSecurityTable(events);
 
   await loadModelPolicy(settings);
@@ -661,6 +693,19 @@ async function init() {
     try {
       await flushMcp(next);
       setStatus('MCP flush tetiklendi.');
+    } catch (error) {
+      setStatus(String(error), true);
+      log(`Hata: ${String(error)}`);
+    }
+  });
+
+  document.getElementById('exportSecurity').addEventListener('click', async () => {
+    const next = readSettingsForm();
+    setSettings(next);
+
+    try {
+      await downloadSecurityExport(next);
+      setStatus('Security export indirildi.');
     } catch (error) {
       setStatus(String(error), true);
       log(`Hata: ${String(error)}`);

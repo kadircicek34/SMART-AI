@@ -38,6 +38,7 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - **MCP Dayanıklılık Katmanı** (circuit breaker + adaptive timeout + kalıcı health snapshot + health endpointleri)
 - **Security Audit Event Feed** (`/v1/security/events`) + dashboard güvenlik olay görünürlüğü
 - **Security Risk Summary** (`/v1/security/summary`) + tenant bazlı risk skoru / alarm bayrakları
+- **Tamper-evident Security Export** (`/v1/security/export`, `/v1/security/export/verify`) + hash-chain integrity doğrulaması
 - **Header abuse guard** (Authorization / tenant header boyut limitleri + UI oversized key koruması)
 - **UI session lifecycle hardening** (`/ui/session` introspection + `/ui/session/refresh` token rotation + idle-timeout + session cap eviction + unsafe `/v1/*` writes için Origin binding)
 - **Persistent security control plane** (hashed UI session restore + kalıcı security audit evidence + tenant admin session inventory/revoke-all)
@@ -219,6 +220,23 @@ curl 'http://127.0.0.1:8080/v1/security/summary?window_hours=24&top_ip_limit=5' 
   -H 'Authorization: Bearer dev-admin-key' \
   -H 'x-tenant-id: tenant-a'
 ```
+
+## Tamper-Evident Security Export
+```bash
+# son 24 saatin audit bundle'ını export et (admin scope gerekli)
+curl 'http://127.0.0.1:8080/v1/security/export?limit=500&since=2026-03-29T00:00:00.000Z' \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a'
+
+# dış sisteme taşınan bundle'ın hash-chain bütünlüğünü tekrar doğrula
+curl -X POST 'http://127.0.0.1:8080/v1/security/export/verify' \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a' \
+  -H 'content-type: application/json' \
+  -d '{"anchorPrevChainHash":null,"events":[{"event_id":"...","tenant_id":"tenant-a","type":"ui_session_issued","timestamp":"2026-03-29T04:00:00.000Z","sequence":1,"prev_chain_hash":null,"chain_hash":"..."}]}'
+```
+
+Export bundle'ı artık sıralı `sequence`, `prev_chain_hash`, `chain_hash` alanlarıyla gelir. Böylece SIEM/forensics hattı, payload transfer sonrası bile bundle üzerinde server-side bütünlük doğrulaması yapabilir.
 
 ## Auth Context Introspection
 ```bash

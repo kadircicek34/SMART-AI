@@ -111,7 +111,9 @@
 - `POST /v1/mcp/reset` → circuit reset
 - `POST /v1/mcp/flush` → health snapshot’ını diskte flush etme
 - `GET /v1/security/events` → tenant-scope güvenlik olay akışı (auth/rate-limit/origin/session/job/model policy)
-- `GET /v1/security/summary` → tenant güvenlik risk özeti (riskScore/riskLevel/flags/top IP)
+- `GET /v1/security/summary` → tenant güvenlik risk özeti (riskScore/riskLevel/flags/top IP + integrity)
+- `GET /v1/security/export` → admin-scope tamper-evident audit bundle export (sequence + prev_chain_hash + chain_hash)
+- `POST /v1/security/export/verify` → export edilen audit bundle'ın bütünlüğünü yeniden doğrula
 - `GET /v1/model-policy` → tenant için effective model policy (inherit/custom/invalid durumu)
 - `PUT /v1/model-policy` → tenant bazlı model allowlist + default model güncelleme
 - `DELETE /v1/model-policy` → tenant policy reset → deployment defaults
