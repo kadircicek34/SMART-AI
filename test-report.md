@@ -1,9 +1,27 @@
-# TEST REPORT — SMART-AI v1.9 (Tenant Remote Source Policy)
+# TEST REPORT — SMART-AI v1.10 (Tamper-Evident Security Export)
 
 ## Test Stratejisi
 - Contract tests: OpenAI-compatible + RAG + Memory + MCP + UI endpointleri
 - Security tests: key-store + policy allowlist + UI session token auth akışı
 - Unit tests: orchestrator/verifier, deep_research, financial runtime, qmd, memory, MCP circuit/store
+
+## 2026-03-29 Ek doğrulama (Tamper-evident security export pipeline)
+- `npm run typecheck` ✅
+- `npm test` ✅ (**149/149**)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `PORT=3457 npm run start` + `curl /v1/security/summary` + `curl /v1/security/export` smoke ✅ (`summary=200`, `export=200`, `integrity=true`)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+- Yeni testler / güncellemeler:
+  - `service/tests/contract/security-events.test.ts`
+    - gerçek `GET /v1/security/summary` contract doğrulaması
+    - admin-scope `GET /v1/security/export` bundle doğrulaması
+    - `POST /v1/security/export/verify` ile tamper detection doğrulaması
+    - read-only credential için export deny + summary allow
+  - `service/tests/security/audit-log.test.ts`
+    - `sequence` / `prev_chain_hash` / `chain_hash` zinciri doğrulaması
+    - export bundle integrity metadata doğrulaması
+    - kasıtlı payload değişikliği ile chain-hash mismatch doğrulaması
+    - persisted audit snapshot restore sonrası hash-chain doğrulaması
 
 ## 2026-03-28 Ek doğrulama (Tenant remote source policy control plane)
 - `npm run typecheck` ✅

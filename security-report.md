@@ -1,4 +1,4 @@
-# SECURITY REPORT — SMART-AI v1.9
+# SECURITY REPORT — SMART-AI v1.10
 
 ## Kapsam
 Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
@@ -20,6 +20,28 @@ Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
 | MCP call güvenliği | ✅ | sabit command template + JSON args + adaptive timeout + circuit guard |
 | MCP persistence güvenliği | ✅ | snapshot atomik tmp→rename ile yazılıyor |
 | Dependencies | ✅ | `npm audit --omit=dev` sonucu 0 vuln |
+
+## 2026-03-29 Güvenlik sertleştirmesi — tamper-evident security export
+- **Tamper-evident audit chain**
+  - Security audit eventleri artık `sequence`, `prev_chain_hash`, `chain_hash` alanlarıyla zincirleniyor.
+  - Persisted audit snapshot’lar geriye uyumlu biçimde rehydrate edilip hash-chain’e yükseltiliyor.
+- **Admin-scope evidence export**
+  - Yeni endpoint: `GET /v1/security/export`
+  - Export bundle, bounded window/limit ile döner; sınırsız audit dump yüzeyi açılmaz.
+  - Export yüzeyi `tenant:admin` ile korunur; read-only credential yalnızca summary görebilir.
+- **Transfer sonrası bütünlük doğrulaması**
+  - Yeni endpoint: `POST /v1/security/export/verify`
+  - Dış sisteme taşınan audit paketi tekrar gönderildiğinde chain hash mismatch deterministik biçimde yakalanır.
+- **Ops visibility hardening**
+  - `GET /v1/security/summary` artık gerçek risk + integrity telemetry döner.
+  - Dashboard risk kartı summary verisiyle güncellendi; admin kullanıcı için tek tık export akışı eklendi.
+- **Dependency posture**
+  - `npm audit --omit=dev` tekrar temiz geçti (0 vulnerability).
+
+Kalan risk:
+- Export hattı şu an pull-based; SIEM/webhook push delivery henüz yok.
+- Hash-chain doğrulaması server-side yapılır; dış sistem için public-key dağıtımlı bağımsız doğrulama gelecekte değerlendirilebilir.
+- Audit/session/policy persistence hâlâ local file tabanlı; shared backend backlog’da.
 
 ## 2026-03-28 Güvenlik sertleştirmesi — tenant remote source policy governance
 - **Secure-by-default remote ingest governance**
