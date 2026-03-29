@@ -45,6 +45,9 @@ export type SecurityAuditEvent = {
   ip?: string;
   request_id?: string;
   details?: Record<string, string | number | boolean | null>;
+  sequence: number;
+  prev_chain_hash: string | null;
+  chain_hash: string;
 };
 
 type SecurityAuditListQuery = {
@@ -58,15 +61,36 @@ type SecurityAuditSummaryQuery = {
   topIpLimit?: number;
 };
 
+type SecurityAuditExportQuery = {
+  sinceTimestamp?: number;
+  limit?: number;
+  topIpLimit?: number;
+};
+
 type SecurityAuditLogOptions = {
   filePath?: string;
   persistDebounceMs?: number;
 };
 
 type PersistedAuditSnapshot = {
-  version: 1;
+  version: 1 | 2;
   updatedAt: string;
-  tenants: Record<string, SecurityAuditEvent[]>;
+  tenants: Record<string, unknown[]>;
+};
+
+type LoadedAuditEvent = Omit<SecurityAuditEvent, 'sequence' | 'prev_chain_hash' | 'chain_hash'>;
+
+export type SecurityAuditIntegrity = {
+  verified: boolean;
+  eventCount: number;
+  anchorPrevChainHash: string | null;
+  headChainHash: string | null;
+  lastSequence: number | null;
+  firstEventId: string | null;
+  lastEventId: string | null;
+  brokenAtEventId?: string;
+  brokenAtSequence?: number;
+  failureReason?: 'prev_hash_mismatch' | 'chain_hash_mismatch';
 };
 
 export type SecurityAuditSummary = {
@@ -79,13 +103,31 @@ export type SecurityAuditSummary = {
   alertFlags: string[];
   riskScore: number;
   riskLevel: 'low' | 'medium' | 'high' | 'critical';
+  integrity: SecurityAuditIntegrity;
 };
 
-const SNAPSHOT_VERSION = 1;
+export type SecurityAuditExportBundle = {
+  object: 'security_audit_export';
+  tenant_id: string;
+  generated_at: string;
+  filter: {
+    since?: string;
+    limit: number;
+    truncated: boolean;
+    total_matching_events: number;
+  };
+  summary: SecurityAuditSummary;
+  integrity: SecurityAuditIntegrity;
+  data: SecurityAuditEvent[];
+};
+
+const SNAPSHOT_VERSION = 2;
 const DEFAULT_PERSIST_DEBOUNCE_MS = 250;
+const DEFAULT_SUMMARY_WINDOW_MS = 24 * 60 * 60 * 1000;
 const SECURITY_AUDIT_TYPE_SET = new Set<string>(SECURITY_AUDIT_EVENT_TYPES);
 const CONTROL_CHARS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
 const WHITESPACE = /\s+/g;
+const CHAIN_HASH_REGEX = /^[a-f0-9]{64}$/;
 
 function sanitizeString(input: string, maxLen = 220): string {
   const compact = input
@@ -248,7 +290,7 @@ function evaluateRisk(byType: Record<SecurityAuditEventType, number>): {
   return { score, level, flags };
 }
 
-function sanitizeLoadedEvent(value: unknown): SecurityAuditEvent | null {
+function sanitizeLoadedEvent(value: unknown): LoadedAuditEvent | null {
   if (!value || typeof value !== 'object') {
     return null;
   }
@@ -281,6 +323,197 @@ function sanitizeLoadedEvent(value: unknown): SecurityAuditEvent | null {
   };
 }
 
+function normalizeHash(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = String(value).trim().toLowerCase();
+  return CHAIN_HASH_REGEX.test(normalized) ? normalized : null;
+}
+
+function buildEventHashPayload(event: {
+  event_id: string;
+  tenant_id: string;
+  type: SecurityAuditEventType;
+  timestamp: string;
+  ip?: string;
+  request_id?: string;
+  details?: Record<string, string | number | boolean | null>;
+  sequence: number;
+  prev_chain_hash: string | null;
+}): string {
+  return JSON.stringify({
+    event_id: event.event_id,
+    tenant_id: event.tenant_id,
+    type: event.type,
+    timestamp: event.timestamp,
+    ip: event.ip ?? null,
+    request_id: event.request_id ?? null,
+    details: event.details ?? null,
+    sequence: event.sequence,
+    prev_chain_hash: event.prev_chain_hash ?? null
+  });
+}
+
+function computeEventChainHash(event: {
+  event_id: string;
+  tenant_id: string;
+  type: SecurityAuditEventType;
+  timestamp: string;
+  ip?: string;
+  request_id?: string;
+  details?: Record<string, string | number | boolean | null>;
+  sequence: number;
+  prev_chain_hash: string | null;
+}): string {
+  return crypto.createHash('sha256').update(buildEventHashPayload(event)).digest('hex');
+}
+
+function attachChain(events: LoadedAuditEvent[]): SecurityAuditEvent[] {
+  const sorted = [...events].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+
+  let previousHash: string | null = null;
+  return sorted.map((event, index) => {
+    const sequence = index + 1;
+    const next: SecurityAuditEvent = {
+      ...event,
+      sequence,
+      prev_chain_hash: previousHash,
+      chain_hash: computeEventChainHash({
+        ...event,
+        sequence,
+        prev_chain_hash: previousHash
+      })
+    };
+
+    previousHash = next.chain_hash;
+    return next;
+  });
+}
+
+export function verifySecurityAuditIntegrity(params: {
+  events: SecurityAuditEvent[];
+  anchorPrevChainHash?: string | null;
+}): SecurityAuditIntegrity {
+  const events = [...params.events].sort((a, b) => a.sequence - b.sequence || a.event_id.localeCompare(b.event_id));
+  const anchorPrevChainHash = normalizeHash(params.anchorPrevChainHash ?? null);
+
+  if (events.length === 0) {
+    return {
+      verified: true,
+      eventCount: 0,
+      anchorPrevChainHash,
+      headChainHash: anchorPrevChainHash,
+      lastSequence: null,
+      firstEventId: null,
+      lastEventId: null
+    };
+  }
+
+  let previousHash = anchorPrevChainHash;
+  for (const event of events) {
+    const expectedPrevHash = normalizeHash(event.prev_chain_hash ?? null);
+    if (expectedPrevHash !== previousHash) {
+      return {
+        verified: false,
+        eventCount: events.length,
+        anchorPrevChainHash,
+        headChainHash: previousHash,
+        lastSequence: event.sequence,
+        firstEventId: events[0]?.event_id ?? null,
+        lastEventId: event.event_id,
+        brokenAtEventId: event.event_id,
+        brokenAtSequence: event.sequence,
+        failureReason: 'prev_hash_mismatch'
+      };
+    }
+
+    const expectedChainHash = computeEventChainHash({
+      event_id: event.event_id,
+      tenant_id: event.tenant_id,
+      type: event.type,
+      timestamp: event.timestamp,
+      ip: event.ip,
+      request_id: event.request_id,
+      details: event.details,
+      sequence: event.sequence,
+      prev_chain_hash: previousHash
+    });
+
+    if (normalizeHash(event.chain_hash) !== expectedChainHash) {
+      return {
+        verified: false,
+        eventCount: events.length,
+        anchorPrevChainHash,
+        headChainHash: previousHash,
+        lastSequence: event.sequence,
+        firstEventId: events[0]?.event_id ?? null,
+        lastEventId: event.event_id,
+        brokenAtEventId: event.event_id,
+        brokenAtSequence: event.sequence,
+        failureReason: 'chain_hash_mismatch'
+      };
+    }
+
+    previousHash = expectedChainHash;
+  }
+
+  const lastEvent = events.at(-1) ?? null;
+  return {
+    verified: true,
+    eventCount: events.length,
+    anchorPrevChainHash,
+    headChainHash: previousHash,
+    lastSequence: lastEvent?.sequence ?? null,
+    firstEventId: events[0]?.event_id ?? null,
+    lastEventId: lastEvent?.event_id ?? null
+  };
+}
+
+function buildSummaryFromEvents(params: {
+  events: SecurityAuditEvent[];
+  sinceTimestamp: number;
+  topIpLimit?: number;
+  nowTimestamp?: number;
+  integrity: SecurityAuditIntegrity;
+}): SecurityAuditSummary {
+  const now = params.nowTimestamp ?? Date.now();
+  const byType = buildTypeCountTemplate();
+  const ipCounter = new Map<string, number>();
+
+  for (const event of params.events) {
+    byType[event.type] += 1;
+    if (event.ip) {
+      ipCounter.set(event.ip, (ipCounter.get(event.ip) ?? 0) + 1);
+    }
+  }
+
+  const topIpLimit = Math.max(1, Math.min(params.topIpLimit ?? 5, 20));
+  const topIps = [...ipCounter.entries()]
+    .sort((a, b) => {
+      if (b[1] !== a[1]) return b[1] - a[1];
+      return a[0].localeCompare(b[0]);
+    })
+    .slice(0, topIpLimit)
+    .map(([ip, count]) => ({ ip, count }));
+
+  const risk = evaluateRisk(byType);
+
+  return {
+    windowStart: new Date(params.sinceTimestamp).toISOString(),
+    windowEnd: new Date(now).toISOString(),
+    totalEvents: params.events.length,
+    uniqueIps: ipCounter.size,
+    byType,
+    topIps,
+    alertFlags: risk.flags,
+    riskScore: risk.score,
+    riskLevel: risk.level,
+    integrity: params.integrity
+  };
+}
+
 class SecurityAuditLog {
   private readonly eventsByTenant = new Map<string, SecurityAuditEvent[]>();
   private persistTimer: NodeJS.Timeout | null = null;
@@ -293,10 +526,12 @@ class SecurityAuditLog {
     this.hydrateFromDisk();
   }
 
-  record(event: Omit<SecurityAuditEvent, 'event_id' | 'timestamp'>): SecurityAuditEvent {
+  record(event: Omit<SecurityAuditEvent, 'event_id' | 'timestamp' | 'sequence' | 'prev_chain_hash' | 'chain_hash'>): SecurityAuditEvent {
     const now = Date.now();
+    const bucket = this.eventsByTenant.get(event.tenant_id) ?? [];
+    const previous = bucket.at(-1) ?? null;
 
-    const normalized: SecurityAuditEvent = {
+    const normalizedBase: LoadedAuditEvent = {
       ...event,
       ip: sanitizeIp(event.ip),
       request_id: event.request_id ? sanitizeString(event.request_id, 96) : undefined,
@@ -305,17 +540,39 @@ class SecurityAuditLog {
       timestamp: new Date(now).toISOString()
     };
 
-    const bucket = this.eventsByTenant.get(event.tenant_id) ?? [];
+    const normalized: SecurityAuditEvent = {
+      ...normalizedBase,
+      sequence: previous ? previous.sequence + 1 : 1,
+      prev_chain_hash: previous?.chain_hash ?? null,
+      chain_hash: computeEventChainHash({
+        ...normalizedBase,
+        sequence: previous ? previous.sequence + 1 : 1,
+        prev_chain_hash: previous?.chain_hash ?? null
+      })
+    };
+
     bucket.push(normalized);
 
     const overflow = bucket.length - this.maxEventsPerTenant;
     if (overflow > 0) {
-      bucket.splice(0, overflow);
+      const retained = attachChain(
+        bucket.slice(overflow).map((entry) => ({
+          event_id: entry.event_id,
+          tenant_id: entry.tenant_id,
+          type: entry.type,
+          timestamp: entry.timestamp,
+          ip: entry.ip,
+          request_id: entry.request_id,
+          details: entry.details
+        }))
+      );
+      this.eventsByTenant.set(event.tenant_id, retained);
+    } else {
+      this.eventsByTenant.set(event.tenant_id, bucket);
     }
 
-    this.eventsByTenant.set(event.tenant_id, bucket);
     this.schedulePersist();
-    return normalized;
+    return this.eventsByTenant.get(event.tenant_id)!.at(-1)!;
   }
 
   list(tenantId: string, query: SecurityAuditListQuery = {}): SecurityAuditEvent[] {
@@ -333,42 +590,58 @@ class SecurityAuditLog {
 
   summarize(tenantId: string, query: SecurityAuditSummaryQuery = {}): SecurityAuditSummary {
     const now = Date.now();
-    const sinceTimestamp = query.sinceTimestamp ?? now - 24 * 60 * 60 * 1000;
-
+    const sinceTimestamp = query.sinceTimestamp ?? now - DEFAULT_SUMMARY_WINDOW_MS;
     const bucket = this.eventsByTenant.get(tenantId) ?? [];
-    const filtered = bucket.filter((event) => Date.parse(event.timestamp) > sinceTimestamp);
+    const { events, anchorPrevChainHash } = this.selectWindow(bucket, { sinceTimestamp });
+    const integrity = verifySecurityAuditIntegrity({
+      events,
+      anchorPrevChainHash
+    });
 
-    const byType = buildTypeCountTemplate();
-    const ipCounter = new Map<string, number>();
+    return buildSummaryFromEvents({
+      events,
+      sinceTimestamp,
+      topIpLimit: query.topIpLimit,
+      nowTimestamp: now,
+      integrity
+    });
+  }
 
-    for (const event of filtered) {
-      byType[event.type] += 1;
-      if (event.ip) {
-        ipCounter.set(event.ip, (ipCounter.get(event.ip) ?? 0) + 1);
-      }
-    }
+  export(tenantId: string, query: SecurityAuditExportQuery = {}): SecurityAuditExportBundle {
+    const now = Date.now();
+    const bucket = this.eventsByTenant.get(tenantId) ?? [];
+    const limit = Math.max(1, Math.min(query.limit ?? 200, 1000));
+    const { events, anchorPrevChainHash, totalMatchingEvents } = this.selectWindow(bucket, {
+      sinceTimestamp: query.sinceTimestamp,
+      limit
+    });
 
-    const topIpLimit = Math.max(1, Math.min(query.topIpLimit ?? 5, 20));
-    const topIps = [...ipCounter.entries()]
-      .sort((a, b) => {
-        if (b[1] !== a[1]) return b[1] - a[1];
-        return a[0].localeCompare(b[0]);
-      })
-      .slice(0, topIpLimit)
-      .map(([ip, count]) => ({ ip, count }));
-
-    const risk = evaluateRisk(byType);
+    const effectiveSinceTimestamp = query.sinceTimestamp ?? (events[0] ? Date.parse(events[0].timestamp) : now);
+    const integrity = verifySecurityAuditIntegrity({
+      events,
+      anchorPrevChainHash
+    });
+    const summary = buildSummaryFromEvents({
+      events,
+      sinceTimestamp: effectiveSinceTimestamp,
+      topIpLimit: query.topIpLimit,
+      nowTimestamp: now,
+      integrity
+    });
 
     return {
-      windowStart: new Date(sinceTimestamp).toISOString(),
-      windowEnd: new Date(now).toISOString(),
-      totalEvents: filtered.length,
-      uniqueIps: ipCounter.size,
-      byType,
-      topIps,
-      alertFlags: risk.flags,
-      riskScore: risk.score,
-      riskLevel: risk.level
+      object: 'security_audit_export',
+      tenant_id: tenantId,
+      generated_at: new Date(now).toISOString(),
+      filter: {
+        since: query.sinceTimestamp ? new Date(query.sinceTimestamp).toISOString() : undefined,
+        limit,
+        truncated: totalMatchingEvents > events.length,
+        total_matching_events: totalMatchingEvents
+      },
+      summary,
+      integrity,
+      data: events
     };
   }
 
@@ -384,15 +657,14 @@ class SecurityAuditLog {
 
     for (const [tenantId, rawEvents] of Object.entries(snapshot.tenants)) {
       const events = Array.isArray(rawEvents)
-        ? rawEvents.map((event) => sanitizeLoadedEvent(event)).filter((event): event is SecurityAuditEvent => Boolean(event))
+        ? rawEvents.map((event) => sanitizeLoadedEvent(event)).filter((event): event is LoadedAuditEvent => Boolean(event))
         : [];
 
       if (events.length === 0) {
         continue;
       }
 
-      events.sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
-      const bounded = events.slice(-this.maxEventsPerTenant);
+      const bounded = attachChain(events).slice(-this.maxEventsPerTenant);
       this.eventsByTenant.set(tenantId, bounded);
     }
   }
@@ -402,11 +674,41 @@ class SecurityAuditLog {
       version: SNAPSHOT_VERSION,
       updatedAt: new Date().toISOString(),
       tenants: Object.fromEntries(
-        [...this.eventsByTenant.entries()].map(([tenantId, events]) => [
-          tenantId,
-          events.slice(-this.maxEventsPerTenant)
-        ])
+        [...this.eventsByTenant.entries()].map(([tenantId, events]) => [tenantId, events.slice(-this.maxEventsPerTenant)])
       )
+    };
+  }
+
+  private selectWindow(
+    bucket: SecurityAuditEvent[],
+    query: {
+      sinceTimestamp?: number;
+      limit?: number;
+    }
+  ): {
+    events: SecurityAuditEvent[];
+    anchorPrevChainHash: string | null;
+    totalMatchingEvents: number;
+  } {
+    let startIndex = 0;
+    if (query.sinceTimestamp) {
+      while (startIndex < bucket.length && Date.parse(bucket[startIndex]!.timestamp) <= query.sinceTimestamp) {
+        startIndex += 1;
+      }
+    }
+
+    const matching = bucket.slice(startIndex);
+    const totalMatchingEvents = matching.length;
+    const limit = query.limit ? Math.max(1, Math.min(query.limit, 1000)) : undefined;
+    const events = limit && matching.length > limit ? matching.slice(-limit) : matching;
+    const firstEvent = events[0];
+    const firstIndex = firstEvent ? bucket.findIndex((candidate) => candidate.event_id === firstEvent.event_id) : -1;
+    const anchorPrevChainHash = firstIndex > 0 ? bucket[firstIndex - 1]!.chain_hash : null;
+
+    return {
+      events,
+      anchorPrevChainHash,
+      totalMatchingEvents
     };
   }
 
