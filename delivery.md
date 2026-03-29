@@ -1,14 +1,42 @@
-# DELIVERY — SMART-AI v1.9 (Tenant Remote Source Policy)
+# DELIVERY — SMART-AI v1.10 (Tamper-Evident Security Export)
 
 ## Özet
-Bu koşumda en yüksek etkili günlük iyileştirme olarak **tenant remote source policy control plane** teslim edildi.
+Bu koşumda en yüksek etkili günlük iyileştirme olarak **tamper-evident security export pipeline** teslim edildi.
 
 Teslimin odağı:
-- secure-by-default remote ingest governance,
-- tenant bazlı remote source policy API + dashboard yönetimi,
-- punycode/wildcard-safe host allowlist enforcement,
-- policy deny/update/reset audit telemetry,
-- regression + smoke + delivery gate doğrulaması.
+- admin-scope security export + verify API,
+- audit log üzerinde hash-chain integrity,
+- dashboard risk/integrity görünürlüğü + tek tık export,
+- regression + smoke + dependency audit + delivery gate doğrulaması.
+
+## 2026-03-29 Teslim paketi (Tamper-evident security export pipeline)
+### Yapılanlar
+1. **Yeni özellik — security export + verify API**
+   - `GET /v1/security/export` ile tenant bazlı audit evidence export eklendi.
+   - `POST /v1/security/export/verify` ile export bundle server-side doğrulanabiliyor.
+2. **Ciddi güvenlik iyileştirmesi — tamper-evident hash chain**
+   - Audit eventler artık `sequence`, `prev_chain_hash`, `chain_hash` alanlarıyla zincirleniyor.
+   - Persisted audit store eski snapshot’lardan geriye uyumlu biçimde hash-chain’e yükseltiliyor.
+3. **Ciddi güvenlik iyileştirmesi — least-privilege export gating**
+   - Export ve verify admin scope arkasına alındı.
+   - Read-only credential summary okuyabiliyor ama evidence export edemiyor.
+4. **Ops / UX iyileştirmesi — gerçek security summary + dashboard download**
+   - `/v1/security/summary` artık risk + integrity telemetry döndürüyor.
+   - Dashboard güvenlik kartı gerçek summary verisiyle besleniyor ve admin kullanıcı tek tık export indirebiliyor.
+5. **Test / kalite iyileştirmesi**
+   - Security contract ve audit-log testleri hash-chain, tamper detection ve role gating senaryolarıyla genişletildi.
+
+### Verification
+- `npm run typecheck` ✅
+- `npm test` ✅ (**149/149**)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `PORT=3457 npm run start` + `curl /v1/security/summary` + `curl /v1/security/export` ✅ smoke başarılı (`summary=200`, `export=200`, `integrity=true`)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+
+### Kalan riskler
+- Export hattı şu an pull-based; webhook/SIEM push delivery backlog’da.
+- Export verify server-side; public-key dağıtımlı bağımsız verifier henüz yok.
+- Audit/session/policy persistence hâlâ shared backend’e taşınmadı.
 
 ## 2026-03-28 Teslim paketi (Tenant remote source policy control plane)
 ### Yapılanlar

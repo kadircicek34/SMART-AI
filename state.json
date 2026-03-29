@@ -1,19 +1,25 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "Tenant remote source policy control plane production-grade olarak teslim edildi",
+  "current_task": "Tamper-evident security export pipeline production-grade olarak teslim edildi",
   "next_actions": [
-    "DNS rebinding riskini daha da düşürmek için lookup→connect pinning veya egress proxy katmanı ekle",
-    "Remote source policy için staged approval / two-person review workflow tasarla",
-    "Security audit verisini SIEM veya webhook export pipeline'ına bağla",
-    "UI session, security audit ve remote policy persistence katmanını shared backend'e taşı"
+    "Security export hattını webhook/SIEM push delivery moduna genişlet",
+    "Security export için public-key signed manifest veya bağımsız verifier dağıtımını tasarla",
+    "Remote URL fetch hattında lookup→connect pinning veya egress proxy ile anti-rebinding korumasını sertleştir",
+    "UI session, security audit ve policy persistence katmanını shared backend'e taşı"
   ],
   "risks": [
-    "allowlist_only modunda preview halen public-safe fetch yapabiliyor; daha sert preview governance bir sonraki fazda değerlendirilmeli",
-    "Remote URL fetch hattında lookup ile gerçek connect arasında tam pinning yok; ileri anti-rebinding katmanı backlog'da",
-    "Security event export/SIEM entegrasyonu henüz bulunmuyor"
+    "Security export şu an pull-based; webhook/SIEM push delivery henüz yok",
+    "Security export verify server-side çalışıyor; dış sistem için bağımsız public-key verifier henüz bulunmuyor",
+    "Remote URL fetch hattında lookup ile gerçek connect arasında tam pinning yok; anti-rebinding backlog'da",
+    "Audit/session/policy persistence hâlâ local file tabanlı; multi-instance shared backend gerekecek"
   ],
   "decisions": [
+    {
+      "date": "2026-03-29",
+      "decision": "Tamper-evident security export pipeline'ını admin-scope export + verify API ile canlıya al",
+      "reason": "Tenant security evidence'ını dış sisteme taşınabilir ve transfer sonrası doğrulanabilir hale getirmek"
+    },
     {
       "date": "2026-03-28",
       "decision": "Tenant remote source policy control plane'i secure-by-default olarak canlıya al",
@@ -33,11 +39,6 @@
       "date": "2026-03-25",
       "decision": "Scoped credential modeli + /v1/auth/context + UI session origin binding ekle",
       "reason": "Least-privilege authZ kurup hassas admin yüzeylerini read/operate credential'lardan ayırmak ve UI session replay yüzeyini daraltmak"
-    },
-    {
-      "date": "2026-03-24",
-      "decision": "Tenant model policy'yi fail-closed enforcement ile canlıya al",
-      "reason": "Deployment allowlist içinde tenant bazlı model sınırlarını üretim güvenliğiyle yönetmek"
     }
   ],
   "artifacts": [
@@ -46,22 +47,14 @@
     "delivery.md",
     "security-report.md",
     "test-report.md",
-    "service/.env.example",
     "service/README.md",
-    "service/config.ts",
-    "service/api/routes/rag.ts",
-    "service/rag/remote-policy.ts",
-    "service/rag/remote-url.ts",
-    "service/rag/service.ts",
-    "service/rag/types.ts",
+    "service/api/routes/security-events.ts",
     "service/security/audit-log.ts",
     "service/security/authz.ts",
     "service/web/dashboard.html",
     "service/web/assets/dashboard.js",
-    "service/tests/contract/rag-remote-policy.test.ts",
-    "service/tests/contract/rag.test.ts",
-    "service/tests/rag/rag-service.test.ts",
-    "service/tests/security/remote-policy.test.ts"
+    "service/tests/contract/security-events.test.ts",
+    "service/tests/security/audit-log.test.ts"
   ],
-  "updated_at": "2026-03-28T07:00:00+03:00"
+  "updated_at": "2026-03-29T07:00:00+03:00"
 }

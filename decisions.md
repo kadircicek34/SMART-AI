@@ -1,5 +1,42 @@
 # DECISIONS — OpenRouter Agentic Intelligence API
 
+## 2026-03-29 — Tamper-evident security export pipeline kararı
+### Problem
+Security summary ve event feed tenant içinde görünür hale gelmişti; ancak üç kritik operasyon/güvenlik açığı sürüyordu:
+1. Incident-response veya SIEM ingestion için audit evidence dışarı alınamıyordu.
+2. Export edilen olayların transfer sonrası değiştirilip değiştirilmediğini doğrulayan hash-chain mekanizması yoktu.
+3. Dashboard’da risk seviyesi görünse de operatörün tek tıkla security bundle indirme yüzeyi eksikti.
+
+### Seçenekler
+- A: Mevcut `/v1/security/events` + `/v1/security/summary` yüzeyiyle devam etmek
+- B: Doğrudan webhook/SIEM push hattısına geçmek
+- C: Admin-scope export API + verify endpoint + tamper-evident hash chain + dashboard download akışını tek koşumda teslim etmek
+
+### Karar
+**C seçildi:**
+1. **Yeni özellik:** `GET /v1/security/export` ile tenant bazlı tamper-evident audit bundle export eklendi.
+2. **Ciddi güvenlik iyileştirmesi #1:** Audit eventler artık `sequence`, `prev_chain_hash`, `chain_hash` alanlarıyla zincirleniyor; export bundle üzerinde transfer sonrası bütünlük kanıtı üretilebiliyor.
+3. **Ciddi güvenlik iyileştirmesi #2:** `POST /v1/security/export/verify` ile export bundle server-side doğrulanabiliyor; değiştirilmiş payload deterministik biçimde yakalanıyor.
+4. **Ciddi güvenlik iyileştirmesi #3:** Export ve verify yüzeyi `tenant:admin` scope arkasına alındı; read-only credential’lar summary okuyabilirken delil paketi export edemiyor.
+5. **Ops / UX iyileştirmesi:** Dashboard artık gerçek `/v1/security/summary` verisini risk + integrity bilgisiyle gösteriyor ve tek tık security export indiriyor.
+
+### Gerekçe
+- Security event listesi incident-response için yararlıydı ama dış sisteme taşınabilir, doğrulanabilir evidence üretmiyordu.
+- Hash-chain, ayrı bir KMS/SIEM yatırımı yapmadan audit log’u daha güvenilir hale getirmenin düşük maliyetli yolunu sağladı.
+- Export/verify/dash akışını aynı koşumda teslim etmek, bu özelliği “yalnızca backend capability” olmaktan çıkarıp operasyonel olarak gerçekten kullanılabilir hale getirdi.
+
+### Etki
+- Tenant admin artık son pencerenin security evidence paketini indirip tekrar doğrulayabiliyor.
+- Summary endpoint nihayet gerçek risk + integrity telemetry döndürüyor.
+- Security audit log persistence’i eski snapshot’lardan geriye uyumlu biçimde hash-chain’e yükseltildi.
+
+### Bilinçli Olarak Ertelenenler
+- Webhook/SIEM push delivery hattı
+- Public-key signed export manifest / dış doğrulayıcı dağıtımı
+- UI session / audit / policy store için shared persistence backend
+
+---
+
 ## 2026-03-28 — Tenant remote source policy control plane kararı
 ### Problem
 Secure remote RAG preview/ingest hattı SSRF açısından fail-closed hale getirilmişti; ancak üretimde iki kritik açık kalmıştı:
