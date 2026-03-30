@@ -1,20 +1,25 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "Tamper-evident security export pipeline production-grade olarak teslim edildi",
+  "current_task": "Tamper-evident security export delivery pipeline production-grade olarak teslim edildi",
   "next_actions": [
-    "Security export hattını webhook/SIEM push delivery moduna genişlet",
-    "Security export için public-key signed manifest veya bağımsız verifier dağıtımını tasarla",
+    "Security export delivery için retry/backoff queue ve dead-letter stratejisi ekle",
+    "Security export signature modelini asymmetric verifier + key rotation registry ile genişlet",
     "Remote URL fetch hattında lookup→connect pinning veya egress proxy ile anti-rebinding korumasını sertleştir",
-    "UI session, security audit ve policy persistence katmanını shared backend'e taşı"
+    "UI session, security audit, delivery receipt ve policy persistence katmanını shared backend'e taşı"
   ],
   "risks": [
-    "Security export şu an pull-based; webhook/SIEM push delivery henüz yok",
-    "Security export verify server-side çalışıyor; dış sistem için bağımsız public-key verifier henüz bulunmuyor",
+    "Security export delivery başarısız upstream çağrılarda otomatik retry/backoff yapmıyor",
+    "Security export signature şu an symmetric HMAC tabanlı; bağımsız üçüncü taraf verifier için asymmetric model henüz yok",
     "Remote URL fetch hattında lookup ile gerçek connect arasında tam pinning yok; anti-rebinding backlog'da",
-    "Audit/session/policy persistence hâlâ local file tabanlı; multi-instance shared backend gerekecek"
+    "Audit/session/policy/delivery persistence hâlâ local file tabanlı; multi-instance shared backend gerekecek"
   ],
   "decisions": [
+    {
+      "date": "2026-03-30",
+      "decision": "Tamper-evident security export delivery pipeline'ını allowlist + DNS pinning + HMAC ile canlıya al",
+      "reason": "Tenant security evidence'ını SIEM/webhook tarafına güvenli, auditlenebilir ve tamper-evident biçimde göndermek"
+    },
     {
       "date": "2026-03-29",
       "decision": "Tamper-evident security export pipeline'ını admin-scope export + verify API ile canlıya al",
@@ -34,11 +39,6 @@
       "date": "2026-03-26",
       "decision": "Persistent security control plane + admin session management + fastify advisory patch teslim et",
       "reason": "Restart sonrası güvenlik state continuity sağlamak, tenant admin incident-response hızını artırmak ve dependency advisory riskini kapatmak"
-    },
-    {
-      "date": "2026-03-25",
-      "decision": "Scoped credential modeli + /v1/auth/context + UI session origin binding ekle",
-      "reason": "Least-privilege authZ kurup hassas admin yüzeylerini read/operate credential'lardan ayırmak ve UI session replay yüzeyini daraltmak"
     }
   ],
   "artifacts": [
@@ -48,13 +48,16 @@
     "security-report.md",
     "test-report.md",
     "service/README.md",
+    "service/config.ts",
+    "service/rag/remote-policy.ts",
     "service/api/routes/security-events.ts",
     "service/security/audit-log.ts",
     "service/security/authz.ts",
+    "service/security/export-delivery.ts",
     "service/web/dashboard.html",
     "service/web/assets/dashboard.js",
     "service/tests/contract/security-events.test.ts",
-    "service/tests/security/audit-log.test.ts"
+    "service/tests/contract/security-export-deliveries.test.ts"
   ],
-  "updated_at": "2026-03-29T07:00:00+03:00"
+  "updated_at": "2026-03-30T07:00:00+03:00"
 }

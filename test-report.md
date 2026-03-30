@@ -1,9 +1,25 @@
-# TEST REPORT — SMART-AI v1.10 (Tamper-Evident Security Export)
+# TEST REPORT — SMART-AI v1.11 (Tamper-Evident Security Export Delivery)
 
 ## Test Stratejisi
 - Contract tests: OpenAI-compatible + RAG + Memory + MCP + UI endpointleri
 - Security tests: key-store + policy allowlist + UI session token auth akışı
 - Unit tests: orchestrator/verifier, deep_research, financial runtime, qmd, memory, MCP circuit/store
+
+## 2026-03-30 Ek doğrulama (Tamper-evident security export delivery)
+- `npm run typecheck` ✅
+- `npx tsx --test tests/contract/security-events.test.ts tests/contract/security-export-deliveries.test.ts` ✅ (**9/9**)
+- `npm test` ✅ (**152/152**)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+- Yeni testler / güncellemeler:
+  - `service/tests/contract/security-export-deliveries.test.ts`
+    - allowlist dışı host için admin-block + redacted receipt doğrulaması
+    - HMAC-imzalı delivery dispatch contract doğrulaması
+    - read-only credential için list/create deny doğrulaması
+  - `service/tests/contract/security-events.test.ts`
+    - export/verify akışında regresyon doğrulaması sürdürüldü
+  - Dashboard smoke etkisi
+    - yeni delivery paneli aynı `/ui/dashboard` yüzeyinden çalışıyor; endpoint contract testleri ve tam regresyon paketi ile doğrulandı
 
 ## 2026-03-29 Ek doğrulama (Tamper-evident security export pipeline)
 - `npm run typecheck` ✅
