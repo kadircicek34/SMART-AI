@@ -1,4 +1,4 @@
-# SECURITY REPORT — SMART-AI v1.10
+# SECURITY REPORT — SMART-AI v1.11
 
 ## Kapsam
 Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
@@ -9,6 +9,7 @@ Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
 - Tool safety (policy allowlist + loop guard)
 - MCP resilience + persistence güvenliği
 - Dependency güvenliği (`npm audit`)
+- Security export egress güvenliği (webhook/SIEM delivery)
 
 ## Kontrol Sonuçları
 | Alan | Durum | Not |
@@ -19,7 +20,33 @@ Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
 | UI static route security | ✅ | path traversal bloklandı (`isPathInside`) |
 | MCP call güvenliği | ✅ | sabit command template + JSON args + adaptive timeout + circuit guard |
 | MCP persistence güvenliği | ✅ | snapshot atomik tmp→rename ile yazılıyor |
+| Security export delivery egress | ✅ | HTTPS-only + allowlist + DNS pinning + HMAC signature + redacted receipts |
 | Dependencies | ✅ | `npm audit --omit=dev` sonucu 0 vuln |
+
+## 2026-03-30 Güvenlik sertleştirmesi — tamper-evident security export delivery
+- **Allowlist-controlled outbound delivery**
+  - Yeni endpointler: `GET/POST /v1/security/export/deliveries`
+  - Delivery yalnızca tenant remote policy `allowed_hosts` eşleşmesi olan hedeflerde açılıyor.
+  - Embedded credential içeren veya allowlist dışı host/port kullanan URL’ler bloklanıyor.
+- **DNS pinning + public egress enforcement**
+  - Hedef hostname public DNS ile resolve ediliyor ve request pinned address üzerinden gönderiliyor.
+  - Private/local/reserved IP alanlarına egress fail-closed reddediliyor.
+  - Varsayılan allowed port yüzeyi `443` ile sınırlı.
+- **Tamper-evident delivery headers**
+  - `content-digest`, `x-smart-ai-signature`, `x-smart-ai-signature-input`, `x-smart-ai-delivery-id`, `x-smart-ai-head-chain-hash` header’ları eklendi.
+  - İmza tenant-scoped master-key türevi ile üretildi; body hash + timestamp + nonce metadata’sı taşınıyor.
+- **Receipt redaction + audit telemetry**
+  - Delivery geçmişi path/query secret’larını saklamıyor; sadece redacted origin/host/path-hash metadata tutuluyor.
+  - Yeni event tipleri: `security_export_delivered`, `security_export_delivery_failed`, `security_export_delivery_blocked`.
+  - Risk summary artık `security_export_egress_policy_violations` ve `security_export_delivery_instability` sinyallerini yükseltebilir.
+- **Operator UX**
+  - Dashboard’a recent delivery tablosu ve webhook push paneli eklendi.
+  - Read-only credential’lar bu admin yüzeye erişemiyor.
+
+Kalan risk:
+- Delivery retry queue / dead-letter mekanizması henüz yok; başarısız upstream çağrılar manual retry gerektiriyor.
+- HMAC imza symmetric model kullanıyor; üçüncü taraf bağımsız doğrulama için asymmetric signing / key registry backlog’da.
+- Delivery allowlist şu an remote source allowlist ile paylaşılıyor; ileride ayrı bir egress policy plane düşünülebilir.
 
 ## 2026-03-29 Güvenlik sertleştirmesi — tamper-evident security export
 - **Tamper-evident audit chain**
