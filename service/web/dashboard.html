@@ -167,6 +167,41 @@
       </section>
 
       <section class="card">
+        <h2>Security Export Delivery</h2>
+        <div class="grid-3">
+          <label>
+            Webhook / SIEM URL
+            <input id="securityDeliveryUrl" type="url" placeholder="https://siem.example.com/hooks/smart-ai" />
+          </label>
+          <label>
+            Window (saat)
+            <input id="securityDeliveryWindowHours" type="number" min="1" max="720" value="24" />
+          </label>
+          <label>
+            Event Limit
+            <input id="securityDeliveryLimit" type="number" min="1" max="1000" value="500" />
+          </label>
+        </div>
+        <div class="actions">
+          <button id="deliverSecurityExport">Webhook'a Gönder</button>
+        </div>
+        <p id="securityDeliverySummary" class="muted">Host, Remote Source Policy allowlist içinde olmalı. İstek HTTPS + HMAC imzası + DNS pinning ile gönderilir.</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Zaman</th>
+              <th>Durum</th>
+              <th>Hedef</th>
+              <th>HTTP</th>
+              <th>Olay</th>
+              <th>Not</th>
+            </tr>
+          </thead>
+          <tbody id="securityDeliveryTableBody"></tbody>
+        </table>
+      </section>
+
+      <section class="card">
         <h2>Aktif UI Oturumları</h2>
         <p class="muted">Admin oturumları bu tenant içindeki aktif dashboard/chat oturumlarını görebilir ve gerekirse mevcut oturumu düşürmeden diğerlerini kapatabilir.</p>
         <table>

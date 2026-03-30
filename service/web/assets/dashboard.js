@@ -97,6 +97,10 @@ function setAdminControlsEnabled(enabled) {
     'remotePolicyMode',
     'remotePolicyAllowedHosts',
     'exportSecurity',
+    'securityDeliveryUrl',
+    'securityDeliveryWindowHours',
+    'securityDeliveryLimit',
+    'deliverSecurityExport',
     'revokeOtherSessions'
   ]) {
     const node = document.getElementById(id);
@@ -229,6 +233,32 @@ function renderSecurityTable(events = []) {
   }
 }
 
+function renderSecurityDeliveriesTable(deliveries = []) {
+  const tbody = document.getElementById('securityDeliveryTableBody');
+  tbody.innerHTML = '';
+
+  if (!deliveries.length) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="6">Henüz delivery yok</td>';
+    tbody.appendChild(tr);
+    return;
+  }
+
+  for (const delivery of deliveries) {
+    const tr = document.createElement('tr');
+    const note = delivery.failure_reason ?? delivery.response_excerpt ?? '—';
+    tr.innerHTML = `
+      <td>${escapeHtml(new Date(delivery.completed_at).toLocaleString('tr-TR'))}</td>
+      <td>${escapeHtml(delivery.status)}</td>
+      <td>${escapeHtml(delivery?.destination?.origin ?? '—')}<br /><span class="muted">${escapeHtml(delivery?.destination?.host ?? '—')}</span></td>
+      <td>${escapeHtml(delivery.http_status ?? '—')}</td>
+      <td>${escapeHtml(delivery.event_count ?? 0)}</td>
+      <td>${escapeHtml(String(note).slice(0, 140))}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
 function renderUiSessionsTable(sessions = []) {
   const tbody = document.getElementById('uiSessionsTableBody');
   tbody.innerHTML = '';
@@ -271,6 +301,15 @@ function parseAllowedModelsInput(value) {
     .split(/[,\n]/)
     .map((item) => item.trim())
     .filter(Boolean))];
+}
+
+function parsePositiveInteger(value, fallback, { min = 1, max = Number.MAX_SAFE_INTEGER } = {}) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return Math.min(max, Math.max(min, Math.trunc(parsed)));
 }
 
 function renderModelPolicy(policy) {
@@ -339,8 +378,10 @@ function applyAuthContext(context) {
 
   if (!adminEnabled) {
     document.getElementById('uiSessionsSummary').textContent = 'admin gerekli';
+    document.getElementById('securityDeliverySummary').textContent = 'admin gerekli';
     renderUiSessionsTable([]);
-    log('Bu oturum admin yetkisine sahip değil; model policy, remote policy, session control ve MCP flush kontrolleri salt okunur moda alındı.');
+    renderSecurityDeliveriesTable([]);
+    log('Bu oturum admin yetkisine sahip değil; model policy, remote policy, security delivery, session control ve MCP flush kontrolleri salt okunur moda alındı.');
   }
 }
 
@@ -506,6 +547,61 @@ async function downloadSecurityExport(settings) {
   return bundle;
 }
 
+async function loadSecurityDeliveries(settings) {
+  await maybeRefreshSession(settings);
+
+  const response = await safeFetchJson(`${settings.baseUrl}/v1/security/export/deliveries?limit=10`, {
+    headers: authHeaders(settings)
+  });
+
+  const deliveries = Array.isArray(response?.data) ? response.data : [];
+  document.getElementById('securityDeliverySummary').textContent =
+    deliveries.length > 0
+      ? `recent=${deliveries.length}, last=${deliveries[0]?.status ?? '—'}, host allowlist zorunlu, HTTPS + HMAC + DNS pinning aktif`
+      : 'Host, Remote Source Policy allowlist içinde olmalı. İstek HTTPS + HMAC imzası + DNS pinning ile gönderilir.';
+  renderSecurityDeliveriesTable(deliveries);
+  return deliveries;
+}
+
+async function deliverSecurityExport(settings) {
+  await maybeRefreshSession(settings);
+
+  const destinationUrl = document.getElementById('securityDeliveryUrl').value.trim();
+  if (!destinationUrl) {
+    throw new Error('Webhook / SIEM URL gerekli.');
+  }
+
+  const windowHours = parsePositiveInteger(document.getElementById('securityDeliveryWindowHours').value, 24, {
+    min: 1,
+    max: 720
+  });
+  const limit = parsePositiveInteger(document.getElementById('securityDeliveryLimit').value, 500, {
+    min: 1,
+    max: 1000
+  });
+
+  const response = await safeFetchJson(`${settings.baseUrl}/v1/security/export/deliveries`, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(settings),
+      origin: window.location.origin
+    },
+    body: JSON.stringify({
+      destinationUrl,
+      windowHours,
+      limit,
+      topIpLimit: 5
+    })
+  });
+
+  const delivery = response?.data ?? {};
+  log(
+    `Security export delivery tamamlandı. status=${delivery.status ?? 'unknown'}, http=${delivery.http_status ?? '—'}, events=${delivery.event_count ?? 0}`
+  );
+  await loadSecurityDeliveries(settings);
+  return delivery;
+}
+
 async function loadDashboard(settings) {
   if (!settings.tenantId) {
     throw new Error('Tenant ID zorunlu.');
@@ -550,6 +646,7 @@ async function loadDashboard(settings) {
   await loadModelPolicy(settings);
   await loadRemotePolicy(settings);
   if (authContext?.permissions?.admin) {
+    await loadSecurityDeliveries(settings);
     await loadUiSessions(settings);
   }
   log('Dashboard güncellendi.');
@@ -618,7 +715,9 @@ async function signOut(settings) {
     setSessionCapabilities('Yetki bilgisi: aktif oturum yok.');
     document.getElementById('uiSessionsSummary').textContent = '—';
     document.getElementById('remotePolicySummary').textContent = '—';
+    document.getElementById('securityDeliverySummary').textContent = '—';
     renderUiSessionsTable([]);
+    renderSecurityDeliveriesTable([]);
   }
 
   log('Dashboard oturumu kapatıldı.');
@@ -637,7 +736,9 @@ async function init() {
   setSessionCapabilities('Yetki bilgisi: aktif oturum yok.');
   document.getElementById('uiSessionsSummary').textContent = '—';
   document.getElementById('remotePolicySummary').textContent = '—';
+  document.getElementById('securityDeliverySummary').textContent = '—';
   renderUiSessionsTable([]);
+  renderSecurityDeliveriesTable([]);
 
   document.getElementById('saveSettings').addEventListener('click', () => {
     const next = readSettingsForm();
@@ -706,6 +807,19 @@ async function init() {
     try {
       await downloadSecurityExport(next);
       setStatus('Security export indirildi.');
+    } catch (error) {
+      setStatus(String(error), true);
+      log(`Hata: ${String(error)}`);
+    }
+  });
+
+  document.getElementById('deliverSecurityExport').addEventListener('click', async () => {
+    const next = readSettingsForm();
+    setSettings(next);
+
+    try {
+      await deliverSecurityExport(next);
+      setStatus('Security export webhook delivery tamamlandı.');
     } catch (error) {
       setStatus(String(error), true);
       log(`Hata: ${String(error)}`);
