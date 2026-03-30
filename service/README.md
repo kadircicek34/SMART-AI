@@ -91,6 +91,13 @@
 - `SECURITY_BEARER_TOKEN_MAX_LENGTH` (varsayılan: 2048)
 - `SECURITY_TENANT_HEADER_MAX_LENGTH` (varsayılan: 128)
 - `SECURITY_UI_API_KEY_MAX_LENGTH` (varsayılan: 512)
+- `SECURITY_EXPORT_DELIVERY_STORE_FILE` (varsayılan: `.data/security-export-deliveries.json`)
+- `SECURITY_EXPORT_DELIVERY_TIMEOUT_MS` (varsayılan: 10000)
+- `SECURITY_EXPORT_DELIVERY_MAX_RESPONSE_BYTES` (varsayılan: 32768)
+- `SECURITY_EXPORT_DELIVERY_MAX_RECORDS_PER_TENANT` (varsayılan: 100)
+- `SECURITY_EXPORT_DELIVERY_ALLOWED_PORTS` (varsayılan: `443`)
+- `SECURITY_EXPORT_DELIVERY_ALLOW_IP_LITERALS` (varsayılan: `false`, önerilen: kapalı)
+- `SECURITY_EXPORT_DELIVERY_USER_AGENT` (varsayılan: `SMART-AI-Security-Delivery/1.0`)
 
 ## New endpoints
 - `GET /v1/rag/remote-policy` → tenant için effective remote source policy (deployment/tenant)
@@ -113,6 +120,8 @@
 - `GET /v1/security/events` → tenant-scope güvenlik olay akışı (auth/rate-limit/origin/session/job/model policy)
 - `GET /v1/security/summary` → tenant güvenlik risk özeti (riskScore/riskLevel/flags/top IP + integrity)
 - `GET /v1/security/export` → admin-scope tamper-evident audit bundle export (sequence + prev_chain_hash + chain_hash)
+- `GET /v1/security/export/deliveries` → son export delivery receipt’lerini listele
+- `POST /v1/security/export/deliveries` → allowlisted HTTPS webhook/SIEM hedefine HMAC-imzalı export gönder
 - `POST /v1/security/export/verify` → export edilen audit bundle'ın bütünlüğünü yeniden doğrula
 - `GET /v1/model-policy` → tenant için effective model policy (inherit/custom/invalid durumu)
 - `PUT /v1/model-policy` → tenant bazlı model allowlist + default model güncelleme
@@ -136,6 +145,14 @@
 - Redirect zinciri manuel izlenir; her hop yeniden validate edilir.
 - Content-Type allowlist, body byte cap ve timeout guardrail’leri uygulanır.
 - Güvenlik olayları `rag_remote_url_previewed`, `rag_remote_url_ingested`, `rag_remote_url_blocked`, `rag_remote_url_fetch_failed`, `rag_remote_policy_denied`, `rag_remote_policy_updated`, `rag_remote_policy_reset` tipleriyle audit log’a yazılır.
+
+## Security export delivery
+- Security export artık dashboard’dan veya API üzerinden allowlisted bir HTTPS webhook/SIEM hedefine push edilebilir.
+- Delivery yalnızca tenant remote policy `allowed_hosts` listesinde eşleşen hostlara açılır; serbest outbound POST yoktur.
+- Hedef hostname public DNS ile resolve edilir ve pinned address üzerinden bağlanılır; private/local/reserved ağlara egress fail-closed reddedilir.
+- Her istekte `content-digest`, `x-smart-ai-signature`, `x-smart-ai-signature-input`, `x-smart-ai-delivery-id`, `x-smart-ai-head-chain-hash` header’ları gönderilir.
+- Receipt history path/query secret’larını loglamaz; yalnızca redacted destination origin + hash metadata saklar.
+- Audit event tipleri: `security_export_delivered`, `security_export_delivery_failed`, `security_export_delivery_blocked`.
 
 ## Tool plane updates
 - `qmd_search` aracı eklendi (VPS'teki kurulu `qmd` CLI ile lokal repo doküman araması)

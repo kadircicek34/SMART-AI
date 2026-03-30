@@ -303,7 +303,7 @@ function matchAllowedHostRule(hostname: string, rule: string): boolean {
   return hostname === rule;
 }
 
-function resolveMatchedHostRule(hostname: string, allowedHosts: string[]): string | null {
+export function findAllowedRemoteHostRule(hostname: string, allowedHosts: string[]): string | null {
   for (const rule of allowedHosts) {
     if (matchAllowedHostRule(hostname, rule)) {
       return rule;
@@ -320,7 +320,7 @@ export async function evaluateTenantRemoteUrlPolicy(
   const policy = await getEffectiveTenantRemotePolicy(tenantId);
   const parsed = new URL(url);
   const hostname = normalizeRemoteHostname(parsed.hostname);
-  const matchedHostRule = resolveMatchedHostRule(hostname, policy.allowedHosts);
+  const matchedHostRule = findAllowedRemoteHostRule(hostname, policy.allowedHosts);
 
   if (policy.mode === 'disabled') {
     return {

@@ -32,7 +32,10 @@ export const SECURITY_AUDIT_EVENT_TYPES = [
   'rag_remote_url_ingested',
   'rag_remote_policy_denied',
   'rag_remote_policy_updated',
-  'rag_remote_policy_reset'
+  'rag_remote_policy_reset',
+  'security_export_delivered',
+  'security_export_delivery_failed',
+  'security_export_delivery_blocked'
 ] as const;
 
 export type SecurityAuditEventType = (typeof SECURITY_AUDIT_EVENT_TYPES)[number];
@@ -215,6 +218,8 @@ function evaluateRisk(byType: Record<SecurityAuditEventType, number>): {
   score += byType.rag_remote_url_blocked * 3;
   score += byType.rag_remote_url_fetch_failed * 2;
   score += byType.rag_remote_policy_denied * 3;
+  score += byType.security_export_delivery_failed * 2;
+  score += byType.security_export_delivery_blocked * 3;
 
   const flags: string[] = [];
 
@@ -268,6 +273,14 @@ function evaluateRisk(byType: Record<SecurityAuditEventType, number>): {
 
   if (byType.rag_remote_url_fetch_failed >= 3) {
     flags.push('remote_fetch_upstream_instability');
+  }
+
+  if (byType.security_export_delivery_blocked >= 2) {
+    flags.push('security_export_egress_policy_violations');
+  }
+
+  if (byType.security_export_delivery_failed >= 2) {
+    flags.push('security_export_delivery_instability');
   }
 
   let level: SecurityAuditSummary['riskLevel'] = 'low';
