@@ -1,13 +1,45 @@
-# DELIVERY — SMART-AI v1.10 (Tamper-Evident Security Export)
+# DELIVERY — SMART-AI v1.11 (Tamper-Evident Security Export Delivery)
 
 ## Özet
-Bu koşumda en yüksek etkili günlük iyileştirme olarak **tamper-evident security export pipeline** teslim edildi.
+Bu koşumda en yüksek etkili günlük iyileştirme olarak **tamper-evident security export delivery pipeline** teslim edildi.
 
 Teslimin odağı:
-- admin-scope security export + verify API,
-- audit log üzerinde hash-chain integrity,
-- dashboard risk/integrity görünürlüğü + tek tık export,
-- regression + smoke + dependency audit + delivery gate doğrulaması.
+- admin-scope `security export deliveries` API,
+- allowlist + HTTPS + DNS pinning + HMAC ile outbound security egress sertleştirmesi,
+- dashboard üzerinde webhook/SIEM delivery kontrol paneli + receipt history,
+- regression + dependency audit + delivery gate doğrulaması.
+
+## 2026-03-30 Teslim paketi (Tamper-evident security export delivery)
+### Yapılanlar
+1. **Yeni özellik — güvenli webhook/SIEM export delivery API**
+   - `GET /v1/security/export/deliveries` ile recent receipt history eklendi.
+   - `POST /v1/security/export/deliveries` ile export bundle allowlisted hedefe push edilebiliyor.
+   - Dashboard’a webhook URL + window + limit kontrollü delivery paneli eklendi.
+2. **Ciddi güvenlik iyileştirmesi — egress allowlist + HTTPS-only enforcement**
+   - Delivery yalnızca HTTPS hedeflere açılıyor.
+   - Embedded credential içeren URL’ler ve allowlist dışı host/port’lar bloklanıyor.
+   - Export egress, tenant remote source allowlist ile sınırlandı.
+3. **Ciddi güvenlik iyileştirmesi — DNS pinning + public-network guard**
+   - Hedef public DNS ile resolve edilip pinned IP üzerinden çağrılıyor.
+   - Private/local/reserved IP hedefleri fail-closed reddediliyor.
+4. **Ciddi güvenlik iyileştirmesi — HMAC-imzalı tamper-evident transfer**
+   - `content-digest`, `x-smart-ai-signature`, `x-smart-ai-signature-input`, `x-smart-ai-head-chain-hash` header’ları eklendi.
+   - Receipt store path/query secret’larını loglamıyor; redacted destination metadata tutuyor.
+5. **Test / kalite iyileştirmesi**
+   - Yeni contract test dosyası delivery success/block/read-only deny senaryolarını kapsıyor.
+   - Tam regresyon paketi 152/152 yeşil ve dependency audit temiz.
+
+### Verification
+- `npm run typecheck` ✅
+- `npx tsx --test tests/contract/security-events.test.ts tests/contract/security-export-deliveries.test.ts` ✅ (**9/9**)
+- `npm test` ✅ (**152/152**)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+
+### Kalan riskler
+- Delivery retry/backoff queue henüz yok; başarısız upstream için manual retry gerekiyor.
+- İmza symmetric HMAC tabanlı; asymmetric verifier/key rotation backlog’da.
+- Egress allowlist şu an remote source allowlist ile paylaşılıyor; ayrı export-egress policy plane sonraki fazda düşünülebilir.
 
 ## 2026-03-29 Teslim paketi (Tamper-evident security export pipeline)
 ### Yapılanlar

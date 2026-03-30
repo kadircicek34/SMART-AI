@@ -912,3 +912,52 @@ UI tarafında session token modeli vardı ancak üç kritik açık bulunuyordu:
 - Tenant içi kullanıcı bazlı tam RBAC/approval workflow
 - API key registry’nin env yerine merkezi secret backend’den yönetilmesi
 - UI session store ve audit store’un shared/distributed persistence’a taşınması
+
+---
+
+## 2026-03-30 — Tamper-evident security export delivery + egress hardening
+### Problem
+1. Security export bundle’ları yalnızca indirilebiliyordu; SIEM/webhook tarafına güvenli, otomasyon dostu teslim yolu yoktu.
+2. Export delivery eklendiği anda SSRF, private-network egress, replay ve secret leak riskleri doğacaktı.
+3. Operatör tarafında hangi export’un nereye gittiği, başarı/başarısızlık durumu ve audit chain referansı görünür değildi.
+
+### Seçenekler
+- A: Sadece JSON download bırakmak (en güvenli ama operasyonel değeri düşük)
+- B: Serbest URL’e `fetch()` ile POST atmak (hızlı ama production güvenliği zayıf)
+- C: Tenant allowlist kontrollü, HTTPS-only, DNS-pinned, HMAC-imzalı delivery API + dashboard + receipt history
+
+### Karar
+**C seçildi:**
+1. **Yeni özellik:**
+   - `GET/POST /v1/security/export/deliveries` eklendi.
+   - Dashboard’a webhook/SIEM delivery paneli ve recent receipt tablosu eklendi.
+   - Export bundle artık tek tıkla dış sisteme gönderilebiliyor ve delivery geçmişi saklanıyor.
+2. **Ciddi güvenlik iyileştirmesi #1:**
+   - Delivery yalnızca HTTPS hedeflere açık.
+   - Embedded credential içeren URL’ler reddediliyor.
+   - Host, tenant remote source allowlist içinde değilse delivery bloklanıyor.
+3. **Ciddi güvenlik iyileştirmesi #2:**
+   - Hedef hostname public DNS üzerinden resolve edilip pinned address ile bağlanılıyor; private/link-local/reserved ağ egress’i reddediliyor.
+   - Allowed port listesi ile gereksiz egress yüzeyi daraltıldı.
+4. **Ciddi güvenlik iyileştirmesi #3:**
+   - Her delivery için tenant-scoped HMAC header seti (`x-smart-ai-signature`, `content-digest`, timestamp/nonce metadata) üretildi.
+   - Path/query değerleri loglanmıyor; receipt tarafında yalnızca redacted destination metadata tutuluyor.
+5. **Telemetry / ops iyileştirmesi:**
+   - Yeni audit event tipleri: `security_export_delivered`, `security_export_delivery_failed`, `security_export_delivery_blocked`
+   - Risk summary artık delivery instability ve egress policy violation sinyallerini işaretleyebiliyor.
+   - Receipt store sayesinde hangi export’un hangi chain head ile teslim edildiği izlenebilir hale geldi.
+
+### Gerekçe
+- Security export’un gerçek operasyonel değeri, sadece download değil güvenli teslim kabiliyetiyle ortaya çıkıyor.
+- Serbest outbound POST modeli, audit ve security ürünü için kabul edilemez kadar geniş saldırı yüzeyi yaratır.
+- Allowlist + DNS pinning + HMAC kombinasyonu tek günlük koşum içinde güçlü bir production baseline sundu.
+
+### Etki
+- Tenant admin’leri audit bundle’larını kontrollü şekilde SIEM/webhook tarafına push edebiliyor.
+- Export egress yüzeyi audit’lenebilir, allowlist kontrollü ve tamper-evident hale geldi.
+- Dashboard operatörü başarı/başarısızlık geçmişini ve chain hash referansını tek yerden görebiliyor.
+
+### Bilinçli Olarak Ertelenenler
+- Delivery retry queue / exponential backoff worker
+- Public-key (asymmetric) signature + key rotation registry
+- Çok hedefli scheduled export policies / per-destination secret negotiation
