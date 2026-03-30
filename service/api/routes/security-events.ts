@@ -7,6 +7,11 @@ import {
   type SecurityAuditEvent,
   type SecurityAuditEventType
 } from '../../security/audit-log.js';
+import {
+  SecurityExportDeliveryError,
+  deliverSecurityAuditExport,
+  listSecurityExportDeliveries
+} from '../../security/export-delivery.js';
 
 const CHAIN_HASH_REGEX = /^[a-f0-9]{64}$/;
 
@@ -72,6 +77,54 @@ const EXPORT_QUERY_SCHEMA = z.object({
     .refine((value) => value >= 1 && value <= 20, { message: 'top_ip_limit must be between 1 and 20' })
 });
 
+const DELIVERY_LIST_QUERY_SCHEMA = z.object({
+  limit: z
+    .union([z.string(), z.number()])
+    .optional()
+    .transform((value) => {
+      if (value === undefined) return 20;
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return 20;
+      return parsed;
+    })
+    .refine((value) => value >= 1 && value <= 100, { message: 'limit must be between 1 and 100' })
+});
+
+const DELIVERY_BODY_SCHEMA = z.object({
+  destinationUrl: z.string().url().max(2048),
+  since: z.string().datetime().optional(),
+  windowHours: z
+    .union([z.string(), z.number()])
+    .optional()
+    .transform((value) => {
+      if (value === undefined) return 24;
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return 24;
+      return parsed;
+    })
+    .refine((value) => value >= 1 && value <= 24 * 30, { message: 'windowHours must be between 1 and 720' }),
+  limit: z
+    .union([z.string(), z.number()])
+    .optional()
+    .transform((value) => {
+      if (value === undefined) return 200;
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return 200;
+      return parsed;
+    })
+    .refine((value) => value >= 1 && value <= 1000, { message: 'limit must be between 1 and 1000' }),
+  topIpLimit: z
+    .union([z.string(), z.number()])
+    .optional()
+    .transform((value) => {
+      if (value === undefined) return 5;
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return 5;
+      return parsed;
+    })
+    .refine((value) => value >= 1 && value <= 20, { message: 'topIpLimit must be between 1 and 20' })
+});
+
 const VERIFY_EVENT_SCHEMA: z.ZodType<SecurityAuditEvent> = z.object({
   event_id: z.string().min(1).max(96),
   tenant_id: z.string().min(1).max(128),
@@ -99,6 +152,36 @@ function authError() {
   };
 }
 
+function invalidRequest(message: string, details?: unknown) {
+  return {
+    error: {
+      type: 'invalid_request_error',
+      message,
+      ...(details ? { details } : {})
+    }
+  };
+}
+
+function permissionError(message: string, delivery?: unknown) {
+  return {
+    error: {
+      type: 'permission_error',
+      message
+    },
+    ...(delivery ? { delivery } : {})
+  };
+}
+
+function apiError(message: string, delivery?: unknown) {
+  return {
+    error: {
+      type: 'api_error',
+      message
+    },
+    ...(delivery ? { delivery } : {})
+  };
+}
+
 export async function registerSecurityEventsRoute(app: FastifyInstance) {
   app.get('/v1/security/events', async (req, reply) => {
     const tenantId = req.requestContext?.tenantId;
@@ -108,13 +191,7 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
 
     const parsed = LIST_QUERY_SCHEMA.safeParse(req.query);
     if (!parsed.success) {
-      return reply.status(400).send({
-        error: {
-          type: 'invalid_request_error',
-          message: 'Invalid query for security events list.',
-          details: parsed.error.flatten()
-        }
-      });
+      return reply.status(400).send(invalidRequest('Invalid query for security events list.', parsed.error.flatten()));
     }
 
     const type = parsed.data.type as SecurityAuditEventType | undefined;
@@ -139,13 +216,7 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
 
     const parsed = SUMMARY_QUERY_SCHEMA.safeParse(req.query);
     if (!parsed.success) {
-      return reply.status(400).send({
-        error: {
-          type: 'invalid_request_error',
-          message: 'Invalid query for security summary.',
-          details: parsed.error.flatten()
-        }
-      });
+      return reply.status(400).send(invalidRequest('Invalid query for security summary.', parsed.error.flatten()));
     }
 
     const sinceTimestamp = Date.now() - parsed.data.window_hours * 60 * 60 * 1000;
@@ -169,13 +240,7 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
 
     const parsed = EXPORT_QUERY_SCHEMA.safeParse(req.query);
     if (!parsed.success) {
-      return reply.status(400).send({
-        error: {
-          type: 'invalid_request_error',
-          message: 'Invalid query for security export.',
-          details: parsed.error.flatten()
-        }
-      });
+      return reply.status(400).send(invalidRequest('Invalid query for security export.', parsed.error.flatten()));
     }
 
     const exportBundle = securityAuditLog.export(tenantId, {
@@ -187,6 +252,73 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
     return exportBundle;
   });
 
+  app.get('/v1/security/export/deliveries', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    const parsed = DELIVERY_LIST_QUERY_SCHEMA.safeParse(req.query);
+    if (!parsed.success) {
+      return reply.status(400).send(invalidRequest('Invalid query for security export deliveries.', parsed.error.flatten()));
+    }
+
+    return {
+      object: 'list',
+      data: listSecurityExportDeliveries(tenantId, parsed.data.limit)
+    };
+  });
+
+  app.post('/v1/security/export/deliveries', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    const parsed = DELIVERY_BODY_SCHEMA.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return reply.status(400).send(invalidRequest('Invalid payload for security export delivery.', parsed.error.flatten()));
+    }
+
+    const sinceTimestamp = parsed.data.since
+      ? Date.parse(parsed.data.since)
+      : Date.now() - parsed.data.windowHours * 60 * 60 * 1000;
+    const bundle = securityAuditLog.export(tenantId, {
+      sinceTimestamp,
+      limit: parsed.data.limit,
+      topIpLimit: parsed.data.topIpLimit
+    });
+
+    try {
+      const delivery = await deliverSecurityAuditExport({
+        tenantId,
+        requestId: req.requestContext?.requestId,
+        destinationUrl: parsed.data.destinationUrl,
+        bundle
+      });
+
+      return {
+        object: 'security_export_delivery',
+        tenant_id: tenantId,
+        data: delivery
+      };
+    } catch (error) {
+      if (error instanceof SecurityExportDeliveryError) {
+        if (error.statusCode === 403) {
+          return reply.status(403).send(permissionError(error.message, error.record));
+        }
+
+        if (error.statusCode === 400) {
+          return reply.status(400).send(invalidRequest(error.message, { delivery: error.record }));
+        }
+
+        return reply.status(error.statusCode).send(apiError(error.message, error.record));
+      }
+
+      throw error;
+    }
+  });
+
   app.post('/v1/security/export/verify', async (req, reply) => {
     const tenantId = req.requestContext?.tenantId;
     if (!tenantId) {
@@ -195,23 +327,12 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
 
     const parsed = VERIFY_BODY_SCHEMA.safeParse(req.body ?? {});
     if (!parsed.success) {
-      return reply.status(400).send({
-        error: {
-          type: 'invalid_request_error',
-          message: 'Invalid payload for security export verification.',
-          details: parsed.error.flatten()
-        }
-      });
+      return reply.status(400).send(invalidRequest('Invalid payload for security export verification.', parsed.error.flatten()));
     }
 
     const tenantMismatch = parsed.data.events.some((event) => event.tenant_id !== tenantId);
     if (tenantMismatch) {
-      return reply.status(400).send({
-        error: {
-          type: 'invalid_request_error',
-          message: 'All exported events must belong to the authenticated tenant.'
-        }
-      });
+      return reply.status(400).send(invalidRequest('All exported events must belong to the authenticated tenant.'));
     }
 
     const integrity = verifySecurityAuditIntegrity({

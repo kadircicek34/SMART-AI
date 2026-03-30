@@ -18,6 +18,14 @@ const parseNumberCsv = (value: string | undefined): number[] =>
     .map((entry) => Number(entry))
     .filter((entry) => Number.isInteger(entry) && entry > 0);
 
+const parseBoolean = (value: string | undefined, fallback = false): boolean => {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  return value.trim().toLowerCase() === 'true';
+};
+
 type AppApiKeyDefinition = {
   name: string;
   key: string;
@@ -184,7 +192,10 @@ export const config = {
     ragRemotePolicyFile:
       process.env.RAG_REMOTE_POLICY_FILE ?? path.resolve(process.cwd(), '.data', 'tenant-rag-remote-policies.json'),
     uiSessionStoreFile: process.env.UI_SESSION_STORE_FILE ?? path.resolve(process.cwd(), '.data', 'ui-sessions.json'),
-    securityAuditStoreFile: process.env.SECURITY_AUDIT_STORE_FILE ?? path.resolve(process.cwd(), '.data', 'security-audit.json')
+    securityAuditStoreFile: process.env.SECURITY_AUDIT_STORE_FILE ?? path.resolve(process.cwd(), '.data', 'security-audit.json'),
+    securityExportDeliveryStoreFile:
+      process.env.SECURITY_EXPORT_DELIVERY_STORE_FILE ??
+      path.resolve(process.cwd(), '.data', 'security-export-deliveries.json')
   },
   rag: {
     storeFile: process.env.RAG_STORE_FILE ?? path.resolve(process.cwd(), '.data', 'rag-store.json'),
@@ -244,7 +255,17 @@ export const config = {
     authorizationHeaderMaxLength: Number(process.env.SECURITY_AUTH_HEADER_MAX_LENGTH ?? 4096),
     bearerTokenMaxLength: Number(process.env.SECURITY_BEARER_TOKEN_MAX_LENGTH ?? 2048),
     tenantHeaderMaxLength: Number(process.env.SECURITY_TENANT_HEADER_MAX_LENGTH ?? 128),
-    uiApiKeyMaxLength: Number(process.env.SECURITY_UI_API_KEY_MAX_LENGTH ?? 512)
+    uiApiKeyMaxLength: Number(process.env.SECURITY_UI_API_KEY_MAX_LENGTH ?? 512),
+    exportDeliveryTimeoutMs: Number(process.env.SECURITY_EXPORT_DELIVERY_TIMEOUT_MS ?? 10_000),
+    exportDeliveryMaxResponseBytes: Number(process.env.SECURITY_EXPORT_DELIVERY_MAX_RESPONSE_BYTES ?? 32_768),
+    exportDeliveryMaxRecordsPerTenant: Number(process.env.SECURITY_EXPORT_DELIVERY_MAX_RECORDS_PER_TENANT ?? 100),
+    exportDeliveryUserAgent:
+      process.env.SECURITY_EXPORT_DELIVERY_USER_AGENT?.trim() || 'SMART-AI-Security-Delivery/1.0',
+    exportDeliveryAllowedPorts: (() => {
+      const parsed = parseNumberCsv(process.env.SECURITY_EXPORT_DELIVERY_ALLOWED_PORTS);
+      return parsed.length > 0 ? parsed : [443];
+    })(),
+    exportDeliveryAllowIpLiterals: parseBoolean(process.env.SECURITY_EXPORT_DELIVERY_ALLOW_IP_LITERALS, false)
   },
   ui: {
     allowedOrigins: parseOrigins(process.env.UI_ALLOWED_ORIGINS)
