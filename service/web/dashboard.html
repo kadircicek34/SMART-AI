@@ -81,6 +81,10 @@
           <h3>UI Sessions</h3>
           <p id="uiSessionsSummary">—</p>
         </article>
+        <article class="card metric">
+          <h3>Export Signing</h3>
+          <p id="securitySigningMetric">—</p>
+        </article>
       </section>
 
       <section class="card">
@@ -167,12 +171,41 @@
       </section>
 
       <section class="card">
+        <h2>Security Export Signing</h2>
+        <div class="actions">
+          <button id="rotateSecuritySigningKey" class="secondary">Signing Key Rotate</button>
+        </div>
+        <p id="securitySigningSummary" class="muted">Ed25519 signing key registry ve public JWKS burada görünür.</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Durum</th>
+              <th>Key ID</th>
+              <th>Algoritma</th>
+              <th>Fingerprint</th>
+              <th>Aktifleşme</th>
+            </tr>
+          </thead>
+          <tbody id="securitySigningTableBody"></tbody>
+        </table>
+      </section>
+
+      <section class="card">
         <h2>Security Export Delivery</h2>
-        <div class="grid-3">
+        <div class="grid-2">
           <label>
             Webhook / SIEM URL
             <input id="securityDeliveryUrl" type="url" placeholder="https://siem.example.com/hooks/smart-ai" />
           </label>
+          <label>
+            Delivery Mode
+            <select id="securityDeliveryMode">
+              <option value="sync">sync</option>
+              <option value="async">async (retry/backoff + dead-letter)</option>
+            </select>
+          </label>
+        </div>
+        <div class="grid-2">
           <label>
             Window (saat)
             <input id="securityDeliveryWindowHours" type="number" min="1" max="720" value="24" />
@@ -185,7 +218,7 @@
         <div class="actions">
           <button id="deliverSecurityExport">Webhook'a Gönder</button>
         </div>
-        <p id="securityDeliverySummary" class="muted">Host, Remote Source Policy allowlist içinde olmalı. İstek HTTPS + HMAC imzası + DNS pinning ile gönderilir.</p>
+        <p id="securityDeliverySummary" class="muted">Host, Remote Source Policy allowlist içinde olmalı. Sync mod tek deneme yapar; async mod encrypted retry queue + backoff + dead-letter ile çalışır.</p>
         <table>
           <thead>
             <tr>

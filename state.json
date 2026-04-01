@@ -1,20 +1,30 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "Tamper-evident security export delivery pipeline production-grade olarak teslim edildi",
+  "current_task": "Asymmetric security export signing registry production-grade olarak teslim edildi",
   "next_actions": [
-    "Security export delivery için retry/backoff queue ve dead-letter stratejisi ekle",
-    "Security export signature modelini asymmetric verifier + key rotation registry ile genişlet",
+    "Security export dead-letter item'ları için manual redrive endpointi ve dashboard aksiyonu ekle",
     "Remote URL fetch hattında lookup→connect pinning veya egress proxy ile anti-rebinding korumasını sertleştir",
-    "UI session, security audit, delivery receipt ve policy persistence katmanını shared backend'e taşı"
+    "UI session, security audit, delivery queue ve policy persistence katmanını shared backend'e taşı",
+    "Security export signing için ops-side expiry/rotation policy automation ve alerting ekle"
   ],
   "risks": [
-    "Security export delivery başarısız upstream çağrılarda otomatik retry/backoff yapmıyor",
-    "Security export signature şu an symmetric HMAC tabanlı; bağımsız üçüncü taraf verifier için asymmetric model henüz yok",
+    "Security export dead-letter item'ları için ayrı redrive endpointi henüz yok; operatör yeni delivery isteği başlatıyor",
     "Remote URL fetch hattında lookup ile gerçek connect arasında tam pinning yok; anti-rebinding backlog'da",
-    "Audit/session/policy/delivery persistence hâlâ local file tabanlı; multi-instance shared backend gerekecek"
+    "Audit/session/policy/delivery persistence hâlâ local file tabanlı; multi-instance shared backend gerekecek",
+    "Signing key rotation şu an manual/admin tetiklemeli; otomatik expiry/rotation policy henüz yok"
   ],
   "decisions": [
+    {
+      "date": "2026-04-01",
+      "decision": "Security export signing modelini Ed25519 registry + public JWKS + verify-only rotation ile canlıya al",
+      "reason": "Shared-secret bağımlılığını kaldırmak, üçüncü taraf bağımsız verifier desteği vermek ve signing key hygiene yüzeyini production-grade hale getirmek"
+    },
+    {
+      "date": "2026-03-31",
+      "decision": "Security export delivery hattını async retry/backoff queue + encrypted persistence + dead-letter lifecycle ile canlıya al",
+      "reason": "Webhook/SIEM delivery yüzeyini transient upstream hatalarında otomatik toparlanan, replay-safe ve production-grade bir operasyona dönüştürmek"
+    },
     {
       "date": "2026-03-30",
       "decision": "Tamper-evident security export delivery pipeline'ını allowlist + DNS pinning + HMAC ile canlıya al",
@@ -29,16 +39,6 @@
       "date": "2026-03-28",
       "decision": "Tenant remote source policy control plane'i secure-by-default olarak canlıya al",
       "reason": "Arbitrary remote URL ingest yüzeyini tenant bazlı policy yönetişimiyle kapatmak ve dashboard üzerinden yönetilebilir hale getirmek"
-    },
-    {
-      "date": "2026-03-27",
-      "decision": "Secure remote RAG URL preview + SSRF-safe ingest gate teslim et",
-      "reason": "Arbitrary remote fetch yüzeyini production-grade fail-closed güvenlik sınırlarına çekmek ve operatöre ingest öncesi güvenli preview vermek"
-    },
-    {
-      "date": "2026-03-26",
-      "decision": "Persistent security control plane + admin session management + fastify advisory patch teslim et",
-      "reason": "Restart sonrası güvenlik state continuity sağlamak, tenant admin incident-response hızını artırmak ve dependency advisory riskini kapatmak"
     }
   ],
   "artifacts": [
@@ -47,17 +47,19 @@
     "delivery.md",
     "security-report.md",
     "test-report.md",
+    "task.md",
     "service/README.md",
+    "service/.env.example",
     "service/config.ts",
-    "service/rag/remote-policy.ts",
     "service/api/routes/security-events.ts",
     "service/security/audit-log.ts",
-    "service/security/authz.ts",
     "service/security/export-delivery.ts",
+    "service/security/export-signing.ts",
     "service/web/dashboard.html",
     "service/web/assets/dashboard.js",
     "service/tests/contract/security-events.test.ts",
-    "service/tests/contract/security-export-deliveries.test.ts"
+    "service/tests/contract/security-export-deliveries.test.ts",
+    "service/tests/security/export-signing.test.ts"
   ],
-  "updated_at": "2026-03-30T07:00:00+03:00"
+  "updated_at": "2026-04-01T07:00:00+03:00"
 }

@@ -13,6 +13,8 @@ before(async () => {
   process.env.KEY_STORE_FILE = `/tmp/smart-ai-test-keys-security-events-${process.pid}.json`;
   process.env.MODEL_POLICY_FILE = `/tmp/smart-ai-test-model-policy-security-events-${process.pid}.json`;
   process.env.SECURITY_AUDIT_STORE_FILE = `/tmp/smart-ai-test-security-audit-events-${process.pid}.json`;
+  process.env.SECURITY_EXPORT_SIGNING_STORE_FILE = `/tmp/smart-ai-test-security-export-signing-events-${process.pid}.json`;
+  process.env.SECURITY_EXPORT_SIGNING_MAX_VERIFY_KEYS = '2';
   process.env.OPENROUTER_ALLOWED_MODELS = 'deepseek/deepseek-chat-v3.1,openai/gpt-4o-mini';
   process.env.OPENROUTER_DEFAULT_MODEL = 'deepseek/deepseek-chat-v3.1';
   process.env.MASTER_KEY_BASE64 = Buffer.alloc(32, 2).toString('base64');
@@ -180,6 +182,9 @@ test('GET /v1/security/export returns admin-only tamper-evident bundle', async (
   assert.ok(Array.isArray(body.data));
   assert.ok(body.data.length >= 2);
   assert.equal(body.integrity.verified, true);
+  assert.equal(body.signature.algorithm, 'Ed25519');
+  assert.match(body.signature.key_id, /^sexp_/);
+  assert.equal(body.signature.public_keys_url, '/.well-known/smart-ai/security-export-keys.json');
   assert.equal(body.data[0].sequence, 1);
   assert.ok(body.data.every((event: any, index: number, arr: any[]) => index === 0 || event.sequence > arr[index - 1].sequence));
 });
@@ -226,19 +231,18 @@ test('POST /v1/security/export/verify validates exported bundles and catches tam
       'content-type': 'application/json',
       origin: 'https://dashboard.example.com'
     },
-    payload: {
-      anchorPrevChainHash: bundle.integrity.anchorPrevChainHash,
-      events: bundle.data
-    }
+    payload: bundle
   });
 
   assert.equal(verifyRes.statusCode, 200);
   const verification = verifyRes.json();
   assert.equal(verification.object, 'security_audit_verification');
   assert.equal(verification.data.verified, true);
+  assert.equal(verification.data.signature_verified, true);
+  assert.equal(verification.data.signature.verified, true);
 
-  const tampered = structuredClone(bundle.data);
-  tampered[tampered.length - 1].details = { reason: 'tampered' };
+  const tampered = structuredClone(bundle);
+  tampered.data[tampered.data.length - 1].details = { reason: 'tampered' };
 
   const tamperedRes = await app.inject({
     method: 'POST',
@@ -249,16 +253,77 @@ test('POST /v1/security/export/verify validates exported bundles and catches tam
       'content-type': 'application/json',
       origin: 'https://dashboard.example.com'
     },
-    payload: {
-      anchorPrevChainHash: bundle.integrity.anchorPrevChainHash,
-      events: tampered
-    }
+    payload: tampered
   });
 
   assert.equal(tamperedRes.statusCode, 200);
   const tamperedBody = tamperedRes.json();
   assert.equal(tamperedBody.data.verified, false);
+  assert.equal(tamperedBody.data.signature_verified, false);
   assert.equal(tamperedBody.data.failureReason, 'chain_hash_mismatch');
+  assert.equal(tamperedBody.data.signature.reason, 'payload_sha256_mismatch');
+});
+
+test('security export signing keys can be listed, rotated, and published via JWKS', async () => {
+  const sessionRes = await app.inject({
+    method: 'POST',
+    url: '/ui/session',
+    payload: {
+      apiKey: 'test-admin-key',
+      tenantId: 'tenant-security-keys'
+    },
+    headers: {
+      origin: 'https://dashboard.example.com'
+    }
+  });
+  const session = sessionRes.json();
+
+  const listRes = await app.inject({
+    method: 'GET',
+    url: '/v1/security/export/keys',
+    headers: {
+      authorization: `Bearer ${session.token}`,
+      'x-tenant-id': 'tenant-security-keys'
+    }
+  });
+
+  assert.equal(listRes.statusCode, 200);
+  const initial = listRes.json();
+  assert.equal(initial.object, 'security_export_signing_keys');
+  assert.equal(initial.data.length, 1);
+  const initialActiveKeyId = initial.active_key_id;
+
+  const rotateRes = await app.inject({
+    method: 'POST',
+    url: '/v1/security/export/keys/rotate',
+    headers: {
+      authorization: `Bearer ${session.token}`,
+      'x-tenant-id': 'tenant-security-keys',
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {}
+  });
+
+  assert.equal(rotateRes.statusCode, 200);
+  const rotated = rotateRes.json();
+  assert.equal(rotated.object, 'security_export_signing_keys');
+  assert.notEqual(rotated.active_key_id, initialActiveKeyId);
+  assert.equal(rotated.data.filter((entry: any) => entry.status === 'active').length, 1);
+  assert.equal(rotated.data.some((entry: any) => entry.key_id === initialActiveKeyId && entry.status === 'verify_only'), true);
+
+  const jwksRes = await app.inject({
+    method: 'GET',
+    url: '/.well-known/smart-ai/security-export-keys.json'
+  });
+
+  assert.equal(jwksRes.statusCode, 200);
+  const jwks = jwksRes.json();
+  assert.equal(jwks.object, 'jwks');
+  assert.equal(jwks.active_key_id, rotated.active_key_id);
+  assert.ok(Array.isArray(jwks.keys));
+  assert.ok(jwks.keys.some((key: any) => key.kid === rotated.active_key_id));
+  assert.ok(jwks.keys.some((key: any) => key.kid === initialActiveKeyId));
 });
 
 test('read-only credential can read security summary but cannot access security export', async () => {

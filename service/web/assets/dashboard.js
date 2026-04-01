@@ -98,9 +98,11 @@ function setAdminControlsEnabled(enabled) {
     'remotePolicyAllowedHosts',
     'exportSecurity',
     'securityDeliveryUrl',
+    'securityDeliveryMode',
     'securityDeliveryWindowHours',
     'securityDeliveryLimit',
     'deliverSecurityExport',
+    'rotateSecuritySigningKey',
     'revokeOtherSessions'
   ]) {
     const node = document.getElementById(id);
@@ -233,6 +235,31 @@ function renderSecurityTable(events = []) {
   }
 }
 
+function renderSecuritySigningTable(keys = []) {
+  const tbody = document.getElementById('securitySigningTableBody');
+  tbody.innerHTML = '';
+
+  if (!keys.length) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="5">Henüz signing key kaydı yok</td>';
+    tbody.appendChild(tr);
+    return;
+  }
+
+  for (const key of keys) {
+    const tr = document.createElement('tr');
+    const statusLabel = key.status === 'active' ? `${key.status} <span class="badge success">live</span>` : key.status;
+    tr.innerHTML = `
+      <td>${statusLabel}</td>
+      <td>${escapeHtml(key.key_id)}</td>
+      <td>${escapeHtml(key.algorithm)}</td>
+      <td>${escapeHtml(String(key.fingerprint ?? '—').slice(0, 22))}</td>
+      <td>${escapeHtml(new Date(key.activated_at).toLocaleString('tr-TR'))}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
 function renderSecurityDeliveriesTable(deliveries = []) {
   const tbody = document.getElementById('securityDeliveryTableBody');
   tbody.innerHTML = '';
@@ -246,10 +273,18 @@ function renderSecurityDeliveriesTable(deliveries = []) {
 
   for (const delivery of deliveries) {
     const tr = document.createElement('tr');
-    const note = delivery.failure_reason ?? delivery.response_excerpt ?? '—';
+    const timestamp = delivery.completed_at ?? delivery.updated_at ?? delivery.requested_at;
+    const retryMeta = [`attempt=${delivery.attempt_count ?? 0}/${delivery.max_attempts ?? 1}`];
+    if (delivery.next_attempt_at) {
+      retryMeta.push(`next=${new Date(delivery.next_attempt_at).toLocaleString('tr-TR')}`);
+    }
+    if (delivery.dead_lettered_at) {
+      retryMeta.push('dead-letter');
+    }
+    const note = delivery.failure_reason ?? delivery.response_excerpt ?? retryMeta.join(' | ');
     tr.innerHTML = `
-      <td>${escapeHtml(new Date(delivery.completed_at).toLocaleString('tr-TR'))}</td>
-      <td>${escapeHtml(delivery.status)}</td>
+      <td>${escapeHtml(new Date(timestamp).toLocaleString('tr-TR'))}</td>
+      <td>${escapeHtml(delivery.status)}<br /><span class="muted">${escapeHtml(delivery.mode ?? 'sync')}</span></td>
       <td>${escapeHtml(delivery?.destination?.origin ?? '—')}<br /><span class="muted">${escapeHtml(delivery?.destination?.host ?? '—')}</span></td>
       <td>${escapeHtml(delivery.http_status ?? '—')}</td>
       <td>${escapeHtml(delivery.event_count ?? 0)}</td>
@@ -379,9 +414,12 @@ function applyAuthContext(context) {
   if (!adminEnabled) {
     document.getElementById('uiSessionsSummary').textContent = 'admin gerekli';
     document.getElementById('securityDeliverySummary').textContent = 'admin gerekli';
+    document.getElementById('securitySigningSummary').textContent = 'admin gerekli';
+    document.getElementById('securitySigningMetric').textContent = 'admin gerekli';
     renderUiSessionsTable([]);
     renderSecurityDeliveriesTable([]);
-    log('Bu oturum admin yetkisine sahip değil; model policy, remote policy, security delivery, session control ve MCP flush kontrolleri salt okunur moda alındı.');
+    renderSecuritySigningTable([]);
+    log('Bu oturum admin yetkisine sahip değil; model policy, remote policy, security export signing, security delivery, session control ve MCP flush kontrolleri salt okunur moda alındı.');
   }
 }
 
@@ -547,6 +585,42 @@ async function downloadSecurityExport(settings) {
   return bundle;
 }
 
+async function loadSecuritySigningKeys(settings) {
+  await maybeRefreshSession(settings);
+
+  const response = await safeFetchJson(`${settings.baseUrl}/v1/security/export/keys`, {
+    headers: authHeaders(settings)
+  });
+
+  const keys = Array.isArray(response?.data) ? response.data : [];
+  const active = keys.find((key) => key.status === 'active');
+  document.getElementById('securitySigningMetric').textContent =
+    active ? `active=${active.key_id.slice(0, 16)}…, verify=${Math.max(0, keys.length - 1)}` : 'key yok';
+  document.getElementById('securitySigningSummary').textContent =
+    active
+      ? `active=${active.key_id}, verify_only=${Math.max(0, keys.length - 1)}, jwks=${response?.jwks_path ?? '/.well-known/smart-ai/security-export-keys.json'}`
+      : 'Ed25519 signing key registry henüz bootstrap edilmedi.';
+  renderSecuritySigningTable(keys);
+  return keys;
+}
+
+async function rotateSecuritySigningKey(settings) {
+  await maybeRefreshSession(settings);
+
+  const response = await safeFetchJson(`${settings.baseUrl}/v1/security/export/keys/rotate`, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(settings),
+      origin: window.location.origin
+    },
+    body: JSON.stringify({})
+  });
+
+  log(`Security export signing key rotate edildi. active=${response?.active_key_id ?? 'unknown'}`);
+  await loadSecuritySigningKeys(settings);
+  return response;
+}
+
 async function loadSecurityDeliveries(settings) {
   await maybeRefreshSession(settings);
 
@@ -555,10 +629,12 @@ async function loadSecurityDeliveries(settings) {
   });
 
   const deliveries = Array.isArray(response?.data) ? response.data : [];
+  const queued = deliveries.filter((delivery) => delivery.status === 'queued' || delivery.status === 'retrying').length;
+  const deadLetters = deliveries.filter((delivery) => delivery.status === 'dead_letter').length;
   document.getElementById('securityDeliverySummary').textContent =
     deliveries.length > 0
-      ? `recent=${deliveries.length}, last=${deliveries[0]?.status ?? '—'}, host allowlist zorunlu, HTTPS + HMAC + DNS pinning aktif`
-      : 'Host, Remote Source Policy allowlist içinde olmalı. İstek HTTPS + HMAC imzası + DNS pinning ile gönderilir.';
+      ? `recent=${deliveries.length}, active=${queued}, dead-letter=${deadLetters}, last=${deliveries[0]?.status ?? '—'}, host allowlist + HTTPS + Ed25519 signing + DNS pinning + encrypted retry queue aktif`
+      : 'Host, Remote Source Policy allowlist içinde olmalı. Sync mod tek deneme yapar; async mod encrypted retry queue + backoff + dead-letter ile gönderir.';
   renderSecurityDeliveriesTable(deliveries);
   return deliveries;
 }
@@ -571,6 +647,7 @@ async function deliverSecurityExport(settings) {
     throw new Error('Webhook / SIEM URL gerekli.');
   }
 
+  const mode = document.getElementById('securityDeliveryMode').value || 'sync';
   const windowHours = parsePositiveInteger(document.getElementById('securityDeliveryWindowHours').value, 24, {
     min: 1,
     max: 720
@@ -588,6 +665,7 @@ async function deliverSecurityExport(settings) {
     },
     body: JSON.stringify({
       destinationUrl,
+      mode,
       windowHours,
       limit,
       topIpLimit: 5
@@ -595,8 +673,11 @@ async function deliverSecurityExport(settings) {
   });
 
   const delivery = response?.data ?? {};
+  const queued = delivery.status === 'queued' || delivery.status === 'retrying';
   log(
-    `Security export delivery tamamlandı. status=${delivery.status ?? 'unknown'}, http=${delivery.http_status ?? '—'}, events=${delivery.event_count ?? 0}`
+    queued
+      ? `Security export delivery kuyruğa alındı. status=${delivery.status ?? 'unknown'}, attempt=${delivery.attempt_count ?? 0}/${delivery.max_attempts ?? 1}, next=${delivery.next_attempt_at ?? 'hemen'}`
+      : `Security export delivery tamamlandı. status=${delivery.status ?? 'unknown'}, http=${delivery.http_status ?? '—'}, events=${delivery.event_count ?? 0}`
   );
   await loadSecurityDeliveries(settings);
   return delivery;
@@ -646,6 +727,7 @@ async function loadDashboard(settings) {
   await loadModelPolicy(settings);
   await loadRemotePolicy(settings);
   if (authContext?.permissions?.admin) {
+    await loadSecuritySigningKeys(settings);
     await loadSecurityDeliveries(settings);
     await loadUiSessions(settings);
   }
@@ -716,8 +798,11 @@ async function signOut(settings) {
     document.getElementById('uiSessionsSummary').textContent = '—';
     document.getElementById('remotePolicySummary').textContent = '—';
     document.getElementById('securityDeliverySummary').textContent = '—';
+    document.getElementById('securitySigningSummary').textContent = '—';
+    document.getElementById('securitySigningMetric').textContent = '—';
     renderUiSessionsTable([]);
     renderSecurityDeliveriesTable([]);
+    renderSecuritySigningTable([]);
   }
 
   log('Dashboard oturumu kapatıldı.');
@@ -737,8 +822,11 @@ async function init() {
   document.getElementById('uiSessionsSummary').textContent = '—';
   document.getElementById('remotePolicySummary').textContent = '—';
   document.getElementById('securityDeliverySummary').textContent = '—';
+  document.getElementById('securitySigningSummary').textContent = '—';
+  document.getElementById('securitySigningMetric').textContent = '—';
   renderUiSessionsTable([]);
   renderSecurityDeliveriesTable([]);
+  renderSecuritySigningTable([]);
 
   document.getElementById('saveSettings').addEventListener('click', () => {
     const next = readSettingsForm();
@@ -820,6 +908,23 @@ async function init() {
     try {
       await deliverSecurityExport(next);
       setStatus('Security export webhook delivery tamamlandı.');
+    } catch (error) {
+      setStatus(String(error), true);
+      log(`Hata: ${String(error)}`);
+    }
+  });
+
+  document.getElementById('rotateSecuritySigningKey').addEventListener('click', async () => {
+    const next = readSettingsForm();
+    setSettings(next);
+
+    if (!window.confirm('Aktif security export signing key rotate edilsin mi? Yeni key signing için aktif olacak, önceki key verify-only kalacak.')) {
+      return;
+    }
+
+    try {
+      await rotateSecuritySigningKey(next);
+      setStatus('Security export signing key rotate edildi.');
     } catch (error) {
       setStatus(String(error), true);
       log(`Hata: ${String(error)}`);
@@ -938,6 +1043,9 @@ async function init() {
     setSessionMeta(null);
     setAdminControlsEnabled(false);
     setSessionCapabilities('Yetki bilgisi: aktif oturum yok.', false);
+    document.getElementById('securitySigningSummary').textContent = '—';
+    document.getElementById('securitySigningMetric').textContent = '—';
+    renderSecuritySigningTable([]);
   }
 }
 
