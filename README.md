@@ -38,7 +38,9 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - **MCP Dayanıklılık Katmanı** (circuit breaker + adaptive timeout + kalıcı health snapshot + health endpointleri)
 - **Security Audit Event Feed** (`/v1/security/events`) + dashboard güvenlik olay görünürlüğü
 - **Security Risk Summary** (`/v1/security/summary`) + tenant bazlı risk skoru / alarm bayrakları
-- **Tamper-evident Security Export** (`/v1/security/export`, `/v1/security/export/verify`) + hash-chain integrity doğrulaması
+- **Tamper-evident + signed Security Export** (`/v1/security/export`, `/v1/security/export/verify`) + hash-chain integrity + Ed25519 bundle signature doğrulaması
+- **Security Export Signing Registry** (`GET/POST /v1/security/export/keys*` + `/.well-known/smart-ai/security-export-keys.json`) + active/verify-only key rotation + public JWKS discovery
+- **Resilient Security Export Delivery Queue** (`POST /v1/security/export/deliveries` with `mode=async`) + encrypted retry payload store + backoff/dead-letter lifecycle + Idempotency-Key dedupe + Ed25519 delivery headers
 - **Header abuse guard** (Authorization / tenant header boyut limitleri + UI oversized key koruması)
 - **UI session lifecycle hardening** (`/ui/session` introspection + `/ui/session/refresh` token rotation + idle-timeout + session cap eviction + unsafe `/v1/*` writes için Origin binding)
 - **Persistent security control plane** (hashed UI session restore + kalıcı security audit evidence + tenant admin session inventory/revoke-all)
@@ -228,15 +230,54 @@ curl 'http://127.0.0.1:8080/v1/security/export?limit=500&since=2026-03-29T00:00:
   -H 'Authorization: Bearer dev-admin-key' \
   -H 'x-tenant-id: tenant-a'
 
-# dış sisteme taşınan bundle'ın hash-chain bütünlüğünü tekrar doğrula
+# dış sisteme taşınan signed bundle'ın hash-chain + signature doğrulamasını tekrar yap
 curl -X POST 'http://127.0.0.1:8080/v1/security/export/verify' \
   -H 'Authorization: Bearer dev-admin-key' \
   -H 'x-tenant-id: tenant-a' \
   -H 'content-type: application/json' \
-  -d '{"anchorPrevChainHash":null,"events":[{"event_id":"...","tenant_id":"tenant-a","type":"ui_session_issued","timestamp":"2026-03-29T04:00:00.000Z","sequence":1,"prev_chain_hash":null,"chain_hash":"..."}]}'
+  -d @security-export-bundle.json
+
+# aktif export signing key registry + public JWKS keşfi
+curl 'http://127.0.0.1:8080/v1/security/export/keys' \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a'
+
+curl 'http://127.0.0.1:8080/.well-known/smart-ai/security-export-keys.json'
+
+# aktif signing key rotate et (önceki key verify-only kalır)
+curl -X POST 'http://127.0.0.1:8080/v1/security/export/keys/rotate' \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a' \
+  -H 'content-type: application/json' \
+  -d '{}'
+
+# tek denemelik sync delivery
+curl -X POST 'http://127.0.0.1:8080/v1/security/export/deliveries' \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a' \
+  -H 'content-type: application/json' \
+  -d '{"destinationUrl":"https://siem.example.com/hooks/smart-ai","mode":"sync","windowHours":24,"limit":500}'
+
+# retry/backoff + dead-letter ile async resilient delivery
+curl -X POST 'http://127.0.0.1:8080/v1/security/export/deliveries' \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a' \
+  -H 'Idempotency-Key: sec-export-2026-03-31-01' \
+  -H 'content-type: application/json' \
+  -d '{"destinationUrl":"https://siem.example.com/hooks/smart-ai","mode":"async","windowHours":24,"limit":500}'
+
+# retry/dead-letter durumlarını filtrele
+curl 'http://127.0.0.1:8080/v1/security/export/deliveries?status=dead_letter&limit=20' \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a'
 ```
 
-Export bundle'ı artık sıralı `sequence`, `prev_chain_hash`, `chain_hash` alanlarıyla gelir. Böylece SIEM/forensics hattı, payload transfer sonrası bile bundle üzerinde server-side bütünlük doğrulaması yapabilir.
+Export bundle'ı artık sıralı `sequence`, `prev_chain_hash`, `chain_hash` alanlarıyla birlikte **Ed25519 signature metadata** taşır. Böylece SIEM/forensics hattı, payload transfer sonrası bile bundle üzerinde hem server-side hash-chain bütünlüğü hem de detached signature doğrulaması yapabilir. Public verification için `/.well-known/smart-ai/security-export-keys.json` JWKS endpointi yayınlanır ve signing key rotation geçmişi verify-only anahtarlarla korunur.
+
+`mode=async` delivery hattı production-grade operasyon için üç ek güvenlik/direnç katmanı sağlar:
+- retry queue payload'ı düz JSON değil, AES-256-GCM ile encrypted-at-rest saklanır,
+- `Idempotency-Key` ile aynı export isteğinin duplicate/replay flood'u bastırılır,
+- retryable ağ/5xx/429 hataları backoff ile tekrar denenir; limit aşılırsa receipt `dead_letter` olur ve `/v1/security/events` içinde kanıt bırakır.
 
 ## Auth Context Introspection
 ```bash

@@ -1,5 +1,79 @@
 # DECISIONS — OpenRouter Agentic Intelligence API
 
+## 2026-04-01 — Asymmetric security export signing registry kararı
+### Problem
+Security export hattı artık async queue + dead-letter ile dayanıklıydı; fakat üç kritik production boşluğu sürüyordu:
+1. Export ve delivery imzası symmetric HMAC modelinde kaldığı için üçüncü taraf verifier/SIEM tarafında shared secret taşımadan doğrulama yapılamıyordu.
+2. Active signing key rotation yüzeyi yoktu; key hygiene ve incident response anlarında kontrollü rollover eksikti.
+3. Dashboard operatörü security export delivery’yi görebiliyor ama signing health / active key / public verification yüzeyini yönetemiyordu.
+
+### Seçenekler
+- A: Mevcut HMAC modeliyle devam edip verifier sorumluluğunu aynı sistem içinde bırakmak
+- B: Sadece export bundle içine public key gömmek
+- C: Ed25519 signing registry + verify-only rotation geçmişi + public JWKS discovery + dashboard control plane'i tek koşumda teslim etmek
+
+### Karar
+**C seçildi:**
+1. **Yeni özellik:** `GET /v1/security/export/keys`, `POST /v1/security/export/keys/rotate` ve `/.well-known/smart-ai/security-export-keys.json` ile signing registry + rotation + public discovery yüzeyi açıldı.
+2. **Ciddi güvenlik iyileştirmesi #1:** `GET /v1/security/export` çıktısı Ed25519 detached signature taşır hale getirildi; `POST /v1/security/export/verify` hem hash-chain hem signature doğruluyor.
+3. **Ciddi güvenlik iyileştirmesi #2:** Delivery headers symmetric HMAC yerine Ed25519 + key-id modeline yükseltildi; bundle signature ile korelasyon korunuyor.
+4. **Ciddi güvenlik iyileştirmesi #3:** Signing private key store plaintext değil; AES-256-GCM encrypted-at-rest tutuluyor ve rotate sonrası önceki key verify-only modda kalıyor.
+5. **Ops / UX iyileştirmesi:** Dashboard signing key özeti, key tablosu ve rotate butonu ile control plane görünürlüğü genişletildi.
+
+### Gerekçe
+- Shared-secret tabanlı export verifier modeli güvenli ama dış sistem entegrasyonlarında operational friction üretiyordu; asymmetric model bu bağımlılığı kaldırdı.
+- Key rotation olmadan signing yüzeyi uzun ömürlü tek anahtara bağımlı kalıyordu; verify-only geçmiş ile güvenli rollover sağlandı.
+- Public JWKS discovery ve dashboard visibility, security evidence hattını auditlenebilir ve operatör dostu hale getirdi.
+
+### Etki
+- SIEM/forensics/verifier tarafı public JWKS ile export ve delivery kanıtlarını bağımsız doğrulayabilir.
+- Admin tenant aktif signing key'i rotate edip önceki export'ların verify edilebilirliğini korur.
+- Dashboard artık signing health yüzeyini de kapsayan gerçek bir security control plane haline geldi.
+
+### Bilinçli Olarak Ertelenenler
+- Dead-letter item için ayrı manual redrive endpointi
+- Remote URL fetch hattında lookup→connect anti-rebinding pinning
+- Delivery queue/audit/policy/session store’larını shared backend’e taşıma
+
+---
+
+## 2026-03-31 — Resilient security export delivery queue kararı
+### Problem
+Dünkü security export delivery hattı çalışıyordu; fakat production kullanımı için üç kritik boşluk sürüyordu:
+1. Upstream 5xx / 429 / network hatalarında delivery tek denemede düşüyor ve evidence push manuel operasyona kalıyordu.
+2. Retry ihtiyacı ortaya çıktığında export bundle retry store içinde plaintext tutulursa audit evidence dosya seviyesinde gereksiz risk taşıyacaktı.
+3. Aynı export isteğinin tekrar tekrar kuyruğa alınması, duplicate delivery/replay flood ve egress abuse riski üretiyordu.
+
+### Seçenekler
+- A: Sync-only delivery ile devam edip operatöre manuel retry bırakmak
+- B: Sadece basit in-memory retry eklemek
+- C: Async delivery mode + encrypted retry queue + idempotency + dead-letter lifecycle + dashboard görünürlüğünü tek koşumda teslim etmek
+
+### Karar
+**C seçildi:**
+1. **Yeni özellik:** `POST /v1/security/export/deliveries` artık `mode=async` kabul ediyor; delivery receipt `queued/retrying/dead_letter` lifecycle’ı ile ilerleyebiliyor.
+2. **Ciddi güvenlik iyileştirmesi #1:** Retry queue payload’ı AES-256-GCM ile encrypted-at-rest saklanıyor; export bundle retry store’da plaintext tutulmuyor.
+3. **Ciddi güvenlik iyileştirmesi #2:** `Idempotency-Key` ve tenant başına aktif async delivery limiti ile duplicate/replay flood ve egress abuse yüzeyi daraltıldı.
+4. **Ciddi güvenlik iyileştirmesi #3:** Retryable HTTP/network sınıflandırması eklendi; non-retryable policy block ile transient upstream failure ayrıştırıldı ve dead-letter telemetry security feed’e taşındı.
+5. **Ops / UX iyileştirmesi:** Dashboard artık sync/async mod seçebiliyor; receipt tablosu attempt_count, next_attempt_at ve dead-letter durumlarını gösterebiliyor.
+
+### Gerekçe
+- Security evidence export hattı production-grade sayılabilmek için transient upstream arızalarında otomatik toparlanabilmeliydi.
+- Retry materyalini plaintext tutmak, güvenlik tarafında yeni bir veri sızıntısı yüzeyi yaratacaktı; bu yüzden queue storage şifreli tutuldu.
+- Async queue, idempotency ve active-cap birlikte ele alınmadan duplicate delivery problemi kolayca maliyet ve gürültü üretebilirdi.
+
+### Etki
+- Tenant admin artık SIEM/webhook delivery’yi tek denemelik sync veya resilient async modda çalıştırabiliyor.
+- Failed delivery’ler otomatik retry alıyor, limit aşımında `dead_letter` kanıtı security event feed’e düşüyor.
+- Dashboard ve API operatöre delivery yaşam döngüsü görünürlüğü veriyor.
+
+### Bilinçli Olarak Ertelenenler
+- Dead-letter item için ayrı manual redrive endpointi
+- Symmetric HMAC yerine asymmetric signing + key rotation registry
+- Delivery queue/audit/policy store’larını shared backend’e taşıma
+
+---
+
 ## 2026-03-29 — Tamper-evident security export pipeline kararı
 ### Problem
 Security summary ve event feed tenant içinde görünür hale gelmişti; ancak üç kritik operasyon/güvenlik açığı sürüyordu:
