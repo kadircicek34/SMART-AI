@@ -195,7 +195,10 @@ export const config = {
     securityAuditStoreFile: process.env.SECURITY_AUDIT_STORE_FILE ?? path.resolve(process.cwd(), '.data', 'security-audit.json'),
     securityExportDeliveryStoreFile:
       process.env.SECURITY_EXPORT_DELIVERY_STORE_FILE ??
-      path.resolve(process.cwd(), '.data', 'security-export-deliveries.json')
+      path.resolve(process.cwd(), '.data', 'security-export-deliveries.json'),
+    securityExportSigningStoreFile:
+      process.env.SECURITY_EXPORT_SIGNING_STORE_FILE ??
+      path.resolve(process.cwd(), '.data', 'security-export-signing-keys.json')
   },
   rag: {
     storeFile: process.env.RAG_STORE_FILE ?? path.resolve(process.cwd(), '.data', 'rag-store.json'),
@@ -259,8 +262,15 @@ export const config = {
     exportDeliveryTimeoutMs: Number(process.env.SECURITY_EXPORT_DELIVERY_TIMEOUT_MS ?? 10_000),
     exportDeliveryMaxResponseBytes: Number(process.env.SECURITY_EXPORT_DELIVERY_MAX_RESPONSE_BYTES ?? 32_768),
     exportDeliveryMaxRecordsPerTenant: Number(process.env.SECURITY_EXPORT_DELIVERY_MAX_RECORDS_PER_TENANT ?? 100),
+    exportDeliveryMaxActivePerTenant: Number(process.env.SECURITY_EXPORT_DELIVERY_MAX_ACTIVE_PER_TENANT ?? 10),
+    exportDeliveryIdempotencyTtlSeconds: Number(process.env.SECURITY_EXPORT_DELIVERY_IDEMPOTENCY_TTL_SECONDS ?? 3600),
+    exportDeliveryIdempotencyKeyMaxLength: Number(process.env.SECURITY_EXPORT_DELIVERY_IDEMPOTENCY_KEY_MAX_LENGTH ?? 128),
+    exportDeliveryRetryBaseDelayMs: Number(process.env.SECURITY_EXPORT_DELIVERY_RETRY_BASE_DELAY_MS ?? 5_000),
+    exportDeliveryRetryMaxDelayMs: Number(process.env.SECURITY_EXPORT_DELIVERY_RETRY_MAX_DELAY_MS ?? 60_000),
+    exportDeliveryMaxAttempts: Number(process.env.SECURITY_EXPORT_DELIVERY_MAX_ATTEMPTS ?? 4),
     exportDeliveryUserAgent:
       process.env.SECURITY_EXPORT_DELIVERY_USER_AGENT?.trim() || 'SMART-AI-Security-Delivery/1.0',
+    exportSigningMaxVerifyKeys: Number(process.env.SECURITY_EXPORT_SIGNING_MAX_VERIFY_KEYS ?? 4),
     exportDeliveryAllowedPorts: (() => {
       const parsed = parseNumberCsv(process.env.SECURITY_EXPORT_DELIVERY_ALLOWED_PORTS);
       return parsed.length > 0 ? parsed : [443];

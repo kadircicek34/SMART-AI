@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { config } from '../config.js';
 import { readJsonFileSync, writeJsonFileAtomic } from '../persistence/json-file.js';
+import type { SecurityExportSignature } from './export-signing.js';
 
 export const SECURITY_AUDIT_EVENT_TYPES = [
   'ui_session_issued',
@@ -35,7 +36,8 @@ export const SECURITY_AUDIT_EVENT_TYPES = [
   'rag_remote_policy_reset',
   'security_export_delivered',
   'security_export_delivery_failed',
-  'security_export_delivery_blocked'
+  'security_export_delivery_blocked',
+  'security_export_delivery_dead_lettered'
 ] as const;
 
 export type SecurityAuditEventType = (typeof SECURITY_AUDIT_EVENT_TYPES)[number];
@@ -122,6 +124,7 @@ export type SecurityAuditExportBundle = {
   summary: SecurityAuditSummary;
   integrity: SecurityAuditIntegrity;
   data: SecurityAuditEvent[];
+  signature?: SecurityExportSignature;
 };
 
 const SNAPSHOT_VERSION = 2;
@@ -220,6 +223,7 @@ function evaluateRisk(byType: Record<SecurityAuditEventType, number>): {
   score += byType.rag_remote_policy_denied * 3;
   score += byType.security_export_delivery_failed * 2;
   score += byType.security_export_delivery_blocked * 3;
+  score += byType.security_export_delivery_dead_lettered * 4;
 
   const flags: string[] = [];
 
@@ -281,6 +285,10 @@ function evaluateRisk(byType: Record<SecurityAuditEventType, number>): {
 
   if (byType.security_export_delivery_failed >= 2) {
     flags.push('security_export_delivery_instability');
+  }
+
+  if (byType.security_export_delivery_dead_lettered >= 1) {
+    flags.push('security_export_dead_letters_present');
   }
 
   let level: SecurityAuditSummary['riskLevel'] = 'low';

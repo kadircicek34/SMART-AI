@@ -1,19 +1,29 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { config } from '../../config.js';
 import {
   SECURITY_AUDIT_EVENT_TYPES,
   securityAuditLog,
   verifySecurityAuditIntegrity,
   type SecurityAuditEvent,
-  type SecurityAuditEventType
+  type SecurityAuditEventType,
+  type SecurityAuditExportBundle
 } from '../../security/audit-log.js';
+import {
+  ensureSignedSecurityAuditExportBundle,
+  getSecurityExportJwksPath,
+  securityExportSigningRegistry,
+  verifySecurityAuditExportBundleSignature
+} from '../../security/export-signing.js';
 import {
   SecurityExportDeliveryError,
   deliverSecurityAuditExport,
+  enqueueSecurityAuditExportDelivery,
   listSecurityExportDeliveries
 } from '../../security/export-delivery.js';
 
 const CHAIN_HASH_REGEX = /^[a-f0-9]{64}$/;
+const IDEMPOTENCY_KEY_ALLOWED = /^[A-Za-z0-9._:-]+$/;
 
 const LIST_QUERY_SCHEMA = z.object({
   limit: z
@@ -87,11 +97,13 @@ const DELIVERY_LIST_QUERY_SCHEMA = z.object({
       if (!Number.isFinite(parsed)) return 20;
       return parsed;
     })
-    .refine((value) => value >= 1 && value <= 100, { message: 'limit must be between 1 and 100' })
+    .refine((value) => value >= 1 && value <= 100, { message: 'limit must be between 1 and 100' }),
+  status: z.enum(['queued', 'retrying', 'succeeded', 'failed', 'blocked', 'dead_letter']).optional()
 });
 
 const DELIVERY_BODY_SCHEMA = z.object({
   destinationUrl: z.string().url().max(2048),
+  mode: z.enum(['sync', 'async']).optional().default('sync'),
   since: z.string().datetime().optional(),
   windowHours: z
     .union([z.string(), z.number()])
@@ -138,10 +150,57 @@ const VERIFY_EVENT_SCHEMA: z.ZodType<SecurityAuditEvent> = z.object({
   chain_hash: z.string().regex(CHAIN_HASH_REGEX)
 });
 
+const VERIFY_SIGNATURE_SCHEMA = z.object({
+  algorithm: z.literal('Ed25519'),
+  key_id: z.string().min(1).max(96),
+  signed_at: z.string().datetime(),
+  payload_sha256: z.string().regex(CHAIN_HASH_REGEX),
+  signature: z.string().min(40).max(512),
+  public_keys_url: z.string().min(1).max(256)
+});
+
+const VERIFY_BUNDLE_SCHEMA = z.object({
+  object: z.literal('security_audit_export'),
+  tenant_id: z.string().min(1).max(128),
+  generated_at: z.string().datetime(),
+  filter: z.object({
+    since: z.string().datetime().optional(),
+    limit: z.number().int().positive().max(1000),
+    truncated: z.boolean(),
+    total_matching_events: z.number().int().nonnegative()
+  }),
+  summary: z.object({}).passthrough(),
+  integrity: z.object({
+    verified: z.boolean(),
+    eventCount: z.number().int().nonnegative(),
+    anchorPrevChainHash: z.string().regex(CHAIN_HASH_REGEX).nullable(),
+    headChainHash: z.string().regex(CHAIN_HASH_REGEX).nullable(),
+    lastSequence: z.number().int().positive().nullable(),
+    firstEventId: z.string().nullable(),
+    lastEventId: z.string().nullable(),
+    brokenAtEventId: z.string().optional(),
+    brokenAtSequence: z.number().int().positive().optional(),
+    failureReason: z.enum(['prev_hash_mismatch', 'chain_hash_mismatch']).optional()
+  }),
+  data: z.array(VERIFY_EVENT_SCHEMA).max(1000),
+  signature: VERIFY_SIGNATURE_SCHEMA.optional()
+});
+
 const VERIFY_BODY_SCHEMA = z.object({
   anchorPrevChainHash: z.string().regex(CHAIN_HASH_REGEX).nullable().optional(),
   events: z.array(VERIFY_EVENT_SCHEMA).max(1000)
 });
+
+function normalizeHeaderValue(value: unknown): string | null {
+  if (Array.isArray(value)) {
+    if (value.length === 0) return null;
+    return String(value[0] ?? '').trim() || null;
+  }
+
+  if (value === undefined || value === null) return null;
+  const normalized = String(value).trim();
+  return normalized || null;
+}
 
 function authError() {
   return {
@@ -182,7 +241,42 @@ function apiError(message: string, delivery?: unknown) {
   };
 }
 
+function rateLimitError(message: string, details?: unknown) {
+  return {
+    error: {
+      type: 'rate_limit_error',
+      message,
+      ...(details ? { details } : {})
+    }
+  };
+}
+
+function verifyExportBundleForTenant(bundle: SecurityAuditExportBundle, tenantId: string) {
+  const integrity = verifySecurityAuditIntegrity({
+    events: bundle.data,
+    anchorPrevChainHash: bundle.integrity.anchorPrevChainHash ?? null
+  });
+  const signatureVerification = verifySecurityAuditExportBundleSignature(bundle);
+  const verified = integrity.verified && signatureVerification.verified;
+  const failureReason = integrity.verified ? signatureVerification.reason : integrity.failureReason;
+
+  return {
+    tenantId,
+    integrity,
+    signatureVerification,
+    data: {
+      ...integrity,
+      verified,
+      ...(failureReason ? { failureReason } : {}),
+      signature_verified: signatureVerification.verified,
+      signature: signatureVerification
+    }
+  };
+}
+
 export async function registerSecurityEventsRoute(app: FastifyInstance) {
+  app.get(getSecurityExportJwksPath(), async () => securityExportSigningRegistry.getPublicJwks());
+
   app.get('/v1/security/events', async (req, reply) => {
     const tenantId = req.requestContext?.tenantId;
     if (!tenantId) {
@@ -232,6 +326,38 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
     };
   });
 
+  app.get('/v1/security/export/keys', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    return {
+      object: 'security_export_signing_keys',
+      tenant_id: tenantId,
+      jwks_path: getSecurityExportJwksPath(),
+      active_key_id: securityExportSigningRegistry.getActiveKeySummary().key_id,
+      data: securityExportSigningRegistry.listKeySummaries()
+    };
+  });
+
+  app.post('/v1/security/export/keys/rotate', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    const activeKey = await securityExportSigningRegistry.rotate();
+    return {
+      object: 'security_export_signing_keys',
+      tenant_id: tenantId,
+      jwks_path: getSecurityExportJwksPath(),
+      active_key_id: activeKey.key_id,
+      rotated: true,
+      data: securityExportSigningRegistry.listKeySummaries()
+    };
+  });
+
   app.get('/v1/security/export', async (req, reply) => {
     const tenantId = req.requestContext?.tenantId;
     if (!tenantId) {
@@ -243,11 +369,13 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
       return reply.status(400).send(invalidRequest('Invalid query for security export.', parsed.error.flatten()));
     }
 
-    const exportBundle = securityAuditLog.export(tenantId, {
-      sinceTimestamp: parsed.data.since ? Date.parse(parsed.data.since) : undefined,
-      limit: parsed.data.limit,
-      topIpLimit: parsed.data.top_ip_limit
-    });
+    const exportBundle = ensureSignedSecurityAuditExportBundle(
+      securityAuditLog.export(tenantId, {
+        sinceTimestamp: parsed.data.since ? Date.parse(parsed.data.since) : undefined,
+        limit: parsed.data.limit,
+        topIpLimit: parsed.data.top_ip_limit
+      })
+    );
 
     return exportBundle;
   });
@@ -265,7 +393,10 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
 
     return {
       object: 'list',
-      data: listSecurityExportDeliveries(tenantId, parsed.data.limit)
+      data: listSecurityExportDeliveries(tenantId, {
+        limit: parsed.data.limit,
+        status: parsed.data.status
+      })
     };
   });
 
@@ -280,16 +411,58 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
       return reply.status(400).send(invalidRequest('Invalid payload for security export delivery.', parsed.error.flatten()));
     }
 
+    const idempotencyKey = normalizeHeaderValue(req.headers['idempotency-key']);
+    if (idempotencyKey) {
+      if (
+        idempotencyKey.length > config.security.exportDeliveryIdempotencyKeyMaxLength ||
+        !IDEMPOTENCY_KEY_ALLOWED.test(idempotencyKey)
+      ) {
+        return reply.status(400).send(invalidRequest('Invalid Idempotency-Key header.'));
+      }
+    }
+
     const sinceTimestamp = parsed.data.since
       ? Date.parse(parsed.data.since)
       : Date.now() - parsed.data.windowHours * 60 * 60 * 1000;
-    const bundle = securityAuditLog.export(tenantId, {
-      sinceTimestamp,
-      limit: parsed.data.limit,
-      topIpLimit: parsed.data.topIpLimit
-    });
+    const bundle = ensureSignedSecurityAuditExportBundle(
+      securityAuditLog.export(tenantId, {
+        sinceTimestamp,
+        limit: parsed.data.limit,
+        topIpLimit: parsed.data.topIpLimit
+      })
+    );
 
     try {
+      if (parsed.data.mode === 'async') {
+        const queued = await enqueueSecurityAuditExportDelivery({
+          tenantId,
+          requestId: req.requestContext?.requestId,
+          destinationUrl: parsed.data.destinationUrl,
+          bundle,
+          idempotencyKey: idempotencyKey ?? undefined
+        });
+
+        if (!queued.ok) {
+          if (queued.reason === 'idempotency_conflict') {
+            return reply.status(409).send(invalidRequest('Idempotency-Key is already used with a different request payload.'));
+          }
+
+          return reply.status(429).send(
+            rateLimitError('Too many active security export deliveries for this tenant. Please retry later.', {
+              active_deliveries: queued.activeDeliveries
+            })
+          );
+        }
+
+        return reply.status(queued.reused ? 200 : 202).send({
+          object: 'security_export_delivery',
+          tenant_id: tenantId,
+          data: queued.record,
+          queued: true,
+          idempotencyReused: queued.reused
+        });
+      }
+
       const delivery = await deliverSecurityAuditExport({
         tenantId,
         requestId: req.requestContext?.requestId,
@@ -325,6 +498,20 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
       return reply.status(401).send(authError());
     }
 
+    const bundleParsed = VERIFY_BUNDLE_SCHEMA.safeParse(req.body ?? {});
+    if (bundleParsed.success) {
+      if (bundleParsed.data.tenant_id !== tenantId) {
+        return reply.status(400).send(invalidRequest('Export bundle tenant_id must match the authenticated tenant.'));
+      }
+
+      const verification = verifyExportBundleForTenant(bundleParsed.data as SecurityAuditExportBundle, tenantId);
+      return {
+        object: 'security_audit_verification',
+        tenant_id: tenantId,
+        data: verification.data
+      };
+    }
+
     const parsed = VERIFY_BODY_SCHEMA.safeParse(req.body ?? {});
     if (!parsed.success) {
       return reply.status(400).send(invalidRequest('Invalid payload for security export verification.', parsed.error.flatten()));
@@ -343,7 +530,11 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
     return {
       object: 'security_audit_verification',
       tenant_id: tenantId,
-      data: integrity
+      data: {
+        ...integrity,
+        signature_verified: true,
+        signature: null
+      }
     };
   });
 }
