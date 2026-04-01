@@ -1,5 +1,15 @@
 # TASKS — OpenRouter Agentic Intelligence API
 
+## v1.12 Delta (Resilient Security Export Delivery Queue) — Tamamlandı
+- [x] Yeni özellik: `POST /v1/security/export/deliveries` için `mode=async` queue lifecycle eklendi (`queued`, `retrying`, `dead_letter`)
+- [x] `GET /v1/security/export/deliveries` endpointine `status` filtresi eklendi
+- [x] Güvenlik: retry queue payload’ı AES-256-GCM ile encrypted-at-rest saklanıyor
+- [x] Güvenlik: `Idempotency-Key` dedupe + tenant başına aktif async delivery cap eklendi
+- [x] Güvenlik/Dayanıklılık: retryable HTTP/network sınıflandırması + exponential backoff + dead-letter audit telemetry eklendi
+- [x] Dashboard delivery paneli sync/async mod seçimi ve retry/dead-letter görünürlüğü ile güncellendi
+- [x] Yeni contract testleri: async queue success, idempotency reuse/conflict, active-cap, dead-letter, encrypted store doğrulamaları
+- [x] Fresh verification: typecheck + full test + audit + delivery-gate
+
 ## v1.5 Delta (Async Runtime Cancellation + Model Allowlist + Job Store Hardening) — Tamamlandı
 - [x] Yeni özellik: running research job’lar için gerçek cancellation/timeout desteği (AbortSignal chain)
 - [x] Job response modeli genişletildi (`started_at`, `completed_at`, `cancellation_reason`)

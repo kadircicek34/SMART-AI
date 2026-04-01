@@ -1,9 +1,47 @@
-# TEST REPORT — SMART-AI v1.11 (Tamper-Evident Security Export Delivery)
+# TEST REPORT — SMART-AI v1.13 (Asymmetric Security Export Signing Registry)
 
 ## Test Stratejisi
 - Contract tests: OpenAI-compatible + RAG + Memory + MCP + UI endpointleri
 - Security tests: key-store + policy allowlist + UI session token auth akışı
 - Unit tests: orchestrator/verifier, deep_research, financial runtime, qmd, memory, MCP circuit/store
+
+## 2026-04-01 Ek doğrulama (Asymmetric security export signing registry)
+- `npm run typecheck` ✅
+- `npm test` ✅ (**157/157**)
+- Ad-hoc tsx smoke doğrulaması ✅ (`GET /v1/security/export` → `signature.algorithm=Ed25519`, `GET /.well-known/smart-ai/security-export-keys.json` → `200`)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+- Yeni testler / güncellemeler:
+  - `service/tests/security/export-signing.test.ts`
+    - registry bootstrap + rotate akışı
+    - encrypted private key persistence doğrulaması
+    - detached Ed25519 sign/verify kontratı
+  - `service/tests/contract/security-events.test.ts`
+    - signed export bundle verify regresyonu
+    - JWKS publication + key rotation API kontratı
+  - `service/tests/contract/security-export-deliveries.test.ts`
+    - delivery header signing model upgrade (`Ed25519` + key-id)
+    - delivered payload içinde signed export bundle doğrulaması
+  - Dashboard smoke etkisi
+    - signing metric, signing table ve rotate aksiyonu aynı `/ui/dashboard` yüzeyinde API kontratlarıyla uyumlu çalışıyor
+
+## 2026-03-31 Ek doğrulama (Resilient security export delivery queue)
+- `npm run typecheck` ✅
+- `npx tsx --test tests/contract/security-export-deliveries.test.ts tests/contract/security-events.test.ts` ✅ (**11/11**)
+- `npm test` ✅ (**154/154**)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+- Yeni testler / güncellemeler:
+  - `service/tests/contract/security-export-deliveries.test.ts`
+    - async queue success + retry/backoff lifecycle
+    - encrypted retry payload persistence doğrulaması
+    - `Idempotency-Key` reuse/conflict doğrulaması
+    - tenant active async delivery cap (`429`) doğrulaması
+    - dead-letter lifecycle + `status=dead_letter` filtre doğrulaması
+  - `service/tests/contract/security-events.test.ts`
+    - security export/verify regresyonu yeni dead-letter telemetry ile birlikte korundu
+  - Dashboard smoke etkisi
+    - sync/async mode seçimi ve retry metadata aynı `/ui/dashboard` yüzeyinde gösteriliyor; API contract paketi ile doğrulandı
 
 ## 2026-03-30 Ek doğrulama (Tamper-evident security export delivery)
 - `npm run typecheck` ✅
