@@ -1,13 +1,75 @@
-# DELIVERY — SMART-AI v1.11 (Tamper-Evident Security Export Delivery)
+# DELIVERY — SMART-AI v1.13 (Asymmetric Security Export Signing Registry)
 
 ## Özet
-Bu koşumda en yüksek etkili günlük iyileştirme olarak **tamper-evident security export delivery pipeline** teslim edildi.
+Bu koşumda en yüksek etkili günlük iyileştirme olarak **asymmetric security export signing registry** teslim edildi.
 
 Teslimin odağı:
-- admin-scope `security export deliveries` API,
-- allowlist + HTTPS + DNS pinning + HMAC ile outbound security egress sertleştirmesi,
-- dashboard üzerinde webhook/SIEM delivery kontrol paneli + receipt history,
-- regression + dependency audit + delivery gate doğrulaması.
+- admin-scope security export hattını symmetric HMAC modelinden Ed25519 + key rotation registry modeline geçirmek,
+- public JWKS discovery ile üçüncü taraf verifier/SIEM tarafında bağımsız doğrulamayı mümkün kılmak,
+- dashboard üzerinde signing key görünürlüğü + rotate aksiyonu eklemek,
+- regression + smoke + dependency audit + delivery gate doğrulaması.
+
+## 2026-04-01 Teslim paketi (Asymmetric security export signing registry)
+### Yapılanlar
+1. **Yeni özellik — security export signing key registry + rotation API**
+   - `GET /v1/security/export/keys` ile active/verify-only signing key envanteri görünür hale geldi.
+   - `POST /v1/security/export/keys/rotate` yeni active Ed25519 key üretip önceki key’i verify-only modda tutuyor.
+   - `/.well-known/smart-ai/security-export-keys.json` public JWKS endpointi ile dış verifier/SIEM tarafı public key keşfi yapabiliyor.
+2. **Ciddi güvenlik iyileştirmesi — asymmetric Ed25519 export signatures**
+   - `GET /v1/security/export` artık hash-chain metadata yanında detached Ed25519 signature dönüyor.
+   - `POST /v1/security/export/verify` signed bundle geldiğinde hem integrity chain’i hem signature’ı birlikte doğruluyor.
+   - Signing private key materyali local store’da plaintext değil, AES-256-GCM encrypted-at-rest tutuluyor.
+3. **Ciddi güvenlik iyileştirmesi — delivery header signing model upgrade**
+   - Security export delivery headers artık symmetric HMAC yerine Ed25519 signature + `x-smart-ai-signature-key-id` + bundle key correlation ile gönderiliyor.
+   - Async queue/retry/dead-letter hattı yeni signature model ile uyumlu kalacak şekilde korunup regresyon testleri genişletildi.
+4. **UX / DX iyileştirmesi — dashboard signing control plane**
+   - `/ui/dashboard` içinde signing key summary/metric, key tablosu ve rotate butonu eklendi.
+   - README + service runtime docs yeni endpointler, env yüzeyi ve verify/JWKS akışı ile güncellendi.
+5. **Test / kalite iyileştirmesi**
+   - Yeni `service/tests/security/export-signing.test.ts` ile registry bootstrapping, encrypted store ve detached verify akışı koruma altına alındı.
+   - Contract testler export/verify, JWKS publication, key rotation ve delivery header upgrade senaryolarını kapsayacak şekilde genişletildi.
+
+### Verification
+- `npm run typecheck` ✅
+- `npm test` ✅ (**157/157**)
+- Ad-hoc tsx smoke doğrulaması ✅ (`GET /v1/security/export` → `200` / `signature.algorithm=Ed25519`, `GET /.well-known/smart-ai/security-export-keys.json` → `200`)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+
+### Kalan riskler
+- Dead-letter item’ları için özel redrive endpointi henüz yok.
+- Remote URL fetch hattında lookup ile gerçek connect arasında tam anti-rebinding pinning yok.
+- Delivery queue/audit/policy/session persistence hâlâ local file tabanlı; shared backend gerekecek.
+
+## 2026-03-31 Teslim paketi (Resilient security export delivery queue)
+### Yapılanlar
+1. **Yeni özellik — async security export delivery queue**
+   - `POST /v1/security/export/deliveries` artık `mode=async` ile receipt’i `queued` olarak döndürüp retry/backoff lifecycle başlatıyor.
+   - `GET /v1/security/export/deliveries` endpointi `status` filtresiyle queue/dead-letter görünürlüğü veriyor.
+2. **Ciddi güvenlik iyileştirmesi — encrypted retry payload store**
+   - Retry queue materyali AES-256-GCM ile encrypted-at-rest saklanıyor.
+   - Receipt history plaintext export bundle veya query secret’larını sızdırmıyor.
+3. **Ciddi güvenlik iyileştirmesi — idempotency + active-cap flood koruması**
+   - `Idempotency-Key` replay-safe hale getirildi; aynı key + farklı payload `409`, aynı payload tekrarında receipt reuse.
+   - Tenant başına aktif async delivery limiti ile queue flood / egress abuse yüzeyi daraltıldı.
+4. **Ciddi güvenlik/operasyon iyileştirmesi — dead-letter telemetry**
+   - Retryable HTTP/network failure’lar automatic backoff ile tekrar deneniyor.
+   - Max attempt sonrası receipt `dead_letter` oluyor ve security feed’e `security_export_delivery_dead_lettered` kanıtı düşüyor.
+5. **UX / DX iyileştirmesi**
+   - Dashboard delivery paneli sync/async mod seçimi ve retry metadata görünürlüğü ile güncellendi.
+   - README + service runtime docs + env example yeni async/delivery tuning yüzeyiyle güncellendi.
+
+### Verification
+- `npm run typecheck` ✅
+- `npx tsx --test tests/contract/security-export-deliveries.test.ts tests/contract/security-events.test.ts` ✅ (**11/11**)
+- `npm test` ✅ (**154/154**)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+
+### Kalan riskler
+- Dead-letter item’ları için özel redrive endpointi henüz yok.
+- HMAC signing symmetric modelde; asymmetric verifier/key rotation registry backlog’da.
+- Delivery queue/audit/policy persistence hâlâ local file tabanlı; shared backend gerekecek.
 
 ## 2026-03-30 Teslim paketi (Tamper-evident security export delivery)
 ### Yapılanlar

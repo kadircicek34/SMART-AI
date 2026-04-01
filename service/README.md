@@ -92,9 +92,17 @@
 - `SECURITY_TENANT_HEADER_MAX_LENGTH` (varsayılan: 128)
 - `SECURITY_UI_API_KEY_MAX_LENGTH` (varsayılan: 512)
 - `SECURITY_EXPORT_DELIVERY_STORE_FILE` (varsayılan: `.data/security-export-deliveries.json`)
+- `SECURITY_EXPORT_SIGNING_STORE_FILE` (varsayılan: `.data/security-export-signing-keys.json`)
 - `SECURITY_EXPORT_DELIVERY_TIMEOUT_MS` (varsayılan: 10000)
 - `SECURITY_EXPORT_DELIVERY_MAX_RESPONSE_BYTES` (varsayılan: 32768)
 - `SECURITY_EXPORT_DELIVERY_MAX_RECORDS_PER_TENANT` (varsayılan: 100)
+- `SECURITY_EXPORT_DELIVERY_MAX_ACTIVE_PER_TENANT` (varsayılan: 10)
+- `SECURITY_EXPORT_DELIVERY_IDEMPOTENCY_TTL_SECONDS` (varsayılan: 3600)
+- `SECURITY_EXPORT_DELIVERY_IDEMPOTENCY_KEY_MAX_LENGTH` (varsayılan: 128)
+- `SECURITY_EXPORT_DELIVERY_RETRY_BASE_DELAY_MS` (varsayılan: 5000)
+- `SECURITY_EXPORT_DELIVERY_RETRY_MAX_DELAY_MS` (varsayılan: 60000)
+- `SECURITY_EXPORT_DELIVERY_MAX_ATTEMPTS` (varsayılan: 4)
+- `SECURITY_EXPORT_SIGNING_MAX_VERIFY_KEYS` (varsayılan: 4)
 - `SECURITY_EXPORT_DELIVERY_ALLOWED_PORTS` (varsayılan: `443`)
 - `SECURITY_EXPORT_DELIVERY_ALLOW_IP_LITERALS` (varsayılan: `false`, önerilen: kapalı)
 - `SECURITY_EXPORT_DELIVERY_USER_AGENT` (varsayılan: `SMART-AI-Security-Delivery/1.0`)
@@ -119,10 +127,13 @@
 - `POST /v1/mcp/flush` → health snapshot’ını diskte flush etme
 - `GET /v1/security/events` → tenant-scope güvenlik olay akışı (auth/rate-limit/origin/session/job/model policy)
 - `GET /v1/security/summary` → tenant güvenlik risk özeti (riskScore/riskLevel/flags/top IP + integrity)
-- `GET /v1/security/export` → admin-scope tamper-evident audit bundle export (sequence + prev_chain_hash + chain_hash)
-- `GET /v1/security/export/deliveries` → son export delivery receipt’lerini listele
-- `POST /v1/security/export/deliveries` → allowlisted HTTPS webhook/SIEM hedefine HMAC-imzalı export gönder
-- `POST /v1/security/export/verify` → export edilen audit bundle'ın bütünlüğünü yeniden doğrula
+- `GET /v1/security/export` → admin-scope tamper-evident + Ed25519 imzalı audit bundle export (sequence + prev_chain_hash + chain_hash + signature)
+- `GET /v1/security/export/keys` → export signing key registry (active + verify_only key metadata)
+- `POST /v1/security/export/keys/rotate` → yeni active Ed25519 key üret, önceki active key’i verify-only durumuna taşı
+- `GET /.well-known/smart-ai/security-export-keys.json` → public JWKS discovery endpoint
+- `GET /v1/security/export/deliveries` → son export delivery receipt’lerini listele (`status=queued|retrying|succeeded|failed|blocked|dead_letter` filtreli)
+- `POST /v1/security/export/deliveries` → allowlisted HTTPS webhook/SIEM hedefine Ed25519-imzalı export gönder (`mode=sync|async`; async mod encrypted retry queue + backoff + dead-letter lifecycle + Idempotency-Key dedupe)
+- `POST /v1/security/export/verify` → export edilen audit bundle'ın bütünlüğünü ve detached signature’ını yeniden doğrula
 - `GET /v1/model-policy` → tenant için effective model policy (inherit/custom/invalid durumu)
 - `PUT /v1/model-policy` → tenant bazlı model allowlist + default model güncelleme
 - `DELETE /v1/model-policy` → tenant policy reset → deployment defaults
@@ -148,11 +159,14 @@
 
 ## Security export delivery
 - Security export artık dashboard’dan veya API üzerinden allowlisted bir HTTPS webhook/SIEM hedefine push edilebilir.
+- `mode=sync` tek denemelik delivery yapar; `mode=async` export bundle’ı retry queue’ya alır ve retryable 408/425/429/5xx + network hatalarında backoff uygular.
+- Async queue payload’ı delivery store içinde düz JSON tutulmaz; AES-256-GCM ile encrypted-at-rest saklanır.
+- `Idempotency-Key` aynı export isteğinin duplicate/replay flood’unu bastırır; tenant başına aktif async delivery sayısı ayrıca üst sınırla korunur.
 - Delivery yalnızca tenant remote policy `allowed_hosts` listesinde eşleşen hostlara açılır; serbest outbound POST yoktur.
 - Hedef hostname public DNS ile resolve edilir ve pinned address üzerinden bağlanılır; private/local/reserved ağlara egress fail-closed reddedilir.
 - Her istekte `content-digest`, `x-smart-ai-signature`, `x-smart-ai-signature-input`, `x-smart-ai-delivery-id`, `x-smart-ai-head-chain-hash` header’ları gönderilir.
 - Receipt history path/query secret’larını loglamaz; yalnızca redacted destination origin + hash metadata saklar.
-- Audit event tipleri: `security_export_delivered`, `security_export_delivery_failed`, `security_export_delivery_blocked`.
+- Audit event tipleri: `security_export_delivered`, `security_export_delivery_failed`, `security_export_delivery_blocked`, `security_export_delivery_dead_lettered`.
 
 ## Tool plane updates
 - `qmd_search` aracı eklendi (VPS'teki kurulu `qmd` CLI ile lokal repo doküman araması)

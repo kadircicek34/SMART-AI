@@ -1,4 +1,4 @@
-# SECURITY REPORT — SMART-AI v1.11
+# SECURITY REPORT — SMART-AI v1.13
 
 ## Kapsam
 Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
@@ -20,8 +20,51 @@ Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
 | UI static route security | ✅ | path traversal bloklandı (`isPathInside`) |
 | MCP call güvenliği | ✅ | sabit command template + JSON args + adaptive timeout + circuit guard |
 | MCP persistence güvenliği | ✅ | snapshot atomik tmp→rename ile yazılıyor |
-| Security export delivery egress | ✅ | HTTPS-only + allowlist + DNS pinning + HMAC signature + redacted receipts |
+| Security export delivery egress | ✅ | HTTPS-only + allowlist + DNS pinning + Ed25519 signature + redacted receipts |
 | Dependencies | ✅ | `npm audit --omit=dev` sonucu 0 vuln |
+
+## 2026-04-01 Güvenlik sertleştirmesi — asymmetric security export signing registry
+- **Asymmetric signing upgrade**
+  - `GET /v1/security/export` artık hash-chain export bundle'ını Ed25519 detached signature ile döndürüyor.
+  - `POST /v1/security/export/verify` signed bundle geldiğinde chain integrity + signature doğrulamasını birlikte yapıyor.
+  - Delivery headers symmetric HMAC yerine Ed25519 + key-id metadata ile üretiliyor.
+- **Signing key lifecycle / rotation**
+  - Yeni endpointler: `GET /v1/security/export/keys`, `POST /v1/security/export/keys/rotate`, `GET /.well-known/smart-ai/security-export-keys.json`
+  - Active key rotate edildiğinde önceki key verify-only durumda tutuluyor; eski export/delivery kanıtları doğrulanabilir kalıyor.
+  - Public JWKS discovery, üçüncü taraf verifier/SIEM tarafında shared secret taşımadan doğrulama sağlıyor.
+- **Private key at-rest koruması**
+  - Signing private key materyali plaintext store edilmez; AES-256-GCM ile encrypted-at-rest tutulur.
+  - Yeni unit test, persisted store içinde raw private JWK `d` alanının yer almadığını doğrular.
+- **Control plane görünürlüğü**
+  - Dashboard signing key özeti, key tablosu ve rotate aksiyonu eklenerek operasyonel görünürlük artırıldı.
+
+Kalan risk:
+- Dead-letter item’ları için ayrı manual redrive endpointi henüz yok.
+- Remote URL fetch hattında lookup→connect tam anti-rebinding pinning henüz yok.
+- Delivery queue ve audit/policy/session store hâlâ local file tabanlı; multi-instance shared backend gerekecek.
+
+## 2026-03-31 Güvenlik sertleştirmesi — resilient security export delivery queue
+- **Async resilient delivery mode**
+  - `POST /v1/security/export/deliveries` artık `mode=async` ile queued/retrying/dead-letter lifecycle’ı destekliyor.
+  - Retryable HTTP (`408/425/429/5xx`) ve network hataları transient kabul edilip backoff ile tekrar deneniyor.
+- **Encrypted retry payload store**
+  - Retry queue materyali düz JSON tutulmuyor; AES-256-GCM ile encrypted-at-rest saklanıyor.
+  - Delivery receipt geçmişi yalnızca redacted metadata içeriyor; export bundle plaintext’i receipt store yüzeyine sızmıyor.
+- **Replay / duplicate delivery guard**
+  - `Idempotency-Key` desteği async delivery için eklendi.
+  - Aynı key + farklı payload `409` ile reddediliyor; aynı payload replay’i mevcut receipt’i reuse ediyor.
+  - Tenant başına aktif async delivery üst sınırı ile queue flood / egress abuse riski sınırlandı.
+- **Dead-letter telemetry**
+  - Yeni event tipi: `security_export_delivery_dead_lettered`
+  - Risk summary artık dead-letter oluşumunu ayrıca yükseltebiliyor (`security_export_dead_letters_present`).
+- **Ops surface hardening**
+  - Dashboard sync/async seçimi yapabiliyor; attempt count / next attempt / dead-letter durumları görünür.
+  - `GET /v1/security/export/deliveries?status=...` ile queue durumu API’den filtrelenebiliyor.
+
+Kalan risk:
+- Dead-letter item’ları için ayrı manual redrive endpointi henüz yok; operatör yeni delivery isteğiyle tekrar başlatıyor.
+- Delivery queue ve audit/policy store hâlâ local file tabanlı; multi-instance shared backend gerekecek.
+- HMAC imza symmetric modelde; bağımsız üçüncü taraf verifier için asymmetric signing + key registry backlog’da.
 
 ## 2026-03-30 Güvenlik sertleştirmesi — tamper-evident security export delivery
 - **Allowlist-controlled outbound delivery**
