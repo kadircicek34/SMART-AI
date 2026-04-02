@@ -57,6 +57,7 @@ before(async () => {
   process.env.SECURITY_EXPORT_DELIVERY_RETRY_MAX_DELAY_MS = '25';
   process.env.SECURITY_EXPORT_DELIVERY_IDEMPOTENCY_TTL_SECONDS = '3600';
   process.env.SECURITY_EXPORT_DELIVERY_IDEMPOTENCY_KEY_MAX_LENGTH = '64';
+  process.env.SECURITY_EXPORT_DELIVERY_MAX_MANUAL_REDRIVES = '1';
 
   deliveryStoreFile = process.env.SECURITY_EXPORT_DELIVERY_STORE_FILE;
 
@@ -532,6 +533,125 @@ test('async security export delivery dead-letters after max retry attempts and i
   assert.equal(eventsRes.statusCode, 200);
   const events = eventsRes.json();
   assert.ok(events.data.some((event: any) => event.type === 'security_export_delivery_dead_lettered'));
+});
+
+test('dead-letter deliveries can be manually redriven once and emit a dedicated audit event', async () => {
+  const tenantId = 'tenant-security-delivery-redrive';
+  const session = await createAdminSession(tenantId);
+  await allowDeliveryHost(tenantId);
+
+  let attempts = 0;
+  deliveryPrivate.setTransportForTests(async () => {
+    attempts += 1;
+    if (attempts <= 3) {
+      return {
+        statusCode: 503,
+        bodyText: 'upstream unavailable',
+        bodyTruncated: false,
+        durationMs: 17
+      };
+    }
+
+    return {
+      statusCode: 202,
+      bodyText: JSON.stringify({ accepted: true }),
+      bodyTruncated: false,
+      durationMs: 15,
+      contentType: 'application/json'
+    };
+  });
+
+  const queuedRes = await app.inject({
+    method: 'POST',
+    url: '/v1/security/export/deliveries',
+    headers: {
+      authorization: `Bearer ${session.token}`,
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com',
+      'idempotency-key': 'async-redrive-1'
+    },
+    payload: {
+      destinationUrl: 'https://siem.example.com/hooks/tenant-redrive',
+      mode: 'async',
+      windowHours: 24,
+      limit: 50,
+      topIpLimit: 5
+    }
+  });
+
+  assert.equal(queuedRes.statusCode, 202);
+  const originalDeliveryId = queuedRes.json().data.delivery_id;
+
+  await deliveryPrivate.processRetryQueueForTests({ force: true });
+  await deliveryPrivate.processRetryQueueForTests({ force: true });
+  await deliveryPrivate.processRetryQueueForTests({ force: true });
+
+  const redriveRes = await app.inject({
+    method: 'POST',
+    url: `/v1/security/export/deliveries/${originalDeliveryId}/redrive`,
+    headers: {
+      authorization: `Bearer ${session.token}`,
+      'x-tenant-id': tenantId,
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {}
+  });
+
+  assert.equal(redriveRes.statusCode, 202);
+  const redriveBody = redriveRes.json();
+  assert.equal(redriveBody.redriven, true);
+  assert.equal(redriveBody.data.status, 'queued');
+  assert.equal(redriveBody.data.source_delivery_id, originalDeliveryId);
+  assert.equal(redriveBody.data.redrive_count, 1);
+
+  await deliveryPrivate.processRetryQueueForTests({ force: true });
+
+  const deliveriesRes = await app.inject({
+    method: 'GET',
+    url: '/v1/security/export/deliveries?limit=10',
+    headers: {
+      authorization: `Bearer ${session.token}`,
+      'x-tenant-id': tenantId
+    }
+  });
+
+  assert.equal(deliveriesRes.statusCode, 200);
+  const deliveries = deliveriesRes.json();
+  assert.equal(deliveries.data.length, 2);
+  assert.equal(deliveries.data[0].status, 'succeeded');
+  assert.equal(deliveries.data[0].source_delivery_id, originalDeliveryId);
+  assert.equal(deliveries.data[0].redrive_count, 1);
+  assert.equal(deliveries.data[1].status, 'dead_letter');
+
+  const redriveEventsRes = await app.inject({
+    method: 'GET',
+    url: '/v1/security/events?type=security_export_delivery_redriven&limit=5',
+    headers: {
+      authorization: `Bearer ${session.token}`,
+      'x-tenant-id': tenantId
+    }
+  });
+
+  assert.equal(redriveEventsRes.statusCode, 200);
+  const redriveEvents = redriveEventsRes.json();
+  assert.ok(redriveEvents.data.some((event: any) => event.type === 'security_export_delivery_redriven'));
+
+  const secondRedriveRes = await app.inject({
+    method: 'POST',
+    url: `/v1/security/export/deliveries/${originalDeliveryId}/redrive`,
+    headers: {
+      authorization: `Bearer ${session.token}`,
+      'x-tenant-id': tenantId,
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {}
+  });
+
+  assert.equal(secondRedriveRes.statusCode, 429);
+  const secondRedriveBody = secondRedriveRes.json();
+  assert.equal(secondRedriveBody.error.type, 'rate_limit_error');
+  assert.match(secondRedriveBody.error.message, /redrive limit/i);
 });
 
 test('read-only credential cannot list or create security export deliveries', async () => {

@@ -1,4 +1,4 @@
-# SECURITY REPORT — SMART-AI v1.13
+# SECURITY REPORT — SMART-AI v1.14
 
 ## Kapsam
 Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
@@ -22,6 +22,28 @@ Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
 | MCP persistence güvenliği | ✅ | snapshot atomik tmp→rename ile yazılıyor |
 | Security export delivery egress | ✅ | HTTPS-only + allowlist + DNS pinning + Ed25519 signature + redacted receipts |
 | Dependencies | ✅ | `npm audit --omit=dev` sonucu 0 vuln |
+
+## 2026-04-02 Güvenlik sertleştirmesi — dead-letter redrive + anti-rebinding pinning
+- **Dead-letter recovery control plane**
+  - Yeni endpoint: `POST /v1/security/export/deliveries/:deliveryId/redrive`
+  - Dashboard delivery tablosu dead-letter item için tek tık manual redrive başlatabiliyor.
+  - Yeni audit event tipi: `security_export_delivery_redriven`
+- **Bounded replay / redrive guard**
+  - Yeni env: `SECURITY_EXPORT_DELIVERY_MAX_MANUAL_REDRIVES`
+  - Aynı dead-letter item için sınırsız manual replay kapatıldı; limit aşımlarında fail-closed `429` dönüyor.
+- **Retry material fingerprint hardening**
+  - Retry/redrive materyali artık `origin`, `host`, `path_hash`, `matched_host_rule` fingerprint’iyle saklanıyor.
+  - Fingerprint mismatch durumunda queue tampering/replay denemesi fail-closed dead-letter’a düşüyor.
+- **Remote RAG anti-rebinding closure**
+  - URL preview/ingest requestleri artık preflight public DNS resolve sonrası aynı pinned IP ile bağlanıyor.
+  - Redirect zinciri manuel izlenmeye devam ederken lookup→connect arası DNS rebinding penceresi daraltıldı.
+- **Dependency posture**
+  - `npm audit --omit=dev --audit-level=high` tekrar temiz geçti (0 vulnerability).
+
+Kalan risk:
+- Delivery queue/audit/policy/session store hâlâ local file tabanlı; multi-instance shared backend gerekecek.
+- Signing key rotation hâlâ admin tetiklemeli; otomatik expiry/rotation policy henüz yok.
+- Export egress policy şu an remote source allowlist ile paylaşılıyor; ayrı delivery-egress plane sonraki fazda değerlendirilebilir.
 
 ## 2026-04-01 Güvenlik sertleştirmesi — asymmetric security export signing registry
 - **Asymmetric signing upgrade**

@@ -1,20 +1,25 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "Asymmetric security export signing registry production-grade olarak teslim edildi",
+  "current_task": "Dead-letter redrive + anti-rebinding pinning production-grade olarak teslim edildi",
   "next_actions": [
-    "Security export dead-letter item'ları için manual redrive endpointi ve dashboard aksiyonu ekle",
-    "Remote URL fetch hattında lookup→connect pinning veya egress proxy ile anti-rebinding korumasını sertleştir",
-    "UI session, security audit, delivery queue ve policy persistence katmanını shared backend'e taşı",
-    "Security export signing için ops-side expiry/rotation policy automation ve alerting ekle"
+    "Delivery queue, security audit, UI session ve policy store'larını shared backend'e taşı",
+    "Security export signing için otomatik expiry/rotation scheduler + alerting ekle",
+    "Export egress için remote source policy'den ayrık delivery-egress policy plane tasarla",
+    "Dead-letter / retry telemetry için dashboard trend kartları ve operatör playbook akışı ekle"
   ],
   "risks": [
-    "Security export dead-letter item'ları için ayrı redrive endpointi henüz yok; operatör yeni delivery isteği başlatıyor",
-    "Remote URL fetch hattında lookup ile gerçek connect arasında tam pinning yok; anti-rebinding backlog'da",
-    "Audit/session/policy/delivery persistence hâlâ local file tabanlı; multi-instance shared backend gerekecek",
-    "Signing key rotation şu an manual/admin tetiklemeli; otomatik expiry/rotation policy henüz yok"
+    "Delivery queue/audit/policy/session persistence hâlâ local file tabanlı; multi-instance shared backend gerekecek",
+    "Signing key rotation şu an manual/admin tetiklemeli; otomatik expiry/rotation policy henüz yok",
+    "Export egress allowlist şu an remote source policy ile paylaşılıyor; ayrı delivery-egress plane henüz yok",
+    "Remote URL fetch hattı public DNS pinli olsa da merkezi egress proxy / VPC-level outbound control henüz yok"
   ],
   "decisions": [
+    {
+      "date": "2026-04-02",
+      "decision": "Dead-letter delivery redrive API + dashboard aksiyonu ile remote URL lookup→connect pinning paketini canlıya al",
+      "reason": "Security export recovery control plane'ini tamamlamak, DNS rebinding penceresini kapatmak ve retry/redrive replay yüzeyini bounded/fail-closed hale getirmek"
+    },
     {
       "date": "2026-04-01",
       "decision": "Security export signing modelini Ed25519 registry + public JWKS + verify-only rotation ile canlıya al",
@@ -34,11 +39,6 @@
       "date": "2026-03-29",
       "decision": "Tamper-evident security export pipeline'ını admin-scope export + verify API ile canlıya al",
       "reason": "Tenant security evidence'ını dış sisteme taşınabilir ve transfer sonrası doğrulanabilir hale getirmek"
-    },
-    {
-      "date": "2026-03-28",
-      "decision": "Tenant remote source policy control plane'i secure-by-default olarak canlıya al",
-      "reason": "Arbitrary remote URL ingest yüzeyini tenant bazlı policy yönetişimiyle kapatmak ve dashboard üzerinden yönetilebilir hale getirmek"
     }
   ],
   "artifacts": [
@@ -52,6 +52,7 @@
     "service/.env.example",
     "service/config.ts",
     "service/api/routes/security-events.ts",
+    "service/rag/remote-url.ts",
     "service/security/audit-log.ts",
     "service/security/export-delivery.ts",
     "service/security/export-signing.ts",
@@ -59,7 +60,8 @@
     "service/web/assets/dashboard.js",
     "service/tests/contract/security-events.test.ts",
     "service/tests/contract/security-export-deliveries.test.ts",
-    "service/tests/security/export-signing.test.ts"
+    "service/tests/security/export-signing.test.ts",
+    "service/tests/rag/remote-url.test.ts"
   ],
-  "updated_at": "2026-04-01T07:00:00+03:00"
+  "updated_at": "2026-04-02T07:00:00+03:00"
 }

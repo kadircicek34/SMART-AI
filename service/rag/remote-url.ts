@@ -1,4 +1,6 @@
+import http from 'node:http';
 import dns from 'node:dns/promises';
+import https from 'node:https';
 import net from 'node:net';
 import { domainToASCII } from 'node:url';
 import { config } from '../config.js';
@@ -8,6 +10,7 @@ const IPV6_TOTAL_GROUPS = 8;
 const IPV6_GROUP_BITS = 16n;
 const IPV6_MAX_GROUP = 0xffff;
 const HTML_TITLE_REGEX = /<title[^>]*>([\s\S]{1,500})<\/title>/i;
+const DEFAULT_GLOBAL_FETCH = globalThis.fetch;
 
 type RemoteUrlErrorDetails = Record<string, string | number | boolean | null>;
 type LookupImpl = typeof dns.lookup;
@@ -16,6 +19,25 @@ type ResolvedAddress = {
   address: string;
   family: number;
 };
+
+type RemoteTransportHeaders = Record<string, string | string[] | undefined>;
+
+type RemotePinnedRequest = {
+  url: URL;
+  headers: Record<string, string>;
+  pinnedAddress: ResolvedAddress;
+  timeoutMs: number;
+  maxBytes: number;
+};
+
+type RemoteTransportResult = {
+  statusCode: number;
+  headers: RemoteTransportHeaders;
+  bodyText: string;
+  byteCount: number;
+};
+
+type RemoteRequestImpl = (request: RemotePinnedRequest) => Promise<RemoteTransportResult>;
 
 export type RemoteUrlInspection = {
   normalizedUrl: string;
@@ -340,16 +362,153 @@ function buildAcceptHeader(): string {
   return config.rag.remoteAllowedContentTypes.join(', ');
 }
 
+function buildRequestHeaders(): Record<string, string> {
+  return {
+    accept: buildAcceptHeader(),
+    'user-agent': config.rag.remoteUserAgent
+  };
+}
+
 function buildFetchOptions(): RequestInit {
   return {
     method: 'GET',
     redirect: 'manual',
     signal: AbortSignal.timeout(config.rag.remoteFetchTimeoutMs),
-    headers: {
-      accept: buildAcceptHeader(),
-      'user-agent': config.rag.remoteUserAgent
-    }
+    headers: buildRequestHeaders()
   };
+}
+
+function normalizeHeaderValue(value: string | string[] | undefined): string | null {
+  if (Array.isArray(value)) {
+    return value.find((entry) => typeof entry === 'string' && entry.trim().length > 0)?.trim() ?? null;
+  }
+
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return normalized || null;
+}
+
+function getHeader(headers: RemoteTransportHeaders, name: string): string | null {
+  return normalizeHeaderValue(headers[name.toLowerCase()]);
+}
+
+async function defaultPinnedRequest(request: RemotePinnedRequest): Promise<RemoteTransportResult> {
+  const transport = request.url.protocol === 'https:' ? https : http;
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+
+    const finish = (callback: () => void) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      callback();
+    };
+
+    const req = transport.request(
+      {
+        protocol: request.url.protocol,
+        hostname: request.url.hostname,
+        port: resolvedPort(request.url),
+        path: `${request.url.pathname || '/'}${request.url.search || ''}`,
+        method: 'GET',
+        timeout: request.timeoutMs,
+        headers: request.headers,
+        lookup: (_hostname, _options, callback) => {
+          callback(null, request.pinnedAddress.address, request.pinnedAddress.family);
+        }
+      },
+      (response) => {
+        if (isRedirectStatus(response.statusCode ?? 0)) {
+          response.resume();
+          finish(() =>
+            resolve({
+              statusCode: response.statusCode ?? 0,
+              headers: response.headers,
+              bodyText: '',
+              byteCount: 0
+            })
+          );
+          return;
+        }
+
+        const declaredLength = Number(getHeader(response.headers, 'content-length') ?? '');
+        if (Number.isFinite(declaredLength) && declaredLength > request.maxBytes) {
+          response.resume();
+          req.destroy(
+            new RemoteUrlError('remote_url_response_too_large', 413, {
+              max_bytes: request.maxBytes,
+              content_length: declaredLength
+            })
+          );
+          return;
+        }
+
+        const buffers: Buffer[] = [];
+        let byteCount = 0;
+
+        response.on('data', (chunk) => {
+          const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          byteCount += buffer.length;
+
+          if (byteCount > request.maxBytes) {
+            response.destroy(
+              new RemoteUrlError('remote_url_response_too_large', 413, {
+                max_bytes: request.maxBytes,
+                read_bytes: byteCount
+              })
+            );
+            return;
+          }
+
+          buffers.push(buffer);
+        });
+
+        response.on('error', (error) => {
+          finish(() => reject(error));
+        });
+
+        response.on('end', () => {
+          finish(() =>
+            resolve({
+              statusCode: response.statusCode ?? 0,
+              headers: response.headers,
+              bodyText: Buffer.concat(buffers).toString('utf8'),
+              byteCount
+            })
+          );
+        });
+      }
+    );
+
+    req.on('timeout', () => {
+      req.destroy(new RemoteUrlError('remote_url_fetch_timeout', 504));
+    });
+
+    req.on('error', (error) => {
+      if (error instanceof RemoteUrlError) {
+        finish(() => reject(error));
+        return;
+      }
+
+      finish(() => reject(new RemoteUrlError('remote_url_fetch_failed', 502, formatUpstreamErrorDetails(error))));
+    });
+
+    req.end();
+  });
+}
+
+async function dispatchPinnedRequest(request: RemotePinnedRequest, requestImpl?: RemoteRequestImpl): Promise<RemoteTransportResult> {
+  if (requestImpl) {
+    return requestImpl(request);
+  }
+
+  return defaultPinnedRequest(request);
 }
 
 async function readBody(response: Response, maxBytes: number): Promise<{ bodyText: string; byteCount: number }> {
@@ -426,6 +585,7 @@ export async function inspectRemoteTextSource(params: {
   previewChars?: number;
   maxBytes?: number;
   fetchImpl?: typeof fetch;
+  requestImpl?: RemoteRequestImpl;
   lookupImpl?: LookupImpl;
 }): Promise<RemoteUrlInspection> {
   let initialUrl: URL;
@@ -435,7 +595,7 @@ export async function inspectRemoteTextSource(params: {
     throw new RemoteUrlError('invalid_url', 400);
   }
 
-  const fetchImpl = params.fetchImpl ?? globalThis.fetch;
+  const fetchImpl = params.fetchImpl ?? (globalThis.fetch !== DEFAULT_GLOBAL_FETCH ? globalThis.fetch.bind(globalThis) : undefined);
   const lookupImpl = params.lookupImpl ?? dns.lookup.bind(dns);
   const normalizedUrl = initialUrl.toString();
   const previewChars = Math.max(120, params.previewChars ?? config.rag.remotePreviewChars);
@@ -447,7 +607,7 @@ export async function inspectRemoteTextSource(params: {
 
   while (true) {
     validateUrlShape(currentUrl);
-    await resolveHostname(currentUrl, lookupImpl);
+    const resolvedAddresses = await resolveHostname(currentUrl, lookupImpl);
 
     const currentUrlString = currentUrl.toString();
     if (visited.has(currentUrlString)) {
@@ -457,23 +617,68 @@ export async function inspectRemoteTextSource(params: {
     }
     visited.add(currentUrlString);
 
-    let response: Response;
-    try {
-      response = await fetchImpl(currentUrl, buildFetchOptions());
-    } catch (error) {
-      const name = error instanceof Error ? error.name : '';
-      if (name === 'TimeoutError' || name === 'AbortError') {
-        throw new RemoteUrlError('remote_url_fetch_timeout', 504);
+    let statusCode = 0;
+    let headers: { get(name: string): string | null };
+    let bodyText = '';
+    let byteCount = 0;
+
+    if (fetchImpl) {
+      let response: Response;
+      try {
+        response = await fetchImpl(currentUrl, buildFetchOptions());
+      } catch (error) {
+        const name = error instanceof Error ? error.name : '';
+        if (name === 'TimeoutError' || name === 'AbortError') {
+          throw new RemoteUrlError('remote_url_fetch_timeout', 504);
+        }
+
+        throw new RemoteUrlError('remote_url_fetch_failed', 502, formatUpstreamErrorDetails(error));
       }
 
-      throw new RemoteUrlError('remote_url_fetch_failed', 502, formatUpstreamErrorDetails(error));
+      statusCode = response.status;
+      headers = response.headers;
+
+      if (!isRedirectStatus(statusCode)) {
+        const body = await readBody(response, maxBytes);
+        bodyText = body.bodyText;
+        byteCount = body.byteCount;
+      }
+    } else {
+      let result: RemoteTransportResult;
+      try {
+        result = await dispatchPinnedRequest(
+          {
+            url: currentUrl,
+            headers: buildRequestHeaders(),
+            pinnedAddress: resolvedAddresses[0]!,
+            timeoutMs: config.rag.remoteFetchTimeoutMs,
+            maxBytes
+          },
+          params.requestImpl
+        );
+      } catch (error) {
+        if (error instanceof RemoteUrlError) {
+          throw error;
+        }
+
+        throw new RemoteUrlError('remote_url_fetch_failed', 502, formatUpstreamErrorDetails(error));
+      }
+
+      statusCode = result.statusCode;
+      headers = {
+        get(name: string) {
+          return getHeader(result.headers, name);
+        }
+      };
+      bodyText = result.bodyText;
+      byteCount = result.byteCount;
     }
 
-    if (isRedirectStatus(response.status)) {
-      const locationHeader = response.headers.get('location');
+    if (isRedirectStatus(statusCode)) {
+      const locationHeader = headers.get('location');
       if (!locationHeader) {
         throw new RemoteUrlError('remote_url_redirect_missing_location', 502, {
-          status: response.status
+          status: statusCode
         });
       }
 
@@ -495,20 +700,19 @@ export async function inspectRemoteTextSource(params: {
       continue;
     }
 
-    if (!response.ok) {
-      throw new RemoteUrlError(`remote_url_fetch_failed_${response.status}`, 502, {
-        status: response.status
+    if (statusCode < 200 || statusCode >= 300) {
+      throw new RemoteUrlError(`remote_url_fetch_failed_${statusCode}`, 502, {
+        status: statusCode
       });
     }
 
-    const contentType = extractMimeType(response.headers.get('content-type'));
+    const contentType = extractMimeType(headers.get('content-type'));
     if (!isAllowedContentType(contentType)) {
       throw new RemoteUrlError('remote_url_content_type_not_allowed', 415, {
         content_type: contentType || 'unknown'
       });
     }
 
-    const { bodyText, byteCount } = await readBody(response, maxBytes);
     const text = normalizeFetchedText(contentType, bodyText);
     if (!text) {
       throw new RemoteUrlError('remote_url_empty_content', 422, {
@@ -521,7 +725,7 @@ export async function inspectRemoteTextSource(params: {
       normalizedUrl,
       finalUrl: currentUrl.toString(),
       redirects,
-      statusCode: response.status,
+      statusCode,
       contentType,
       contentLengthBytes: byteCount,
       title: contentType.includes('html') ? extractHtmlTitle(bodyText) : undefined,

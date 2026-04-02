@@ -1,5 +1,15 @@
 # TASKS — OpenRouter Agentic Intelligence API
 
+## v1.14 Delta (Dead-letter Redrive + Anti-Rebinding Pinning) — Tamamlandı
+- [x] Yeni özellik: `POST /v1/security/export/deliveries/:deliveryId/redrive` endpointi eklendi
+- [x] Dashboard delivery tablosuna dead-letter için manual redrive aksiyonu eklendi
+- [x] Güvenlik: `SECURITY_EXPORT_DELIVERY_MAX_MANUAL_REDRIVES` ile bounded replay guard eklendi
+- [x] Güvenlik: retry/redrive materyaline hedef fingerprint guard (`origin`, `host`, `path_hash`, `matched_host_rule`) eklendi
+- [x] Güvenlik: remote RAG preview/ingest hattına lookup→connect DNS pinning eklendi
+- [x] Audit telemetry: `security_export_delivery_redriven` event tipi eklendi
+- [x] Yeni testler: redrive lifecycle + replay limit + DNS pinning transport doğrulamaları
+- [x] Fresh verification: typecheck + focused regression + full test + audit + delivery-gate
+
 ## v1.12 Delta (Resilient Security Export Delivery Queue) — Tamamlandı
 - [x] Yeni özellik: `POST /v1/security/export/deliveries` için `mode=async` queue lifecycle eklendi (`queued`, `retrying`, `dead_letter`)
 - [x] `GET /v1/security/export/deliveries` endpointine `status` filtresi eklendi

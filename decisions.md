@@ -1,5 +1,42 @@
 # DECISIONS — OpenRouter Agentic Intelligence API
 
+## 2026-04-02 — Dead-letter redrive + anti-rebinding pinning kararı
+### Problem
+Security export delivery hattı dayanıklıydı ama production operasyonunda üç kritik boşluk kalmıştı:
+1. Dead-letter receipt düşen export teslimleri için güvenli, operatör dostu manual redrive yüzeyi yoktu.
+2. Remote RAG URL preview/ingest tarafında public DNS resolve sonrası gerçek connect aynı IP’ye zorlanmadığı için lookup→connect arası DNS rebinding penceresi kalıyordu.
+3. Async delivery retry materyali şifreli tutulsa da hedef fingerprint ile bağlanmadığı için store-tampering veya kontrolsüz replay senaryolarında ek guard gerekiyordu.
+
+### Seçenekler
+- A: Dead-letter item’ları yeni delivery isteğiyle manuel yeniden oluşturup mevcut fetch davranışını korumak
+- B: Sadece backend tarafında redrive ekleyip dashboard ve audit görünürlüğünü ertelemek
+- C: Manual dead-letter redrive API + dashboard aksiyonu + lookup→connect DNS pinning + retry fingerprint guard paketini tek koşumda teslim etmek
+
+### Karar
+**C seçildi:**
+1. **Yeni özellik:** `POST /v1/security/export/deliveries/:deliveryId/redrive` endpointi ve dashboard aksiyonu ile dead-letter item aynı signed payload + aynı hedef ile tekrar kuyruğa alınabiliyor.
+2. **Ciddi güvenlik iyileştirmesi #1:** Remote RAG URL preview/ingest akışı artık her hop’ta resolve edilen public IP’ye lookup→connect pinning uyguluyor; redirect zinciri yeniden validate edilirken gerçek request de aynı pinli adrese gidiyor.
+3. **Ciddi güvenlik iyileştirmesi #2:** Async delivery retry/redrive materyali hedef fingerprint’i (`origin`, `host`, `path_hash`, `matched_host_rule`) ile saklanıyor; mismatch durumunda retry fail-closed dead-letter’a düşüyor.
+4. **Ciddi güvenlik iyileştirmesi #3:** Manual redrive bounded hale getirildi (`SECURITY_EXPORT_DELIVERY_MAX_MANUAL_REDRIVES`); aynı dead-letter item için sınırsız replay yapılamıyor ve `security_export_delivery_redriven` audit kanıtı üretiliyor.
+5. **Ops / UX iyileştirmesi:** Dashboard delivery tablosu dead-letter satırında tek tık redrive, redrive_count ve source_delivery görünürlüğü veriyor.
+
+### Gerekçe
+- Dead-letter operasyonunun API ve dashboard üzerinden ilk sınıf vatandaş olması, incident-response süresini düşürür ve operatörü yeni export oluşturmaya zorlamaz.
+- DNS rebinding penceresini yalnızca preflight resolve ile değil gerçek TCP connect anında kapatmak gerekiyordu.
+- Encrypted retry queue tek başına yeterli değildi; hedef fingerprint doğrulaması ve bounded redrive politikası olmadan replay/tamper yüzeyi açık kalıyordu.
+
+### Etki
+- Security export control plane artık dead-letter recovery aksiyonunu da kapsıyor.
+- Remote RAG URL fetch hattı gerçek request seviyesinde daha sert SSRF/anti-rebinding posture’ına geçti.
+- Delivery retry/redrive zinciri auditlenebilir ve daha kontrollü hale geldi.
+
+### Bilinçli Olarak Ertelenenler
+- Delivery queue/audit/policy/session store’larını shared backend’e taşıma
+- Signing key’ler için otomatik expiry/rotation scheduler + alerting
+- Export egress için remote source policy’den bağımsız ayrı bir delivery-egress policy plane
+
+---
+
 ## 2026-04-01 — Asymmetric security export signing registry kararı
 ### Problem
 Security export hattı artık async queue + dead-letter ile dayanıklıydı; fakat üç kritik production boşluğu sürüyordu:

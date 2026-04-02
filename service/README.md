@@ -102,6 +102,7 @@
 - `SECURITY_EXPORT_DELIVERY_RETRY_BASE_DELAY_MS` (varsayılan: 5000)
 - `SECURITY_EXPORT_DELIVERY_RETRY_MAX_DELAY_MS` (varsayılan: 60000)
 - `SECURITY_EXPORT_DELIVERY_MAX_ATTEMPTS` (varsayılan: 4)
+- `SECURITY_EXPORT_DELIVERY_MAX_MANUAL_REDRIVES` (varsayılan: 2)
 - `SECURITY_EXPORT_SIGNING_MAX_VERIFY_KEYS` (varsayılan: 4)
 - `SECURITY_EXPORT_DELIVERY_ALLOWED_PORTS` (varsayılan: `443`)
 - `SECURITY_EXPORT_DELIVERY_ALLOW_IP_LITERALS` (varsayılan: `false`, önerilen: kapalı)
@@ -133,6 +134,7 @@
 - `GET /.well-known/smart-ai/security-export-keys.json` → public JWKS discovery endpoint
 - `GET /v1/security/export/deliveries` → son export delivery receipt’lerini listele (`status=queued|retrying|succeeded|failed|blocked|dead_letter` filtreli)
 - `POST /v1/security/export/deliveries` → allowlisted HTTPS webhook/SIEM hedefine Ed25519-imzalı export gönder (`mode=sync|async`; async mod encrypted retry queue + backoff + dead-letter lifecycle + Idempotency-Key dedupe)
+- `POST /v1/security/export/deliveries/:deliveryId/redrive` → dead-letter delivery için aynı payload + aynı hedef ile manual redrive başlat
 - `POST /v1/security/export/verify` → export edilen audit bundle'ın bütünlüğünü ve detached signature’ını yeniden doğrula
 - `GET /v1/model-policy` → tenant için effective model policy (inherit/custom/invalid durumu)
 - `PUT /v1/model-policy` → tenant bazlı model allowlist + default model güncelleme
@@ -153,7 +155,7 @@
 - `allowlist_only` modunda ingest yalnızca explicit `allowed_hosts` listesinde olan exact host/IP veya wildcard subdomain kuralları için açılır.
 - Host allowlist girişleri Unicode/punycode normalize edilir; private/local host/IP kuralları fail-closed reddedilir.
 - SSRF/private-network korumaları: localhost, private IPv4, link-local metadata IP’leri, IPv6 local/link-local ranges, credential içeren URL’ler ve allowlist dışı portlar fail-closed reddedilir.
-- Redirect zinciri manuel izlenir; her hop yeniden validate edilir.
+- Redirect zinciri manuel izlenir; her hop yeniden validate edilir ve lookup→connect DNS pinning ile request aynı public IP’ye bağlanır.
 - Content-Type allowlist, body byte cap ve timeout guardrail’leri uygulanır.
 - Güvenlik olayları `rag_remote_url_previewed`, `rag_remote_url_ingested`, `rag_remote_url_blocked`, `rag_remote_url_fetch_failed`, `rag_remote_policy_denied`, `rag_remote_policy_updated`, `rag_remote_policy_reset` tipleriyle audit log’a yazılır.
 
@@ -161,12 +163,14 @@
 - Security export artık dashboard’dan veya API üzerinden allowlisted bir HTTPS webhook/SIEM hedefine push edilebilir.
 - `mode=sync` tek denemelik delivery yapar; `mode=async` export bundle’ı retry queue’ya alır ve retryable 408/425/429/5xx + network hatalarında backoff uygular.
 - Async queue payload’ı delivery store içinde düz JSON tutulmaz; AES-256-GCM ile encrypted-at-rest saklanır.
+- Dead-letter receipt’leri dashboard veya API üzerinden manual redrive ile aynı hedef + aynı signed payload kullanılarak tekrar kuyruğa alınabilir.
 - `Idempotency-Key` aynı export isteğinin duplicate/replay flood’unu bastırır; tenant başına aktif async delivery sayısı ayrıca üst sınırla korunur.
 - Delivery yalnızca tenant remote policy `allowed_hosts` listesinde eşleşen hostlara açılır; serbest outbound POST yoktur.
 - Hedef hostname public DNS ile resolve edilir ve pinned address üzerinden bağlanılır; private/local/reserved ağlara egress fail-closed reddedilir.
+- Retry/redrive materyali hedef fingerprint’i (`origin`, `host`, `path_hash`, `matched_host_rule`) ile saklanır; mismatch veya redrive-limit aşımı fail-closed reddedilir.
 - Her istekte `content-digest`, `x-smart-ai-signature`, `x-smart-ai-signature-input`, `x-smart-ai-delivery-id`, `x-smart-ai-head-chain-hash` header’ları gönderilir.
 - Receipt history path/query secret’larını loglamaz; yalnızca redacted destination origin + hash metadata saklar.
-- Audit event tipleri: `security_export_delivered`, `security_export_delivery_failed`, `security_export_delivery_blocked`, `security_export_delivery_dead_lettered`.
+- Audit event tipleri: `security_export_delivered`, `security_export_delivery_failed`, `security_export_delivery_blocked`, `security_export_delivery_dead_lettered`, `security_export_delivery_redriven`.
 
 ## Tool plane updates
 - `qmd_search` aracı eklendi (VPS'teki kurulu `qmd` CLI ile lokal repo doküman araması)

@@ -11,7 +11,7 @@ import { ensureSignedSecurityAuditExportBundle, securityExportSigningRegistry } 
 
 const CONTROL_CHARS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
 const WHITESPACE = /\s+/g;
-const DELIVERY_STORE_VERSION = 2;
+const DELIVERY_STORE_VERSION = 3;
 const MAX_DELIVERY_URL_LENGTH = 2048;
 const RETRYABLE_HTTP_STATUS_CODES = new Set([408, 425, 429]);
 const RETRYABLE_ERROR_CODES = new Set(['ECONNRESET', 'ECONNREFUSED', 'ECONNABORTED', 'ECONNREFUSED', 'EAI_AGAIN', 'ENOTFOUND', 'ETIMEDOUT', 'EHOSTUNREACH', 'EPIPE']);
@@ -34,6 +34,7 @@ export type SecurityExportDeliveryRecord = {
   delivery_id: string;
   tenant_id: string;
   request_id?: string;
+  source_delivery_id?: string;
   mode: SecurityExportDeliveryMode;
   requested_at: string;
   updated_at: string;
@@ -53,6 +54,7 @@ export type SecurityExportDeliveryRecord = {
   pinned_address_family?: number;
   attempt_count: number;
   max_attempts: number;
+  redrive_count: number;
   last_attempt_at?: string;
   next_attempt_at?: string;
   dead_lettered_at?: string;
@@ -97,7 +99,14 @@ type DeliveryRetryMaterial = {
   delivery_id: string;
   tenant_id: string;
   request_id?: string;
+  source_delivery_id?: string;
   destination_url: string;
+  destination_origin: string;
+  destination_host: string;
+  destination_path_hash: string;
+  matched_host_rule: string | null;
+  redrive_count: number;
+  last_redriven_at?: string;
   payload: EncryptedValue;
 };
 
@@ -121,6 +130,10 @@ type EnqueueSecurityExportDeliveryResult =
   | { ok: true; record: SecurityExportDeliveryRecord; reused: boolean }
   | { ok: false; reason: 'active_limit_exceeded'; activeDeliveries: number }
   | { ok: false; reason: 'idempotency_conflict' };
+
+type RedriveSecurityExportDeliveryResult =
+  | { ok: true; record: SecurityExportDeliveryRecord }
+  | { ok: false; reason: 'active_limit_exceeded'; activeDeliveries: number };
 
 class SecurityExportDeliveryError extends Error {
   readonly code: string;
@@ -457,6 +470,40 @@ function buildDeliveryDestination(url: URL, matchedHostRule: string | null): Del
   };
 }
 
+function buildRetryMaterial(options: {
+  record: Pick<SecurityExportDeliveryRecord, 'delivery_id' | 'tenant_id' | 'request_id' | 'source_delivery_id' | 'redrive_count'>;
+  destinationUrl: string;
+  destination: DeliveryDestination;
+  payload: string;
+  lastRedrivenAt?: string;
+}): DeliveryRetryMaterial {
+  return {
+    delivery_id: options.record.delivery_id,
+    tenant_id: options.record.tenant_id,
+    request_id: options.record.request_id,
+    source_delivery_id: options.record.source_delivery_id,
+    destination_url: String(options.destinationUrl ?? '').trim(),
+    destination_origin: options.destination.origin,
+    destination_host: options.destination.host,
+    destination_path_hash: options.destination.path_hash,
+    matched_host_rule: options.destination.matched_host_rule,
+    redrive_count: Math.max(0, options.record.redrive_count ?? 0),
+    last_redriven_at: options.lastRedrivenAt,
+    payload: encryptString(options.payload)
+  };
+}
+
+function assertRetryMaterialFingerprint(record: SecurityExportDeliveryRecord, retryMaterial: DeliveryRetryMaterial): void {
+  if (
+    record.destination.origin !== retryMaterial.destination_origin ||
+    record.destination.host !== retryMaterial.destination_host ||
+    record.destination.path_hash !== retryMaterial.destination_path_hash ||
+    (record.destination.matched_host_rule ?? null) !== (retryMaterial.matched_host_rule ?? null)
+  ) {
+    throw new Error('Retry material fingerprint does not match the queued delivery destination.');
+  }
+}
+
 function sanitizeDeliveryRecord(value: unknown): SecurityExportDeliveryRecord | null {
   if (!value || typeof value !== 'object') {
     return null;
@@ -488,6 +535,7 @@ function sanitizeDeliveryRecord(value: unknown): SecurityExportDeliveryRecord | 
     delivery_id: sanitizeString(candidate.delivery_id, 96),
     tenant_id: sanitizeString(candidate.tenant_id, 128),
     request_id: candidate.request_id ? sanitizeString(candidate.request_id, 96) : undefined,
+    source_delivery_id: candidate.source_delivery_id ? sanitizeString(candidate.source_delivery_id, 96) : undefined,
     mode,
     requested_at: sanitizeIsoTimestamp(candidate.requested_at),
     updated_at: sanitizeIsoTimestamp(candidate.updated_at ?? candidate.completed_at ?? candidate.requested_at),
@@ -514,6 +562,7 @@ function sanitizeDeliveryRecord(value: unknown): SecurityExportDeliveryRecord | 
     pinned_address_family: Number.isFinite(candidate.pinned_address_family) ? Number(candidate.pinned_address_family) : undefined,
     attempt_count: Number.isFinite(candidate.attempt_count) ? Math.max(0, Number(candidate.attempt_count)) : defaultAttempts,
     max_attempts: Number.isFinite(candidate.max_attempts) ? Math.max(1, Number(candidate.max_attempts)) : Math.max(1, defaultAttempts),
+    redrive_count: Number.isFinite(candidate.redrive_count) ? Math.max(0, Number(candidate.redrive_count)) : 0,
     last_attempt_at: candidate.last_attempt_at ? sanitizeIsoTimestamp(candidate.last_attempt_at) : undefined,
     next_attempt_at: candidate.next_attempt_at ? sanitizeIsoTimestamp(candidate.next_attempt_at) : undefined,
     dead_lettered_at: candidate.dead_lettered_at ? sanitizeIsoTimestamp(candidate.dead_lettered_at) : undefined,
@@ -533,7 +582,15 @@ function sanitizeRetryMaterial(value: unknown): DeliveryRetryMaterial | null {
   }
 
   const candidate = value as Partial<DeliveryRetryMaterial>;
-  if (!candidate.delivery_id || !candidate.tenant_id || !candidate.destination_url || !candidate.payload) {
+  if (
+    !candidate.delivery_id ||
+    !candidate.tenant_id ||
+    !candidate.destination_url ||
+    !candidate.destination_origin ||
+    !candidate.destination_host ||
+    !candidate.destination_path_hash ||
+    !candidate.payload
+  ) {
     return null;
   }
 
@@ -546,7 +603,14 @@ function sanitizeRetryMaterial(value: unknown): DeliveryRetryMaterial | null {
     delivery_id: sanitizeString(candidate.delivery_id, 96),
     tenant_id: sanitizeString(candidate.tenant_id, 128),
     request_id: candidate.request_id ? sanitizeString(candidate.request_id, 96) : undefined,
+    source_delivery_id: candidate.source_delivery_id ? sanitizeString(candidate.source_delivery_id, 96) : undefined,
     destination_url: String(candidate.destination_url).trim().slice(0, MAX_DELIVERY_URL_LENGTH),
+    destination_origin: sanitizeString(candidate.destination_origin, 220),
+    destination_host: sanitizeString(candidate.destination_host, 180),
+    destination_path_hash: sanitizeString(candidate.destination_path_hash, 32),
+    matched_host_rule: candidate.matched_host_rule ? sanitizeString(candidate.matched_host_rule, 180) : null,
+    redrive_count: Number.isFinite(candidate.redrive_count) ? Math.max(0, Number(candidate.redrive_count)) : 0,
+    last_redriven_at: candidate.last_redriven_at ? sanitizeIsoTimestamp(candidate.last_redriven_at) : undefined,
     payload: {
       iv: String(payload.iv),
       tag: String(payload.tag),
@@ -657,11 +721,14 @@ function buildQueuedRecord(options: {
   bundle: SecurityAuditExportBundle;
   payload: string;
   maxAttempts: number;
+  sourceDeliveryId?: string;
+  redriveCount?: number;
 }): SecurityExportDeliveryRecord {
   return {
     delivery_id: options.deliveryId,
     tenant_id: options.tenantId,
     request_id: options.requestId,
+    source_delivery_id: options.sourceDeliveryId,
     mode: 'async',
     requested_at: options.requestedAt,
     updated_at: options.requestedAt,
@@ -672,6 +739,7 @@ function buildQueuedRecord(options: {
     anchor_prev_chain_hash: options.bundle.integrity.anchorPrevChainHash,
     attempt_count: 0,
     max_attempts: options.maxAttempts,
+    redrive_count: Math.max(0, options.redriveCount ?? 0),
     next_attempt_at: options.requestedAt,
     signature: buildQueuedSignature(options.payload, options.requestedAt, options.bundle)
   };
@@ -681,6 +749,7 @@ function buildErrorRecord(options: {
   tenantId: string;
   requestId?: string;
   deliveryId: string;
+  sourceDeliveryId?: string;
   mode: SecurityExportDeliveryMode;
   requestedAt: string;
   updatedAt?: string;
@@ -702,6 +771,7 @@ function buildErrorRecord(options: {
   responseExcerptTruncated?: boolean;
   pinnedAddress?: string;
   pinnedAddressFamily?: number;
+  redriveCount?: number;
 }): SecurityExportDeliveryRecord {
   const updatedAt = options.updatedAt ?? new Date().toISOString();
 
@@ -709,6 +779,7 @@ function buildErrorRecord(options: {
     delivery_id: options.deliveryId,
     tenant_id: options.tenantId,
     request_id: options.requestId,
+    source_delivery_id: options.sourceDeliveryId,
     mode: options.mode,
     requested_at: options.requestedAt,
     updated_at: updatedAt,
@@ -728,6 +799,7 @@ function buildErrorRecord(options: {
     pinned_address_family: options.pinnedAddressFamily,
     attempt_count: options.attemptCount,
     max_attempts: options.maxAttempts,
+    redrive_count: Math.max(0, options.redriveCount ?? 0),
     last_attempt_at: options.lastAttemptAt,
     next_attempt_at: options.nextAttemptAt,
     dead_lettered_at: options.deadLetteredAt,
@@ -739,6 +811,7 @@ function buildSuccessRecord(options: {
   tenantId: string;
   requestId?: string;
   deliveryId: string;
+  sourceDeliveryId?: string;
   mode: SecurityExportDeliveryMode;
   requestedAt: string;
   destination: DeliveryDestination;
@@ -753,6 +826,7 @@ function buildSuccessRecord(options: {
   responseExcerptTruncated?: boolean;
   pinnedAddress: string;
   pinnedAddressFamily: number;
+  redriveCount?: number;
 }): SecurityExportDeliveryRecord {
   const completedAt = new Date().toISOString();
 
@@ -760,6 +834,7 @@ function buildSuccessRecord(options: {
     delivery_id: options.deliveryId,
     tenant_id: options.tenantId,
     request_id: options.requestId,
+    source_delivery_id: options.sourceDeliveryId,
     mode: options.mode,
     requested_at: options.requestedAt,
     updated_at: completedAt,
@@ -777,6 +852,7 @@ function buildSuccessRecord(options: {
     pinned_address_family: options.pinnedAddressFamily,
     attempt_count: options.attemptCount,
     max_attempts: options.maxAttempts,
+    redrive_count: Math.max(0, options.redriveCount ?? 0),
     last_attempt_at: options.lastAttemptAt,
     signature: options.signature
   };
@@ -1098,6 +1174,7 @@ function recordSecurityEvent(
     request_id: record.request_id,
     details: {
       delivery_id: record.delivery_id,
+      source_delivery_id: record.source_delivery_id ?? 'none',
       mode: record.mode,
       destination_host: record.destination.host,
       matched_host_rule: record.destination.matched_host_rule ?? 'none',
@@ -1107,6 +1184,7 @@ function recordSecurityEvent(
       head_chain_hash: record.head_chain_hash ?? 'none',
       attempt_count: record.attempt_count,
       max_attempts: record.max_attempts,
+      redrive_count: record.redrive_count,
       ...extraDetails
     }
   });
@@ -1303,13 +1381,14 @@ export async function enqueueSecurityAuditExportDelivery(options: {
   });
 
   await deliveryStore.upsert(record);
-  await deliveryStore.setRetryMaterial({
-    delivery_id: deliveryId,
-    tenant_id: options.tenantId,
-    request_id: options.requestId,
-    destination_url: String(options.destinationUrl ?? '').trim(),
-    payload: encryptString(payload)
-  });
+  await deliveryStore.setRetryMaterial(
+    buildRetryMaterial({
+      record,
+      destinationUrl: options.destinationUrl,
+      destination: target.descriptor,
+      payload
+    })
+  );
 
   if (options.idempotencyKey) {
     await deliveryStore.rememberIdempotency({
@@ -1327,6 +1406,221 @@ export async function enqueueSecurityAuditExportDelivery(options: {
   return { ok: true, record, reused: false };
 }
 
+export async function redriveSecurityAuditExportDelivery(options: {
+  tenantId: string;
+  requestId?: string;
+  deliveryId: string;
+}): Promise<RedriveSecurityExportDeliveryResult> {
+  const deliveryId = String(options.deliveryId ?? '').trim();
+  if (!deliveryId) {
+    throw new SecurityExportDeliveryError('Delivery ID is required for redrive.', {
+      code: 'invalid_delivery_id',
+      statusCode: 400,
+      record: buildErrorRecord({
+        tenantId: options.tenantId,
+        requestId: options.requestId,
+        deliveryId: crypto.randomUUID(),
+        mode: 'async',
+        requestedAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+        status: 'failed',
+        destination: buildFallbackDestination('https://invalid.local'),
+        bundle: {
+          object: 'security_audit_export',
+          tenant_id: options.tenantId,
+          generated_at: new Date().toISOString(),
+          filter: { limit: 0, truncated: false, total_matching_events: 0 },
+          summary: securityAuditLog.summarize(options.tenantId),
+          integrity: {
+            verified: false,
+            eventCount: 0,
+            anchorPrevChainHash: null,
+            headChainHash: null,
+            lastSequence: null,
+            firstEventId: null,
+            lastEventId: null,
+            failureReason: 'chain_hash_mismatch'
+          },
+          data: []
+        },
+        signature: createFallbackSignature({
+          object: 'security_audit_export',
+          tenant_id: options.tenantId,
+          generated_at: new Date().toISOString(),
+          filter: { limit: 0, truncated: false, total_matching_events: 0 },
+          summary: securityAuditLog.summarize(options.tenantId),
+          integrity: {
+            verified: false,
+            eventCount: 0,
+            anchorPrevChainHash: null,
+            headChainHash: null,
+            lastSequence: null,
+            firstEventId: null,
+            lastEventId: null,
+            failureReason: 'chain_hash_mismatch'
+          },
+          data: []
+        }),
+        attemptCount: 0,
+        maxAttempts: Math.max(1, config.security.exportDeliveryMaxAttempts),
+        failureCode: 'invalid_delivery_id',
+        failureReason: 'Delivery ID is required for redrive.',
+        redriveCount: 0
+      })
+    });
+  }
+
+  const existingRecord = deliveryStore.get(options.tenantId, deliveryId);
+  if (!existingRecord) {
+    throw new SecurityExportDeliveryError('Security export delivery was not found.', {
+      code: 'delivery_not_found',
+      statusCode: 404,
+      record: buildErrorRecord({
+        tenantId: options.tenantId,
+        requestId: options.requestId,
+        deliveryId,
+        mode: 'async',
+        requestedAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+        status: 'failed',
+        destination: buildFallbackDestination('https://unknown.invalid'),
+        bundle: {
+          object: 'security_audit_export',
+          tenant_id: options.tenantId,
+          generated_at: new Date().toISOString(),
+          filter: { limit: 0, truncated: false, total_matching_events: 0 },
+          summary: securityAuditLog.summarize(options.tenantId),
+          integrity: {
+            verified: false,
+            eventCount: 0,
+            anchorPrevChainHash: null,
+            headChainHash: null,
+            lastSequence: null,
+            firstEventId: null,
+            lastEventId: null,
+            failureReason: 'chain_hash_mismatch'
+          },
+          data: []
+        },
+        signature: createFallbackSignature({
+          object: 'security_audit_export',
+          tenant_id: options.tenantId,
+          generated_at: new Date().toISOString(),
+          filter: { limit: 0, truncated: false, total_matching_events: 0 },
+          summary: securityAuditLog.summarize(options.tenantId),
+          integrity: {
+            verified: false,
+            eventCount: 0,
+            anchorPrevChainHash: null,
+            headChainHash: null,
+            lastSequence: null,
+            firstEventId: null,
+            lastEventId: null,
+            failureReason: 'chain_hash_mismatch'
+          },
+          data: []
+        }),
+        attemptCount: 0,
+        maxAttempts: Math.max(1, config.security.exportDeliveryMaxAttempts),
+        failureCode: 'delivery_not_found',
+        failureReason: 'Security export delivery was not found.',
+        redriveCount: 0
+      })
+    });
+  }
+
+  if (existingRecord.status !== 'dead_letter') {
+    throw new SecurityExportDeliveryError('Only dead-letter deliveries can be manually redriven.', {
+      code: 'delivery_not_dead_letter',
+      statusCode: 409,
+      record: existingRecord
+    });
+  }
+
+  const retryMaterial = deliveryStore.getRetryMaterial(existingRecord.delivery_id);
+  if (!retryMaterial) {
+    throw new SecurityExportDeliveryError('Retry material is unavailable for this dead-letter delivery.', {
+      code: 'retry_material_missing',
+      statusCode: 409,
+      record: existingRecord
+    });
+  }
+
+  assertRetryMaterialFingerprint(existingRecord, retryMaterial);
+
+  const manualRedriveLimit = Math.max(1, config.security.exportDeliveryMaxManualRedrives);
+  if ((retryMaterial.redrive_count ?? existingRecord.redrive_count ?? 0) >= manualRedriveLimit) {
+    throw new SecurityExportDeliveryError('Manual redrive limit has been reached for this delivery.', {
+      code: 'redrive_limit_exceeded',
+      statusCode: 429,
+      record: existingRecord
+    });
+  }
+
+  const activeDeliveries = deliveryStore.countActive(options.tenantId);
+  if (activeDeliveries >= Math.max(1, config.security.exportDeliveryMaxActivePerTenant)) {
+    return {
+      ok: false,
+      reason: 'active_limit_exceeded',
+      activeDeliveries
+    };
+  }
+
+  let payload = '';
+  let bundle: SecurityAuditExportBundle;
+  try {
+    payload = decryptString(retryMaterial.payload);
+    bundle = JSON.parse(payload) as SecurityAuditExportBundle;
+  } catch (error) {
+    throw new SecurityExportDeliveryError(error instanceof Error ? error.message : 'Retry material cannot be decrypted.', {
+      code: 'retry_material_corrupted',
+      statusCode: 409,
+      record: existingRecord
+    });
+  }
+
+  const requestedAt = new Date().toISOString();
+  const redriveCount = Math.max(retryMaterial.redrive_count ?? existingRecord.redrive_count ?? 0, existingRecord.redrive_count) + 1;
+  const queuedRecord = buildQueuedRecord({
+    tenantId: options.tenantId,
+    requestId: options.requestId,
+    deliveryId: crypto.randomUUID(),
+    requestedAt,
+    destination: existingRecord.destination,
+    bundle,
+    payload,
+    maxAttempts: Math.max(1, config.security.exportDeliveryMaxAttempts),
+    sourceDeliveryId: existingRecord.delivery_id,
+    redriveCount
+  });
+
+  await deliveryStore.setRetryMaterial({
+    ...retryMaterial,
+    redrive_count: redriveCount,
+    last_redriven_at: requestedAt
+  });
+  await deliveryStore.upsert(queuedRecord);
+  await deliveryStore.setRetryMaterial(
+    buildRetryMaterial({
+      record: queuedRecord,
+      destinationUrl: retryMaterial.destination_url,
+      destination: existingRecord.destination,
+      payload,
+      lastRedrivenAt: requestedAt
+    })
+  );
+
+  recordSecurityEvent('security_export_delivery_redriven', queuedRecord, {
+    redriven_from_delivery_id: existingRecord.delivery_id,
+    previous_dead_lettered_at: existingRecord.dead_lettered_at ?? null
+  });
+
+  scheduleRetryProcessing();
+  queueRetryProcessingSoon();
+
+  return { ok: true, record: queuedRecord };
+}
+
 async function processSingleRetryRecord(record: SecurityExportDeliveryRecord): Promise<void> {
   const retryMaterial = deliveryStore.getRetryMaterial(record.delivery_id);
   if (!retryMaterial) {
@@ -1335,6 +1629,7 @@ async function processSingleRetryRecord(record: SecurityExportDeliveryRecord): P
       tenantId: record.tenant_id,
       requestId: record.request_id,
       deliveryId: record.delivery_id,
+      sourceDeliveryId: record.source_delivery_id,
       mode: 'async',
       requestedAt: record.requested_at,
       updatedAt: completedAt,
@@ -1366,6 +1661,7 @@ async function processSingleRetryRecord(record: SecurityExportDeliveryRecord): P
       signature: record.signature,
       attemptCount: record.attempt_count,
       maxAttempts: record.max_attempts,
+      redriveCount: record.redrive_count,
       lastAttemptAt: record.last_attempt_at,
       deadLetteredAt: completedAt,
       failureCode: 'retry_material_missing',
@@ -1374,6 +1670,60 @@ async function processSingleRetryRecord(record: SecurityExportDeliveryRecord): P
     await deliveryStore.upsert(deadRecord);
     recordSecurityEvent('security_export_delivery_dead_lettered', deadRecord, {
       reason: 'retry_material_missing'
+    });
+    return;
+  }
+
+  try {
+    assertRetryMaterialFingerprint(record, retryMaterial);
+  } catch (error) {
+    const completedAt = new Date().toISOString();
+    const deadRecord = buildErrorRecord({
+      tenantId: record.tenant_id,
+      requestId: record.request_id,
+      deliveryId: record.delivery_id,
+      sourceDeliveryId: record.source_delivery_id,
+      mode: 'async',
+      requestedAt: record.requested_at,
+      updatedAt: completedAt,
+      completedAt,
+      status: 'dead_letter',
+      destination: record.destination,
+      bundle: {
+        object: 'security_audit_export',
+        tenant_id: record.tenant_id,
+        generated_at: completedAt,
+        filter: {
+          limit: record.event_count,
+          truncated: false,
+          total_matching_events: record.event_count
+        },
+        summary: securityAuditLog.summarize(record.tenant_id),
+        integrity: {
+          verified: false,
+          eventCount: 0,
+          anchorPrevChainHash: null,
+          headChainHash: record.head_chain_hash,
+          lastSequence: null,
+          firstEventId: null,
+          lastEventId: null,
+          failureReason: 'chain_hash_mismatch'
+        },
+        data: []
+      },
+      signature: record.signature,
+      attemptCount: record.attempt_count,
+      maxAttempts: record.max_attempts,
+      redriveCount: record.redrive_count,
+      lastAttemptAt: record.last_attempt_at,
+      deadLetteredAt: completedAt,
+      failureCode: 'retry_material_mismatch',
+      failureReason: error instanceof Error ? error.message : 'Retry material fingerprint mismatch.'
+    });
+    await deliveryStore.deleteRetryMaterial(record.delivery_id);
+    await deliveryStore.upsert(deadRecord);
+    recordSecurityEvent('security_export_delivery_dead_lettered', deadRecord, {
+      reason: 'retry_material_mismatch'
     });
     return;
   }
@@ -1389,6 +1739,7 @@ async function processSingleRetryRecord(record: SecurityExportDeliveryRecord): P
       tenantId: record.tenant_id,
       requestId: record.request_id,
       deliveryId: record.delivery_id,
+      sourceDeliveryId: record.source_delivery_id,
       mode: 'async',
       requestedAt: record.requested_at,
       updatedAt: completedAt,
@@ -1420,6 +1771,7 @@ async function processSingleRetryRecord(record: SecurityExportDeliveryRecord): P
       signature: record.signature,
       attemptCount: record.attempt_count,
       maxAttempts: record.max_attempts,
+      redriveCount: record.redrive_count,
       lastAttemptAt: record.last_attempt_at,
       deadLetteredAt: completedAt,
       failureCode: 'retry_material_corrupted',
@@ -1454,6 +1806,7 @@ async function processSingleRetryRecord(record: SecurityExportDeliveryRecord): P
         tenantId: record.tenant_id,
         requestId: record.request_id,
         deliveryId: record.delivery_id,
+        sourceDeliveryId: record.source_delivery_id,
         mode: 'async',
         requestedAt: record.requested_at,
         destination: prepared.target.descriptor,
@@ -1461,6 +1814,7 @@ async function processSingleRetryRecord(record: SecurityExportDeliveryRecord): P
         signature: prepared.signature,
         attemptCount,
         maxAttempts: record.max_attempts,
+        redriveCount: record.redrive_count,
         lastAttemptAt,
         httpStatus: result.statusCode,
         durationMs: result.durationMs ?? 0,
@@ -1482,6 +1836,7 @@ async function processSingleRetryRecord(record: SecurityExportDeliveryRecord): P
         tenantId: record.tenant_id,
         requestId: record.request_id,
         deliveryId: record.delivery_id,
+        sourceDeliveryId: record.source_delivery_id,
         mode: 'async',
         requestedAt: record.requested_at,
         status: 'retrying',
@@ -1490,6 +1845,7 @@ async function processSingleRetryRecord(record: SecurityExportDeliveryRecord): P
         signature: prepared.signature,
         attemptCount,
         maxAttempts: record.max_attempts,
+        redriveCount: record.redrive_count,
         lastAttemptAt,
         nextAttemptAt,
         failureCode: 'upstream_rejected',
@@ -1516,6 +1872,7 @@ async function processSingleRetryRecord(record: SecurityExportDeliveryRecord): P
       tenantId: record.tenant_id,
       requestId: record.request_id,
       deliveryId: record.delivery_id,
+      sourceDeliveryId: record.source_delivery_id,
       mode: 'async',
       requestedAt: record.requested_at,
       updatedAt: completedAt,
@@ -1526,6 +1883,7 @@ async function processSingleRetryRecord(record: SecurityExportDeliveryRecord): P
       signature: prepared.signature,
       attemptCount,
       maxAttempts: record.max_attempts,
+      redriveCount: record.redrive_count,
       lastAttemptAt,
       deadLetteredAt: terminalStatus === 'dead_letter' ? completedAt : undefined,
       failureCode: 'upstream_rejected',
@@ -1537,7 +1895,9 @@ async function processSingleRetryRecord(record: SecurityExportDeliveryRecord): P
       pinnedAddress: prepared.pinnedAddress.address,
       pinnedAddressFamily: prepared.pinnedAddress.family
     });
-    await deliveryStore.deleteRetryMaterial(record.delivery_id);
+    if (terminalStatus !== 'dead_letter') {
+      await deliveryStore.deleteRetryMaterial(record.delivery_id);
+    }
     await deliveryStore.upsert(terminalRecord);
     recordSecurityEvent(
       terminalStatus === 'dead_letter' ? 'security_export_delivery_dead_lettered' : 'security_export_delivery_failed',
@@ -1558,6 +1918,7 @@ async function processSingleRetryRecord(record: SecurityExportDeliveryRecord): P
         tenantId: record.tenant_id,
         requestId: record.request_id,
         deliveryId: record.delivery_id,
+        sourceDeliveryId: record.source_delivery_id,
         mode: 'async',
         requestedAt: record.requested_at,
         status: 'retrying',
@@ -1566,6 +1927,7 @@ async function processSingleRetryRecord(record: SecurityExportDeliveryRecord): P
         signature,
         attemptCount,
         maxAttempts: record.max_attempts,
+        redriveCount: record.redrive_count,
         lastAttemptAt,
         nextAttemptAt,
         failureCode: 'delivery_failed',
@@ -1588,6 +1950,7 @@ async function processSingleRetryRecord(record: SecurityExportDeliveryRecord): P
       tenantId: record.tenant_id,
       requestId: record.request_id,
       deliveryId: record.delivery_id,
+      sourceDeliveryId: record.source_delivery_id,
       mode: 'async',
       requestedAt: record.requested_at,
       updatedAt: completedAt,
@@ -1598,6 +1961,7 @@ async function processSingleRetryRecord(record: SecurityExportDeliveryRecord): P
       signature,
       attemptCount,
       maxAttempts: record.max_attempts,
+      redriveCount: record.redrive_count,
       lastAttemptAt,
       deadLetteredAt: terminalStatus === 'dead_letter' ? completedAt : undefined,
       failureCode: blocked ? 'policy_blocked' : retryable ? 'delivery_failed' : 'delivery_failed',
@@ -1605,7 +1969,9 @@ async function processSingleRetryRecord(record: SecurityExportDeliveryRecord): P
       pinnedAddress,
       pinnedAddressFamily
     });
-    await deliveryStore.deleteRetryMaterial(record.delivery_id);
+    if (terminalStatus !== 'dead_letter') {
+      await deliveryStore.deleteRetryMaterial(record.delivery_id);
+    }
     await deliveryStore.upsert(terminalRecord);
     recordSecurityEvent(
       terminalStatus === 'blocked'

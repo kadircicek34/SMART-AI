@@ -37,7 +37,8 @@ export const SECURITY_AUDIT_EVENT_TYPES = [
   'security_export_delivered',
   'security_export_delivery_failed',
   'security_export_delivery_blocked',
-  'security_export_delivery_dead_lettered'
+  'security_export_delivery_dead_lettered',
+  'security_export_delivery_redriven'
 ] as const;
 
 export type SecurityAuditEventType = (typeof SECURITY_AUDIT_EVENT_TYPES)[number];

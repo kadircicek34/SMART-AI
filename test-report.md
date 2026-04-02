@@ -1,9 +1,27 @@
-# TEST REPORT — SMART-AI v1.13 (Asymmetric Security Export Signing Registry)
+# TEST REPORT — SMART-AI v1.14 (Dead-letter Redrive + Anti-Rebinding Pinning)
 
 ## Test Stratejisi
 - Contract tests: OpenAI-compatible + RAG + Memory + MCP + UI endpointleri
 - Security tests: key-store + policy allowlist + UI session token auth akışı
 - Unit tests: orchestrator/verifier, deep_research, financial runtime, qmd, memory, MCP circuit/store
+
+## 2026-04-02 Ek doğrulama (Dead-letter redrive + anti-rebinding pinning)
+- `npm run typecheck` ✅
+- `npx tsx --test tests/rag/remote-url.test.ts tests/rag/rag-service.test.ts tests/contract/rag.test.ts tests/contract/security-export-deliveries.test.ts` ✅ (**24/24**)
+- `npm test -- --runInBand` ✅ (**159/159**)
+- `npm audit --omit=dev --audit-level=high` ✅ (0 vulnerability)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+- Yeni testler / güncellemeler:
+  - `service/tests/contract/security-export-deliveries.test.ts`
+    - dead-letter item için admin redrive API contract doğrulaması
+    - `security_export_delivery_redriven` audit event doğrulaması
+    - manual redrive upper-bound / replay guard doğrulaması
+  - `service/tests/rag/remote-url.test.ts`
+    - lookup→connect DNS pinning transport path doğrulaması
+  - Regresyon etkisi
+    - `service/tests/rag/rag-service.test.ts` ve `service/tests/contract/rag.test.ts` remote preview/ingest akışının yeni pinned transport ile kırılmadığını doğruluyor
+  - Dashboard/API smoke etkisi
+    - dead-letter receipt için yeni redrive aksiyonu aynı delivery control plane üzerinden çalışıyor
 
 ## 2026-04-01 Ek doğrulama (Asymmetric security export signing registry)
 - `npm run typecheck` ✅

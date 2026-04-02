@@ -1,13 +1,45 @@
-# DELIVERY — SMART-AI v1.13 (Asymmetric Security Export Signing Registry)
+# DELIVERY — SMART-AI v1.14 (Dead-letter Redrive + Anti-Rebinding Pinning)
 
 ## Özet
-Bu koşumda en yüksek etkili günlük iyileştirme olarak **asymmetric security export signing registry** teslim edildi.
+Bu koşumda en yüksek etkili günlük iyileştirme olarak **dead-letter redrive + anti-rebinding pinning paketi** teslim edildi.
 
 Teslimin odağı:
-- admin-scope security export hattını symmetric HMAC modelinden Ed25519 + key rotation registry modeline geçirmek,
-- public JWKS discovery ile üçüncü taraf verifier/SIEM tarafında bağımsız doğrulamayı mümkün kılmak,
-- dashboard üzerinde signing key görünürlüğü + rotate aksiyonu eklemek,
-- regression + smoke + dependency audit + delivery gate doğrulaması.
+- security export dead-letter item’larını yeni export oluşturmadan güvenli biçimde tekrar kuyruğa alabilmek,
+- remote RAG URL preview/ingest hattında lookup→connect DNS rebinding penceresini kapatmak,
+- retry/redrive materyalini hedef fingerprint ve bounded replay guard ile sertleştirmek,
+- dashboard + audit + test + delivery gate kanıtını tek turda tamamlamak.
+
+## 2026-04-02 Teslim paketi (Dead-letter redrive + anti-rebinding pinning)
+### Yapılanlar
+1. **Yeni özellik — dead-letter manual redrive API + dashboard aksiyonu**
+   - `POST /v1/security/export/deliveries/:deliveryId/redrive` eklendi.
+   - Dashboard delivery tablosu dead-letter satırında tek tık redrive aksiyonu sunuyor.
+   - Yeni queued delivery kaydı `source_delivery_id` ve `redrive_count` metadata’sı ile izleniyor.
+2. **Ciddi güvenlik iyileştirmesi — remote RAG lookup→connect DNS pinning**
+   - URL preview/ingest tarafında public DNS preflight sonucu gerçek TCP connect’e taşındı.
+   - Redirect zinciri her hop’ta yeniden validate edilirken request aynı pinned public IP’ye bağlanıyor.
+3. **Ciddi güvenlik iyileştirmesi — retry/redrive fingerprint guard**
+   - Encrypted retry materyali artık hedef fingerprint’i (`origin`, `host`, `path_hash`, `matched_host_rule`) ile saklanıyor.
+   - Fingerprint mismatch durumunda queue fail-closed davranıyor; tampering/replay penceresi daralıyor.
+4. **Ciddi güvenlik iyileştirmesi — bounded manual replay**
+   - `SECURITY_EXPORT_DELIVERY_MAX_MANUAL_REDRIVES` ile manual redrive üst sınırı getirildi.
+   - `security_export_delivery_redriven` audit event’i ve `429` limit davranışı ile replay görünürlüğü sağlandı.
+5. **Test / kalite iyileştirmesi**
+   - Security export contract testleri redrive lifecycle + limit guard ile genişletildi.
+   - Remote URL testleri gerçek pinned transport yolunu kapsayacak şekilde genişletildi.
+   - Runtime docs (`service/README.md`, `service/.env.example`) yeni env/endpoint yüzeyiyle güncellendi.
+
+### Verification
+- `npm run typecheck` ✅
+- `npx tsx --test tests/rag/remote-url.test.ts tests/rag/rag-service.test.ts tests/contract/rag.test.ts tests/contract/security-export-deliveries.test.ts` ✅ (**24/24**)
+- `npm test -- --runInBand` ✅ (**159/159**)
+- `npm audit --omit=dev --audit-level=high` ✅ (0 vulnerability)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+
+### Kalan riskler
+- Delivery queue/audit/policy/session persistence hâlâ local file tabanlı; shared backend gerekecek.
+- Signing key rotation hâlâ manual/admin tetiklemeli; otomatik expiry/rotation policy henüz yok.
+- Export egress allowlist şu an remote source policy ile paylaşılıyor; ayrı bir delivery-egress plane sonraki fazda düşünülebilir.
 
 ## 2026-04-01 Teslim paketi (Asymmetric security export signing registry)
 ### Yapılanlar

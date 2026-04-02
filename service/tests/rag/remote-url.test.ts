@@ -40,6 +40,38 @@ test('inspectRemoteTextSource previews text/html from a public remote URL', asyn
   assert.match(preview.snippet, /SMART-AI preview text/i);
 });
 
+test('inspectRemoteTextSource pins the resolved public address when using the default transport path', async () => {
+  let capturedRequest: any = null;
+
+  const preview = await inspectRemoteTextSource({
+    url: 'https://docs.example.com/guide',
+    lookupImpl: (async () =>
+      [
+        { address: '93.184.216.34', family: 4 },
+        { address: '93.184.216.35', family: 4 }
+      ]) as any,
+    requestImpl: async (request) => {
+      capturedRequest = request;
+      return {
+        statusCode: 200,
+        headers: {
+          'content-type': 'text/plain; charset=utf-8'
+        },
+        bodyText: 'SMART-AI DNS pinning smoke test',
+        byteCount: 32
+      };
+    }
+  });
+
+  assert.ok(capturedRequest);
+  assert.equal(capturedRequest.url.hostname, 'docs.example.com');
+  assert.equal(capturedRequest.pinnedAddress.address, '93.184.216.34');
+  assert.equal(capturedRequest.headers.accept, config.rag.remoteAllowedContentTypes.join(', '));
+  assert.equal(preview.finalUrl, 'https://docs.example.com/guide');
+  assert.equal(preview.contentLengthBytes, 32);
+  assert.match(preview.snippet, /DNS pinning/i);
+});
+
 test('inspectRemoteTextSource rejects direct private-network and link-local targets before fetch', async () => {
   await assert.rejects(
     () =>

@@ -268,6 +268,7 @@ export const config = {
     exportDeliveryRetryBaseDelayMs: Number(process.env.SECURITY_EXPORT_DELIVERY_RETRY_BASE_DELAY_MS ?? 5_000),
     exportDeliveryRetryMaxDelayMs: Number(process.env.SECURITY_EXPORT_DELIVERY_RETRY_MAX_DELAY_MS ?? 60_000),
     exportDeliveryMaxAttempts: Number(process.env.SECURITY_EXPORT_DELIVERY_MAX_ATTEMPTS ?? 4),
+    exportDeliveryMaxManualRedrives: Number(process.env.SECURITY_EXPORT_DELIVERY_MAX_MANUAL_REDRIVES ?? 2),
     exportDeliveryUserAgent:
       process.env.SECURITY_EXPORT_DELIVERY_USER_AGENT?.trim() || 'SMART-AI-Security-Delivery/1.0',
     exportSigningMaxVerifyKeys: Number(process.env.SECURITY_EXPORT_SIGNING_MAX_VERIFY_KEYS ?? 4),

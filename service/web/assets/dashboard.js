@@ -266,7 +266,7 @@ function renderSecurityDeliveriesTable(deliveries = []) {
 
   if (!deliveries.length) {
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td colspan="6">Henüz delivery yok</td>';
+    tr.innerHTML = '<td colspan="7">Henüz delivery yok</td>';
     tbody.appendChild(tr);
     return;
   }
@@ -275,6 +275,12 @@ function renderSecurityDeliveriesTable(deliveries = []) {
     const tr = document.createElement('tr');
     const timestamp = delivery.completed_at ?? delivery.updated_at ?? delivery.requested_at;
     const retryMeta = [`attempt=${delivery.attempt_count ?? 0}/${delivery.max_attempts ?? 1}`];
+    if (Number(delivery.redrive_count ?? 0) > 0) {
+      retryMeta.push(`redrive=${delivery.redrive_count}`);
+    }
+    if (delivery.source_delivery_id) {
+      retryMeta.push(`source=${String(delivery.source_delivery_id).slice(0, 8)}…`);
+    }
     if (delivery.next_attempt_at) {
       retryMeta.push(`next=${new Date(delivery.next_attempt_at).toLocaleString('tr-TR')}`);
     }
@@ -282,6 +288,10 @@ function renderSecurityDeliveriesTable(deliveries = []) {
       retryMeta.push('dead-letter');
     }
     const note = delivery.failure_reason ?? delivery.response_excerpt ?? retryMeta.join(' | ');
+    const actionHtml =
+      delivery.status === 'dead_letter'
+        ? `<button class="secondary compact redrive-delivery-btn" data-delivery-id="${escapeHtml(delivery.delivery_id)}">Tekrar Dene</button>`
+        : '<span class="muted">—</span>';
     tr.innerHTML = `
       <td>${escapeHtml(new Date(timestamp).toLocaleString('tr-TR'))}</td>
       <td>${escapeHtml(delivery.status)}<br /><span class="muted">${escapeHtml(delivery.mode ?? 'sync')}</span></td>
@@ -289,6 +299,7 @@ function renderSecurityDeliveriesTable(deliveries = []) {
       <td>${escapeHtml(delivery.http_status ?? '—')}</td>
       <td>${escapeHtml(delivery.event_count ?? 0)}</td>
       <td>${escapeHtml(String(note).slice(0, 140))}</td>
+      <td>${actionHtml}</td>
     `;
     tbody.appendChild(tr);
   }
@@ -631,12 +642,33 @@ async function loadSecurityDeliveries(settings) {
   const deliveries = Array.isArray(response?.data) ? response.data : [];
   const queued = deliveries.filter((delivery) => delivery.status === 'queued' || delivery.status === 'retrying').length;
   const deadLetters = deliveries.filter((delivery) => delivery.status === 'dead_letter').length;
+  const redriven = deliveries.filter((delivery) => Number(delivery.redrive_count ?? 0) > 0).length;
   document.getElementById('securityDeliverySummary').textContent =
     deliveries.length > 0
-      ? `recent=${deliveries.length}, active=${queued}, dead-letter=${deadLetters}, last=${deliveries[0]?.status ?? '—'}, host allowlist + HTTPS + Ed25519 signing + DNS pinning + encrypted retry queue aktif`
-      : 'Host, Remote Source Policy allowlist içinde olmalı. Sync mod tek deneme yapar; async mod encrypted retry queue + backoff + dead-letter ile gönderir.';
+      ? `recent=${deliveries.length}, active=${queued}, dead-letter=${deadLetters}, redriven=${redriven}, last=${deliveries[0]?.status ?? '—'}, host allowlist + HTTPS + Ed25519 signing + DNS pinning + encrypted retry queue + manual dead-letter redrive aktif`
+      : 'Host, Remote Source Policy allowlist içinde olmalı. Sync mod tek deneme yapar; async mod encrypted retry queue + backoff + dead-letter + manual redrive ile gönderir.';
   renderSecurityDeliveriesTable(deliveries);
   return deliveries;
+}
+
+async function redriveSecurityDelivery(settings, deliveryId) {
+  await maybeRefreshSession(settings);
+
+  const response = await safeFetchJson(`${settings.baseUrl}/v1/security/export/deliveries/${encodeURIComponent(deliveryId)}/redrive`, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(settings),
+      origin: window.location.origin
+    },
+    body: JSON.stringify({})
+  });
+
+  const delivery = response?.data ?? {};
+  log(
+    `Security export dead-letter redrive kuyruğa alındı. source=${String(delivery.source_delivery_id ?? deliveryId).slice(0, 8)}…, status=${delivery.status ?? 'queued'}, redrive=${delivery.redrive_count ?? 0}, next=${delivery.next_attempt_at ?? 'hemen'}`
+  );
+  await loadSecurityDeliveries(settings);
+  return delivery;
 }
 
 async function deliverSecurityExport(settings) {
@@ -911,6 +943,35 @@ async function init() {
     } catch (error) {
       setStatus(String(error), true);
       log(`Hata: ${String(error)}`);
+    }
+  });
+
+  document.getElementById('securityDeliveryTableBody').addEventListener('click', async (event) => {
+    const button = event.target?.closest?.('.redrive-delivery-btn');
+    if (!button) {
+      return;
+    }
+
+    const next = readSettingsForm();
+    setSettings(next);
+    const deliveryId = button.dataset.deliveryId;
+    if (!deliveryId) {
+      return;
+    }
+
+    if (!window.confirm('Bu dead-letter delivery tekrar kuyruğa alınsın mı? Hedef ve payload aynı kalır.')) {
+      return;
+    }
+
+    button.disabled = true;
+    try {
+      await redriveSecurityDelivery(next, deliveryId);
+      setStatus('Security export dead-letter redrive kuyruğa alındı.');
+    } catch (error) {
+      setStatus(String(error), true);
+      log(`Hata: ${String(error)}`);
+    } finally {
+      button.disabled = false;
     }
   });
 

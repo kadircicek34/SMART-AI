@@ -19,7 +19,8 @@ import {
   SecurityExportDeliveryError,
   deliverSecurityAuditExport,
   enqueueSecurityAuditExportDelivery,
-  listSecurityExportDeliveries
+  listSecurityExportDeliveries,
+  redriveSecurityAuditExportDelivery
 } from '../../security/export-delivery.js';
 
 const CHAIN_HASH_REGEX = /^[a-f0-9]{64}$/;
@@ -99,6 +100,10 @@ const DELIVERY_LIST_QUERY_SCHEMA = z.object({
     })
     .refine((value) => value >= 1 && value <= 100, { message: 'limit must be between 1 and 100' }),
   status: z.enum(['queued', 'retrying', 'succeeded', 'failed', 'blocked', 'dead_letter']).optional()
+});
+
+const DELIVERY_REDIVE_PARAMS_SCHEMA = z.object({
+  deliveryId: z.string().min(1).max(96)
 });
 
 const DELIVERY_BODY_SCHEMA = z.object({
@@ -479,6 +484,68 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
       if (error instanceof SecurityExportDeliveryError) {
         if (error.statusCode === 403) {
           return reply.status(403).send(permissionError(error.message, error.record));
+        }
+
+        if (error.statusCode === 400) {
+          return reply.status(400).send(invalidRequest(error.message, { delivery: error.record }));
+        }
+
+        return reply.status(error.statusCode).send(apiError(error.message, error.record));
+      }
+
+      throw error;
+    }
+  });
+
+  app.post('/v1/security/export/deliveries/:deliveryId/redrive', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    const parsed = DELIVERY_REDIVE_PARAMS_SCHEMA.safeParse(req.params ?? {});
+    if (!parsed.success) {
+      return reply.status(400).send(invalidRequest('Invalid delivery id for security export redrive.', parsed.error.flatten()));
+    }
+
+    try {
+      const result = await redriveSecurityAuditExportDelivery({
+        tenantId,
+        requestId: req.requestContext?.requestId,
+        deliveryId: parsed.data.deliveryId
+      });
+
+      if (!result.ok) {
+        return reply.status(429).send(
+          rateLimitError('Too many active security export deliveries for this tenant. Please retry later.', {
+            active_deliveries: result.activeDeliveries
+          })
+        );
+      }
+
+      return reply.status(202).send({
+        object: 'security_export_delivery',
+        tenant_id: tenantId,
+        data: result.record,
+        queued: true,
+        redriven: true
+      });
+    } catch (error) {
+      if (error instanceof SecurityExportDeliveryError) {
+        if (error.statusCode === 403) {
+          return reply.status(403).send(permissionError(error.message, error.record));
+        }
+
+        if (error.statusCode === 404) {
+          return reply.status(404).send(invalidRequest(error.message, { delivery: error.record }));
+        }
+
+        if (error.statusCode === 409) {
+          return reply.status(409).send(apiError(error.message, error.record));
+        }
+
+        if (error.statusCode === 429) {
+          return reply.status(429).send(rateLimitError(error.message, { delivery: error.record }));
         }
 
         if (error.statusCode === 400) {
