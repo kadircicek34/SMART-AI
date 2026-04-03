@@ -1,13 +1,46 @@
-# DELIVERY — SMART-AI v1.14 (Dead-letter Redrive + Anti-Rebinding Pinning)
+# DELIVERY — SMART-AI v1.15 (Delivery Egress Policy Plane + Target Preview)
 
 ## Özet
-Bu koşumda en yüksek etkili günlük iyileştirme olarak **dead-letter redrive + anti-rebinding pinning paketi** teslim edildi.
+Bu koşumda en yüksek etkili günlük iyileştirme olarak **delivery egress policy plane + target preview paketi** teslim edildi.
 
 Teslimin odağı:
-- security export dead-letter item’larını yeni export oluşturmadan güvenli biçimde tekrar kuyruğa alabilmek,
-- remote RAG URL preview/ingest hattında lookup→connect DNS rebinding penceresini kapatmak,
-- retry/redrive materyalini hedef fingerprint ve bounded replay guard ile sertleştirmek,
+- security export delivery egress allowlist’ini remote source policy’den ayırmak,
+- allowlist’i host seviyesinden host+path-prefix seviyesine indirip yanlış webhook path’lerini fail-closed kapatmak,
+- operatöre gerçek gönderim öncesi preview + matched rule + pinned address görünürlüğü vermek,
 - dashboard + audit + test + delivery gate kanıtını tek turda tamamlamak.
+
+## 2026-04-03 Teslim paketi (Delivery egress policy plane + target preview)
+### Yapılanlar
+1. **Yeni özellik — dedicated delivery-egress policy control plane**
+   - `GET/PUT/DELETE /v1/security/export/delivery-policy` eklendi.
+   - Tenant/deployment bazlı effective policy, mode ve allowed target rules API’den yönetilebilir hale geldi.
+2. **Ciddi güvenlik iyileştirmesi — remote source policy’den ayrık egress boundary**
+   - Security export delivery allowlist’i artık RAG remote source policy ile paylaşılmıyor.
+   - Dedicated delivery policy plane ile egress boundary netleşti; migration için `inherit_remote_policy` modu korundu.
+3. **Ciddi güvenlik iyileştirmesi — host + path-prefix enforcement**
+   - Delivery allowlist kuralı host yerine `host + path-prefix` seviyesine indi.
+   - Remote policy host allow olsa bile yanlış webhook path’leri `403` ile fail-closed bloke ediliyor.
+4. **Ciddi güvenlik iyileştirmesi — preflight target preview + audit telemetry**
+   - `POST /v1/security/export/deliveries/preview` gerçek gönderim yapmadan `allowed`, `reason`, `matched_rule`, `pinned_address` verdict’i döndürüyor.
+   - `security_export_delivery_previewed`, `security_export_delivery_policy_updated`, `security_export_delivery_policy_reset` audit event’leri eklendi.
+5. **UX / DX iyileştirmesi — dashboard delivery policy paneli**
+   - `/ui/dashboard` içinde delivery policy yönetimi, target preview butonu ve summary metriği eklendi.
+   - `README.md`, `service/README.md`, `service/.env.example` yeni endpoint/env yüzeyiyle güncellendi.
+6. **Test / kalite iyileştirmesi**
+   - Yeni `service/tests/contract/security-export-delivery-policy.test.ts` policy CRUD + preview + migration kontratlarını kapsıyor.
+   - `service/tests/contract/security-export-deliveries.test.ts` path-scope deny ve dedicated policy enforcement ile genişletildi.
+
+### Verification
+- `npm run typecheck` ✅
+- `npx tsx --test tests/contract/security-export-delivery-policy.test.ts tests/contract/security-export-deliveries.test.ts` ✅ (**12/12**)
+- `npm test` ✅ (**165/165**)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+
+### Kalan riskler
+- Delivery queue/audit/policy/session store hâlâ local file tabanlı; shared backend gerekecek.
+- Signing key rotation hâlâ manual/admin tetiklemeli; otomatik expiry/rotation scheduler henüz yok.
+- Deployment default backward-compatible migration için `inherit_remote_policy` kalabilir; daha sert posture için explicit `allowlist_only` önerilir.
 
 ## 2026-04-02 Teslim paketi (Dead-letter redrive + anti-rebinding pinning)
 ### Yapılanlar
