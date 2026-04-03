@@ -45,6 +45,8 @@ before(async () => {
   process.env.SECURITY_AUDIT_STORE_FILE = `/tmp/smart-ai-test-security-audit-security-export-deliveries-${process.pid}.json`;
   process.env.RAG_REMOTE_POLICY_FILE = `/tmp/smart-ai-test-rag-remote-policy-security-export-deliveries-${process.pid}.json`;
   process.env.SECURITY_EXPORT_DELIVERY_STORE_FILE = `/tmp/smart-ai-test-security-export-deliveries-${process.pid}.json`;
+  process.env.SECURITY_EXPORT_DELIVERY_POLICY_FILE = `/tmp/smart-ai-test-security-export-delivery-policy-${process.pid}.json`;
+  process.env.SECURITY_EXPORT_DELIVERY_POLICY_DEFAULT_MODE = 'disabled';
   process.env.SECURITY_EXPORT_SIGNING_STORE_FILE = `/tmp/smart-ai-test-security-export-signing-deliveries-${process.pid}.json`;
   process.env.SECURITY_EXPORT_SIGNING_MAX_VERIFY_KEYS = '2';
   process.env.OPENROUTER_ALLOWED_MODELS = 'deepseek/deepseek-chat-v3.1,openai/gpt-4o-mini';
@@ -105,7 +107,25 @@ async function createAdminSession(tenantId: string) {
   return sessionRes.json();
 }
 
-async function allowDeliveryHost(tenantId: string) {
+async function allowDeliveryTarget(tenantId: string, allowedTargets = ['siem.example.com/hooks']) {
+  const policyRes = await app.inject({
+    method: 'PUT',
+    url: '/v1/security/export/delivery-policy',
+    headers: {
+      authorization: 'Bearer test-admin-key',
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json'
+    },
+    payload: {
+      mode: 'allowlist_only',
+      allowedTargets
+    }
+  });
+
+  assert.equal(policyRes.statusCode, 200);
+}
+
+async function allowRemoteHost(tenantId: string, allowedHosts = ['siem.example.com']) {
   const policyRes = await app.inject({
     method: 'PUT',
     url: '/v1/rag/remote-policy',
@@ -116,14 +136,14 @@ async function allowDeliveryHost(tenantId: string) {
     },
     payload: {
       mode: 'allowlist_only',
-      allowedHosts: ['siem.example.com']
+      allowedHosts
     }
   });
 
   assert.equal(policyRes.statusCode, 200);
 }
 
-test('POST /v1/security/export/deliveries blocks hosts that are not on the tenant allowlist', async () => {
+test('POST /v1/security/export/deliveries blocks when tenant delivery policy is not configured', async () => {
   const session = await createAdminSession('tenant-security-delivery-blocked');
 
   const res = await app.inject({
@@ -145,7 +165,7 @@ test('POST /v1/security/export/deliveries blocks hosts that are not on the tenan
   assert.equal(res.statusCode, 403);
   const body = res.json();
   assert.equal(body.error.type, 'permission_error');
-  assert.match(body.error.message, /allowlist/i);
+  assert.match(body.error.message, /delivery policy|disabled/i);
   assert.equal(body.delivery?.status, 'blocked');
   assert.equal(body.delivery?.destination?.host, 'siem.example.com');
   assert.equal(body.delivery?.destination?.path_hint, '/…');
@@ -180,10 +200,44 @@ test('POST /v1/security/export/deliveries blocks hosts that are not on the tenan
   assert.ok(events.data.some((event: any) => event.type === 'security_export_delivery_blocked'));
 });
 
+test('POST /v1/security/export/deliveries enforces host+path allowlist even when remote policy already allows the host', async () => {
+  const tenantId = 'tenant-security-delivery-path-scope';
+  const session = await createAdminSession(tenantId);
+  await allowRemoteHost(tenantId, ['siem.example.com']);
+  await allowDeliveryTarget(tenantId, ['siem.example.com/hooks/allowed']);
+
+  const res = await app.inject({
+    method: 'POST',
+    url: '/v1/security/export/deliveries',
+    headers: {
+      authorization: `Bearer ${session.token}`,
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      destinationUrl: 'https://siem.example.com/hooks/blocked?token=super-secret',
+      mode: 'sync',
+      windowHours: 24,
+      limit: 50,
+      topIpLimit: 5
+    }
+  });
+
+  assert.equal(res.statusCode, 403);
+  const body = res.json();
+  assert.equal(body.error.type, 'permission_error');
+  assert.match(body.error.message, /path/i);
+  assert.equal(body.delivery?.status, 'blocked');
+  assert.equal(body.delivery?.destination?.host, 'siem.example.com');
+  assert.equal(body.delivery?.destination?.matched_host_rule, null);
+  assert.ok(!JSON.stringify(body.delivery).includes('super-secret'));
+});
+
 test('POST /v1/security/export/deliveries signs and dispatches a tamper-evident bundle in sync mode', async () => {
   const tenantId = 'tenant-security-delivery-success';
   const session = await createAdminSession(tenantId);
-  await allowDeliveryHost(tenantId);
+  await allowDeliveryTarget(tenantId);
 
   await app.inject({
     method: 'GET',
@@ -234,7 +288,7 @@ test('POST /v1/security/export/deliveries signs and dispatches a tamper-evident 
   assert.equal(body.data.destination.host, 'siem.example.com');
   assert.equal(body.data.destination.origin, 'https://siem.example.com');
   assert.equal(body.data.destination.path_hint, '/…');
-  assert.equal(body.data.destination.matched_host_rule, 'siem.example.com');
+  assert.equal(body.data.destination.matched_host_rule, 'siem.example.com/hooks');
   assert.equal(body.data.pinned_address, '93.184.216.34');
   assert.equal(body.data.signature.algorithm, 'Ed25519');
   assert.match(body.data.signature.key_id, /^sexp_/);
@@ -243,7 +297,7 @@ test('POST /v1/security/export/deliveries signs and dispatches a tamper-evident 
 
   assert.ok(capturedPrepared);
   assert.equal(capturedPrepared.target.hostname, 'siem.example.com');
-  assert.equal(capturedPrepared.target.matchedHostRule, 'siem.example.com');
+  assert.equal(capturedPrepared.target.matchedHostRule, 'siem.example.com/hooks');
   assert.equal(capturedPrepared.pinnedAddress.address, '93.184.216.34');
   assert.equal(capturedPrepared.headers['x-smart-ai-signature-alg'], 'Ed25519');
   assert.match(capturedPrepared.headers['x-smart-ai-signature-key-id'] ?? '', /^sexp_/);
@@ -291,7 +345,7 @@ test('POST /v1/security/export/deliveries signs and dispatches a tamper-evident 
 test('async security export delivery encrypts queued payload, deduplicates by Idempotency-Key, enforces active cap and eventually succeeds', async () => {
   const tenantId = 'tenant-security-delivery-async';
   const session = await createAdminSession(tenantId);
-  await allowDeliveryHost(tenantId);
+  await allowDeliveryTarget(tenantId);
 
   securityAuditLog.record({
     tenant_id: tenantId,
@@ -470,7 +524,7 @@ test('async security export delivery encrypts queued payload, deduplicates by Id
 test('async security export delivery dead-letters after max retry attempts and is filterable by status', async () => {
   const tenantId = 'tenant-security-delivery-dead-letter';
   const session = await createAdminSession(tenantId);
-  await allowDeliveryHost(tenantId);
+  await allowDeliveryTarget(tenantId);
 
   deliveryPrivate.setTransportForTests(async () => ({
     statusCode: 503,
@@ -538,7 +592,7 @@ test('async security export delivery dead-letters after max retry attempts and i
 test('dead-letter deliveries can be manually redriven once and emit a dedicated audit event', async () => {
   const tenantId = 'tenant-security-delivery-redrive';
   const session = await createAdminSession(tenantId);
-  await allowDeliveryHost(tenantId);
+  await allowDeliveryTarget(tenantId);
 
   let attempts = 0;
   deliveryPrivate.setTransportForTests(async () => {
