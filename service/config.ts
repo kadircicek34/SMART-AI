@@ -196,6 +196,9 @@ export const config = {
     securityExportDeliveryStoreFile:
       process.env.SECURITY_EXPORT_DELIVERY_STORE_FILE ??
       path.resolve(process.cwd(), '.data', 'security-export-deliveries.json'),
+    securityExportDeliveryPolicyFile:
+      process.env.SECURITY_EXPORT_DELIVERY_POLICY_FILE ??
+      path.resolve(process.cwd(), '.data', 'security-export-delivery-policies.json'),
     securityExportSigningStoreFile:
       process.env.SECURITY_EXPORT_SIGNING_STORE_FILE ??
       path.resolve(process.cwd(), '.data', 'security-export-signing-keys.json')
@@ -271,6 +274,13 @@ export const config = {
     exportDeliveryMaxManualRedrives: Number(process.env.SECURITY_EXPORT_DELIVERY_MAX_MANUAL_REDRIVES ?? 2),
     exportDeliveryUserAgent:
       process.env.SECURITY_EXPORT_DELIVERY_USER_AGENT?.trim() || 'SMART-AI-Security-Delivery/1.0',
+    exportDeliveryPolicyDefaultMode: ((process.env.SECURITY_EXPORT_DELIVERY_POLICY_DEFAULT_MODE ?? '').trim().toLowerCase() ||
+      (parseCsv(process.env.SECURITY_EXPORT_DELIVERY_POLICY_DEFAULT_ALLOWED_TARGETS).length > 0 ? 'allowlist_only' : 'inherit_remote_policy')) as
+      | 'inherit_remote_policy'
+      | 'disabled'
+      | 'allowlist_only',
+    exportDeliveryPolicyDefaultAllowedTargets: parseCsv(process.env.SECURITY_EXPORT_DELIVERY_POLICY_DEFAULT_ALLOWED_TARGETS),
+    exportDeliveryPolicyMaxAllowedTargets: Number(process.env.SECURITY_EXPORT_DELIVERY_POLICY_MAX_ALLOWED_TARGETS ?? 32),
     exportSigningMaxVerifyKeys: Number(process.env.SECURITY_EXPORT_SIGNING_MAX_VERIFY_KEYS ?? 4),
     exportDeliveryAllowedPorts: (() => {
       const parsed = parseNumberCsv(process.env.SECURITY_EXPORT_DELIVERY_ALLOWED_PORTS);
