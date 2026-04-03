@@ -78,6 +78,10 @@
           <p id="remotePolicySummary">—</p>
         </article>
         <article class="card metric">
+          <h3>Delivery Egress Policy</h3>
+          <p id="deliveryPolicySummary">—</p>
+        </article>
+        <article class="card metric">
           <h3>UI Sessions</h3>
           <p id="uiSessionsSummary">—</p>
         </article>
@@ -171,6 +175,33 @@
       </section>
 
       <section class="card">
+        <h2>Security Export Delivery Policy</h2>
+        <div class="grid-2">
+          <label>
+            Mod
+            <select id="deliveryPolicyMode">
+              <option value="inherit_remote_policy">inherit_remote_policy</option>
+              <option value="allowlist_only">allowlist_only</option>
+              <option value="disabled">disabled</option>
+            </select>
+          </label>
+          <label>
+            Özet
+            <input id="deliveryPolicyStatus" type="text" value="source / status metric kartında gösterilir" readonly />
+          </label>
+        </div>
+        <label>
+          Allowed Targets (satır başına bir kural: host[/path], wildcard host veya https:// URL)
+          <textarea id="deliveryPolicyAllowedTargets" rows="6" placeholder="siem.example.com/hooks/smart-ai&#10;https://logs.example.com/v1/tenants/tenant-a&#10;*.ops.example.com/audit"></textarea>
+        </label>
+        <div class="actions">
+          <button id="saveDeliveryPolicy">Delivery Policy Kaydet</button>
+          <button id="resetDeliveryPolicy" class="secondary">Deployment Default'a Dön</button>
+        </div>
+        <p class="muted">Önerilen üretim modu <code>allowlist_only</code>. Delivery egress allowlist artık remote source policy'den ayrı yönetilir; host+path-prefix kuralı ile yanlış webhook path'leri fail-closed bloklanır.</p>
+      </section>
+
+      <section class="card">
         <h2>Security Export Signing</h2>
         <div class="actions">
           <button id="rotateSecuritySigningKey" class="secondary">Signing Key Rotate</button>
@@ -216,9 +247,11 @@
           </label>
         </div>
         <div class="actions">
+          <button id="previewSecurityDelivery" class="secondary">Hedefi Önizle</button>
           <button id="deliverSecurityExport">Webhook'a Gönder</button>
         </div>
-        <p id="securityDeliverySummary" class="muted">Host, Remote Source Policy allowlist içinde olmalı. Sync mod tek deneme yapar; async mod encrypted retry queue + backoff + dead-letter ile çalışır.</p>
+        <p id="securityDeliveryPreviewSummary" class="muted">Önizleme yapılmadı.</p>
+        <p id="securityDeliverySummary" class="muted">Delivery egress artık dedicated policy plane ile yönetilir. Sync mod tek deneme yapar; async mod encrypted retry queue + backoff + dead-letter + manual redrive ile çalışır.</p>
         <table>
           <thead>
             <tr>
