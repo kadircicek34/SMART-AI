@@ -4,9 +4,13 @@ import https from 'node:https';
 import net from 'node:net';
 import { config } from '../config.js';
 import { writeJsonFileAtomic, readJsonFileSync } from '../persistence/json-file.js';
-import { findAllowedRemoteHostRule, getEffectiveTenantRemotePolicy } from '../rag/remote-policy.js';
 import { assertPublicRemoteAddress, normalizeRemoteHostname } from '../rag/remote-url.js';
 import { securityAuditLog, type SecurityAuditEventType, type SecurityAuditExportBundle } from './audit-log.js';
+import {
+  evaluateSecurityExportDeliveryTargetPolicy,
+  type EffectiveSecurityExportDeliveryPolicy,
+  type SecurityExportDeliveryTargetPolicyReason
+} from './export-delivery-policy.js';
 import { ensureSignedSecurityAuditExportBundle, securityExportSigningRegistry } from './export-signing.js';
 
 const CONTROL_CHARS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
@@ -79,6 +83,16 @@ type PreparedDelivery = {
   headers: Record<string, string>;
   pinnedAddress: { address: string; family: number };
   signature: SecurityExportDeliveryRecord['signature'];
+};
+
+export type SecurityExportDeliveryTargetPreview = {
+  allowed: boolean;
+  reason: SecurityExportDeliveryTargetPolicyReason;
+  policy: EffectiveSecurityExportDeliveryPolicy;
+  destination: DeliveryDestination;
+  matched_rule: string | null;
+  pinned_address: string;
+  pinned_address_family: number;
 };
 
 type DeliveryTransportResult = {
@@ -938,12 +952,12 @@ function queueRetryProcessingSoon(): void {
   handle.unref?.();
 }
 
-async function resolveDeliveryTarget(tenantId: string, destinationUrl: string): Promise<{
+function normalizeDeliveryTargetDestination(destinationUrl: string): {
   url: URL;
   hostname: string;
-  matchedHostRule: string;
-  descriptor: DeliveryDestination;
-}> {
+  port: number;
+  path: string;
+} {
   const rawDestinationUrl = String(destinationUrl ?? '').trim();
   if (!rawDestinationUrl || rawDestinationUrl.length > MAX_DELIVERY_URL_LENGTH) {
     throw new Error('Destination URL is missing or too long.');
@@ -976,7 +990,7 @@ async function resolveDeliveryTarget(tenantId: string, destinationUrl: string): 
   }
 
   if (family > 0 && !config.security.exportDeliveryAllowIpLiterals) {
-    throw new Error('IP-literal delivery targets are disabled. Use a DNS hostname allowlisted in remote policy.');
+    throw new Error('IP-literal delivery targets are disabled. Use a DNS hostname allowlisted in delivery policy.');
   }
 
   if (family === 0 && !hostname.includes('.')) {
@@ -988,17 +1002,51 @@ async function resolveDeliveryTarget(tenantId: string, destinationUrl: string): 
     throw new Error(`Destination port ${port} is not allowed for security export delivery.`);
   }
 
-  const policy = await getEffectiveTenantRemotePolicy(tenantId);
-  const matchedHostRule = findAllowedRemoteHostRule(hostname, policy.allowedHosts);
-  if (!matchedHostRule) {
-    throw new Error('Destination host is not allowlisted in the tenant remote source policy.');
-  }
-
   return {
     url: parsedUrl,
     hostname,
-    matchedHostRule,
-    descriptor: buildDeliveryDestination(parsedUrl, matchedHostRule)
+    port,
+    path: parsedUrl.pathname || '/'
+  };
+}
+
+function describeDeliveryTargetPolicyError(reason: SecurityExportDeliveryTargetPolicyReason): string {
+  switch (reason) {
+    case 'policy_disabled':
+      return 'Security export delivery is disabled by the tenant delivery policy.';
+    case 'path_not_in_allowlist':
+      return 'Destination path is not allowlisted in the tenant delivery policy.';
+    case 'inherit_remote_policy_host_not_in_allowlist':
+      return 'Destination host is not allowlisted in the inherited remote source policy.';
+    case 'host_not_in_allowlist':
+    default:
+      return 'Destination host is not allowlisted in the tenant delivery policy.';
+  }
+}
+
+async function resolveDeliveryTarget(tenantId: string, destinationUrl: string): Promise<{
+  url: URL;
+  hostname: string;
+  matchedHostRule: string;
+  descriptor: DeliveryDestination;
+}> {
+  const normalized = normalizeDeliveryTargetDestination(destinationUrl);
+  const policyDecision = await evaluateSecurityExportDeliveryTargetPolicy({
+    tenantId,
+    hostname: normalized.hostname,
+    port: normalized.port,
+    path: normalized.path
+  });
+
+  if (!policyDecision.allowed || !policyDecision.matchedRule) {
+    throw new Error(describeDeliveryTargetPolicyError(policyDecision.reason));
+  }
+
+  return {
+    url: normalized.url,
+    hostname: normalized.hostname,
+    matchedHostRule: policyDecision.matchedRule,
+    descriptor: buildDeliveryDestination(normalized.url, policyDecision.matchedRule)
   };
 }
 
@@ -1015,6 +1063,30 @@ async function resolvePinnedAddress(hostname: string): Promise<{ address: string
   const resolved = await getLookup()(hostname);
   const [pinnedAddress] = normalizeLookupResult(hostname, resolved);
   return pinnedAddress;
+}
+
+export async function previewSecurityExportDeliveryTarget(options: {
+  tenantId: string;
+  destinationUrl: string;
+}): Promise<SecurityExportDeliveryTargetPreview> {
+  const normalized = normalizeDeliveryTargetDestination(options.destinationUrl);
+  const policyDecision = await evaluateSecurityExportDeliveryTargetPolicy({
+    tenantId: options.tenantId,
+    hostname: normalized.hostname,
+    port: normalized.port,
+    path: normalized.path
+  });
+  const pinnedAddress = await resolvePinnedAddress(normalized.hostname);
+
+  return {
+    allowed: policyDecision.allowed,
+    reason: policyDecision.reason,
+    policy: policyDecision.policy,
+    destination: buildDeliveryDestination(normalized.url, policyDecision.matchedRule),
+    matched_rule: policyDecision.matchedRule,
+    pinned_address: pinnedAddress.address,
+    pinned_address_family: pinnedAddress.family
+  };
 }
 
 async function prepareSecurityExportDelivery(options: {
