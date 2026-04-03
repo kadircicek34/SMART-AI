@@ -96,11 +96,16 @@ function setAdminControlsEnabled(enabled) {
     'resetRemotePolicy',
     'remotePolicyMode',
     'remotePolicyAllowedHosts',
+    'saveDeliveryPolicy',
+    'resetDeliveryPolicy',
+    'deliveryPolicyMode',
+    'deliveryPolicyAllowedTargets',
     'exportSecurity',
     'securityDeliveryUrl',
     'securityDeliveryMode',
     'securityDeliveryWindowHours',
     'securityDeliveryLimit',
+    'previewSecurityDelivery',
     'deliverSecurityExport',
     'rotateSecuritySigningKey',
     'revokeOtherSessions'
@@ -410,6 +415,25 @@ function renderRemotePolicy(policy) {
   textarea.value = allowedHosts.join('\n');
 }
 
+function renderDeliveryPolicy(policy) {
+  const summary = document.getElementById('deliveryPolicySummary');
+  const mode = document.getElementById('deliveryPolicyMode');
+  const status = document.getElementById('deliveryPolicyStatus');
+  const textarea = document.getElementById('deliveryPolicyAllowedTargets');
+
+  const source = policy?.source ?? 'deployment';
+  const policyStatus = policy?.policy_status ?? 'inherited';
+  const selectedMode = policy?.mode ?? 'inherit_remote_policy';
+  const allowedTargets = Array.isArray(policy?.allowed_targets) ? policy.allowed_targets : [];
+
+  summary.textContent = `source=${source}, status=${policyStatus}, mode=${selectedMode}, targets=${allowedTargets.length}`;
+  if (status) {
+    status.value = `${source} / ${policyStatus}`;
+  }
+  mode.value = selectedMode;
+  textarea.value = allowedTargets.join('\n');
+}
+
 function applyAuthContext(context) {
   const permissions = context?.permissions ?? {};
   const scopes = Array.isArray(context?.scopes) ? context.scopes.join(', ') : '—';
@@ -424,13 +448,15 @@ function applyAuthContext(context) {
 
   if (!adminEnabled) {
     document.getElementById('uiSessionsSummary').textContent = 'admin gerekli';
+    document.getElementById('deliveryPolicySummary').textContent = 'admin gerekli';
     document.getElementById('securityDeliverySummary').textContent = 'admin gerekli';
+    document.getElementById('securityDeliveryPreviewSummary').textContent = 'admin gerekli';
     document.getElementById('securitySigningSummary').textContent = 'admin gerekli';
     document.getElementById('securitySigningMetric').textContent = 'admin gerekli';
     renderUiSessionsTable([]);
     renderSecurityDeliveriesTable([]);
     renderSecuritySigningTable([]);
-    log('Bu oturum admin yetkisine sahip değil; model policy, remote policy, security export signing, security delivery, session control ve MCP flush kontrolleri salt okunur moda alındı.');
+    log('Bu oturum admin yetkisine sahip değil; model policy, remote policy, delivery policy, security export signing, security delivery, session control ve MCP flush kontrolleri salt okunur moda alındı.');
   }
 }
 
@@ -525,6 +551,73 @@ async function resetRemotePolicy(settings) {
 
   renderRemotePolicy(policy);
   log('Remote source policy deployment defaultlarına döndürüldü.');
+}
+
+async function loadDeliveryPolicy(settings) {
+  await maybeRefreshSession(settings);
+
+  const policy = await safeFetchJson(`${settings.baseUrl}/v1/security/export/delivery-policy`, {
+    headers: authHeaders(settings)
+  });
+
+  renderDeliveryPolicy(policy);
+  return policy;
+}
+
+async function saveDeliveryPolicy(settings) {
+  await maybeRefreshSession(settings);
+
+  const mode = document.getElementById('deliveryPolicyMode').value;
+  const allowedTargets = parseAllowedModelsInput(document.getElementById('deliveryPolicyAllowedTargets').value);
+
+  const policy = await safeFetchJson(`${settings.baseUrl}/v1/security/export/delivery-policy`, {
+    method: 'PUT',
+    headers: authHeaders(settings),
+    body: JSON.stringify({ mode, allowedTargets })
+  });
+
+  renderDeliveryPolicy(policy);
+  log(`Delivery egress policy güncellendi. mode=${policy.mode}, targets=${policy.allowed_targets?.length ?? 0}`);
+  return policy;
+}
+
+async function resetDeliveryPolicy(settings) {
+  await maybeRefreshSession(settings);
+
+  const policy = await safeFetchJson(`${settings.baseUrl}/v1/security/export/delivery-policy`, {
+    method: 'DELETE',
+    headers: authHeaders(settings)
+  });
+
+  renderDeliveryPolicy(policy);
+  log('Delivery egress policy deployment defaultlarına döndürüldü.');
+  return policy;
+}
+
+async function previewSecurityDeliveryTarget(settings) {
+  await maybeRefreshSession(settings);
+
+  const destinationUrl = document.getElementById('securityDeliveryUrl').value.trim();
+  if (!destinationUrl) {
+    throw new Error('Önizleme için webhook / SIEM URL gerekli.');
+  }
+
+  const preview = await safeFetchJson(`${settings.baseUrl}/v1/security/export/deliveries/preview`, {
+    method: 'POST',
+    headers: authHeaders(settings),
+    body: JSON.stringify({ destinationUrl })
+  });
+
+  const policy = preview?.policy ?? {};
+  document.getElementById('securityDeliveryPreviewSummary').textContent = preview?.allowed
+    ? `ALLOWED • mode=${policy.mode ?? 'unknown'} • matched=${preview?.matched_rule ?? '—'} • pinned=${preview?.pinned_address ?? '—'} • pathHash=${preview?.destination?.path_hash ?? '—'}`
+    : `BLOCKED • mode=${policy.mode ?? 'unknown'} • reason=${preview?.reason ?? 'unknown'} • matched=${preview?.matched_rule ?? '—'} • pinned=${preview?.pinned_address ?? '—'}`;
+  log(
+    preview?.allowed
+      ? `Delivery target preview ALLOWED. matched=${preview?.matched_rule ?? '—'}, pinned=${preview?.pinned_address ?? '—'}`
+      : `Delivery target preview BLOCKED. reason=${preview?.reason ?? 'unknown'}, matched=${preview?.matched_rule ?? '—'}`
+  );
+  return preview;
 }
 
 async function loadUiSessions(settings) {
@@ -645,8 +738,8 @@ async function loadSecurityDeliveries(settings) {
   const redriven = deliveries.filter((delivery) => Number(delivery.redrive_count ?? 0) > 0).length;
   document.getElementById('securityDeliverySummary').textContent =
     deliveries.length > 0
-      ? `recent=${deliveries.length}, active=${queued}, dead-letter=${deadLetters}, redriven=${redriven}, last=${deliveries[0]?.status ?? '—'}, host allowlist + HTTPS + Ed25519 signing + DNS pinning + encrypted retry queue + manual dead-letter redrive aktif`
-      : 'Host, Remote Source Policy allowlist içinde olmalı. Sync mod tek deneme yapar; async mod encrypted retry queue + backoff + dead-letter + manual redrive ile gönderir.';
+      ? `recent=${deliveries.length}, active=${queued}, dead-letter=${deadLetters}, redriven=${redriven}, last=${deliveries[0]?.status ?? '—'}, dedicated delivery-egress policy + HTTPS + host/path allowlist + Ed25519 signing + DNS pinning + encrypted retry queue + manual dead-letter redrive aktif`
+      : 'Delivery egress dedicated policy plane ile yönetilir. Önce target preview yapın; ardından sync veya async (encrypted retry queue + backoff + dead-letter + manual redrive) delivery kullanın.';
   renderSecurityDeliveriesTable(deliveries);
   return deliveries;
 }
@@ -759,6 +852,7 @@ async function loadDashboard(settings) {
   await loadModelPolicy(settings);
   await loadRemotePolicy(settings);
   if (authContext?.permissions?.admin) {
+    await loadDeliveryPolicy(settings);
     await loadSecuritySigningKeys(settings);
     await loadSecurityDeliveries(settings);
     await loadUiSessions(settings);
@@ -829,6 +923,8 @@ async function signOut(settings) {
     setSessionCapabilities('Yetki bilgisi: aktif oturum yok.');
     document.getElementById('uiSessionsSummary').textContent = '—';
     document.getElementById('remotePolicySummary').textContent = '—';
+    document.getElementById('deliveryPolicySummary').textContent = '—';
+    document.getElementById('securityDeliveryPreviewSummary').textContent = 'Önizleme yapılmadı.';
     document.getElementById('securityDeliverySummary').textContent = '—';
     document.getElementById('securitySigningSummary').textContent = '—';
     document.getElementById('securitySigningMetric').textContent = '—';
@@ -853,6 +949,8 @@ async function init() {
   setSessionCapabilities('Yetki bilgisi: aktif oturum yok.');
   document.getElementById('uiSessionsSummary').textContent = '—';
   document.getElementById('remotePolicySummary').textContent = '—';
+  document.getElementById('deliveryPolicySummary').textContent = '—';
+  document.getElementById('securityDeliveryPreviewSummary').textContent = 'Önizleme yapılmadı.';
   document.getElementById('securityDeliverySummary').textContent = '—';
   document.getElementById('securitySigningSummary').textContent = '—';
   document.getElementById('securitySigningMetric').textContent = '—';
@@ -927,6 +1025,19 @@ async function init() {
     try {
       await downloadSecurityExport(next);
       setStatus('Security export indirildi.');
+    } catch (error) {
+      setStatus(String(error), true);
+      log(`Hata: ${String(error)}`);
+    }
+  });
+
+  document.getElementById('previewSecurityDelivery').addEventListener('click', async () => {
+    const next = readSettingsForm();
+    setSettings(next);
+
+    try {
+      await previewSecurityDeliveryTarget(next);
+      setStatus('Security export delivery hedefi önizlendi.');
     } catch (error) {
       setStatus(String(error), true);
       log(`Hata: ${String(error)}`);
@@ -1062,6 +1173,32 @@ async function init() {
     }
   });
 
+  document.getElementById('saveDeliveryPolicy').addEventListener('click', async () => {
+    const next = readSettingsForm();
+    setSettings(next);
+
+    try {
+      await saveDeliveryPolicy(next);
+      setStatus('Delivery egress policy kaydedildi.');
+    } catch (error) {
+      setStatus(String(error), true);
+      log(`Hata: ${String(error)}`);
+    }
+  });
+
+  document.getElementById('resetDeliveryPolicy').addEventListener('click', async () => {
+    const next = readSettingsForm();
+    setSettings(next);
+
+    try {
+      await resetDeliveryPolicy(next);
+      setStatus('Delivery egress policy deployment defaultlarına döndü.');
+    } catch (error) {
+      setStatus(String(error), true);
+      log(`Hata: ${String(error)}`);
+    }
+  });
+
   document.getElementById('uiSessionsTableBody').addEventListener('click', async (event) => {
     const button = event.target.closest('.revoke-session-btn');
     if (!button || button.disabled) {
@@ -1104,6 +1241,8 @@ async function init() {
     setSessionMeta(null);
     setAdminControlsEnabled(false);
     setSessionCapabilities('Yetki bilgisi: aktif oturum yok.', false);
+    document.getElementById('deliveryPolicySummary').textContent = '—';
+    document.getElementById('securityDeliveryPreviewSummary').textContent = 'Önizleme yapılmadı.';
     document.getElementById('securitySigningSummary').textContent = '—';
     document.getElementById('securitySigningMetric').textContent = '—';
     renderSecuritySigningTable([]);
