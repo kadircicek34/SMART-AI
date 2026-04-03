@@ -59,7 +59,7 @@ function isUnsafeHostCandidate(hostname: string): boolean {
   );
 }
 
-function normalizeAllowedHostRule(raw: string): string {
+export function normalizeAllowedHostRule(raw: string): string {
   const candidate = String(raw ?? '').trim();
   if (!candidate) {
     throw new Error('allowed_host_required');
