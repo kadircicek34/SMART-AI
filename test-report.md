@@ -1,9 +1,28 @@
-# TEST REPORT — SMART-AI v1.14 (Dead-letter Redrive + Anti-Rebinding Pinning)
+# TEST REPORT — SMART-AI v1.15 (Delivery Egress Policy Plane + Target Preview)
 
 ## Test Stratejisi
 - Contract tests: OpenAI-compatible + RAG + Memory + MCP + UI endpointleri
 - Security tests: key-store + policy allowlist + UI session token auth akışı
 - Unit tests: orchestrator/verifier, deep_research, financial runtime, qmd, memory, MCP circuit/store
+
+## 2026-04-03 Ek doğrulama (Delivery egress policy plane + target preview)
+- `npm run typecheck` ✅
+- `npx tsx --test tests/contract/security-export-delivery-policy.test.ts tests/contract/security-export-deliveries.test.ts` ✅ (**12/12**)
+- `npm test` ✅ (**165/165**)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+- Yeni testler / güncellemeler:
+  - `service/tests/contract/security-export-delivery-policy.test.ts`
+    - deployment default delivery policy contract doğrulaması
+    - tenant policy CRUD + preview allow/deny verdict doğrulaması
+    - `inherit_remote_policy` backward-compatible migration contract doğrulaması
+    - read-only credential için admin deny doğrulaması
+  - `service/tests/contract/security-export-deliveries.test.ts`
+    - dedicated delivery policy yokken export block doğrulaması
+    - remote policy host allow olsa bile path-scope deny regresyon doğrulaması
+    - sync/async/dead-letter/redrive delivery regresyonu yeni policy plane ile birlikte korundu
+  - Dashboard/API smoke etkisi
+    - delivery policy paneli + preview endpoint’i aynı `/ui/dashboard` yüzeyinden kullanılabilir contract ile hizalandı
 
 ## 2026-04-02 Ek doğrulama (Dead-letter redrive + anti-rebinding pinning)
 - `npm run typecheck` ✅
