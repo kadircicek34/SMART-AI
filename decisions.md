@@ -1,5 +1,42 @@
 # DECISIONS — OpenRouter Agentic Intelligence API
 
+## 2026-04-03 — Delivery egress policy plane + target preview kararı
+### Problem
+Security export delivery hattı dayanıklı hale gelmişti; fakat production güvenlik modelinde üç kritik boşluk kalmıştı:
+1. Export webhook/SIEM egress allowlist’i hâlâ RAG remote source policy ile paylaşıldığı için en az ayrıcalık (least-privilege) sınırı bulanıktı.
+2. Allowlist host-seviyesindeydi; aynı host altındaki yanlış path/hedeflere delivery gönderimini kısıtlayan ayrı bir path-scope policy yoktu.
+3. Operatör hedef URL’yi gerçek delivery yapmadan önce preflight doğrulayamıyor, hangi kuralın eşleştiğini ve pinli IP’yi dashboard/API üzerinden göremiyordu.
+
+### Seçenekler
+- A: Remote source policy paylaşımını koruyup yalnızca dokümantasyon uyarısı eklemek
+- B: Delivery egress’i tamamen kapatmak
+- C: Dedicated delivery-egress policy plane + path-prefix allowlist + preflight target preview + dashboard control plane paketini tek koşumda teslim etmek
+
+### Karar
+**C seçildi:**
+1. **Yeni özellik:** `GET/PUT/DELETE /v1/security/export/delivery-policy` ve `POST /v1/security/export/deliveries/preview` ile operatör delivery hedefini göndermeden önce preview edip policy’yi ayrı yönetebilecek.
+2. **Ciddi güvenlik iyileştirmesi #1:** Export delivery allowlist’i remote RAG policy’den ayrılacak; dedicated tenant/deployment delivery-egress policy plane ile egress boundary netleşecek.
+3. **Ciddi güvenlik iyileştirmesi #2:** Allowlist `host + path-prefix` kuralı seviyesine inecek; aynı host üzerinde yanlış webhook path’lerine giden teslimler fail-closed bloke edilecek.
+4. **Ciddi güvenlik iyileştirmesi #3:** Preview/policy update/reset audit telemetry ile operatör görünürlüğü ve olay izi güçlenecek.
+5. **Ops / UX iyileştirmesi:** Dashboard delivery paneli artık policy yönetimi + preflight preview akışı sunacak.
+
+### Gerekçe
+- Security export egress, RAG fetch ile aynı policy yüzeyine bağlı kaldığında operasyonel kolaylık sağlasa da güvenlik sınırını gereğinden geniş tutuyordu.
+- Path-prefix scope olmadan allowlisted bir host içindeki yanlış endpoint’lere kanıt teslimi yapılabilirdi.
+- Preview yüzeyi, güvenli operatör deneyimi ve düşük hata oranı için production gerekliliğidir.
+
+### Etki
+- Export delivery, bağımsız ve daha dar bir egress policy ile yönetilecek.
+- Webhook/SIEM hedefleri host+path scope ile daha deterministik hale gelecek.
+- Dashboard/API, delivery göndermeden önce policy verdict + matched rule + pinned address görünürlüğü sağlayacak.
+
+### Bilinçli Olarak Ertelenenler
+- Delivery queue/audit/policy/session store’larını shared backend’e taşıma
+- Signing key’ler için otomatik expiry/rotation scheduler + alerting
+- Delivery destination’lar için multi-step approval workflow / RBAC onay zinciri
+
+---
+
 ## 2026-04-02 — Dead-letter redrive + anti-rebinding pinning kararı
 ### Problem
 Security export delivery hattı dayanıklıydı ama production operasyonunda üç kritik boşluk kalmıştı:
