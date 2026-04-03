@@ -1,5 +1,14 @@
 # TASKS — OpenRouter Agentic Intelligence API
 
+## v1.15 Delta (Delivery Egress Policy Plane + Target Preview) — Tamamlandı
+- [x] Yeni özellik: `GET/PUT/DELETE /v1/security/export/delivery-policy` ve `POST /v1/security/export/deliveries/preview` endpointlerini eklendi
+- [x] Güvenlik: export delivery allowlist’i remote source policy’den ayrıldı; dedicated tenant/deployment delivery-egress policy plane kuruldu
+- [x] Güvenlik: allowlist `host + path-prefix` kuralı seviyesine indi; yanlış path hedefleri fail-closed bloklanıyor
+- [x] Güvenlik: delivery preview + policy update/reset audit telemetry eklendi
+- [x] Dashboard’a delivery policy yönetimi ve preflight target preview akışı eklendi
+- [x] Contract testleri: policy CRUD, preview, path-scope enforcement, remote-policy separation regresyonları yazıldı
+- [x] Fresh verification: typecheck + focused contract tests + full test + audit + delivery-gate tamamlandı
+
 ## v1.14 Delta (Dead-letter Redrive + Anti-Rebinding Pinning) — Tamamlandı
 - [x] Yeni özellik: `POST /v1/security/export/deliveries/:deliveryId/redrive` endpointi eklendi
 - [x] Dashboard delivery tablosuna dead-letter için manual redrive aksiyonu eklendi
