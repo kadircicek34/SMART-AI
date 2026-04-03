@@ -20,8 +20,15 @@ import {
   deliverSecurityAuditExport,
   enqueueSecurityAuditExportDelivery,
   listSecurityExportDeliveries,
+  previewSecurityExportDeliveryTarget,
   redriveSecurityAuditExportDelivery
 } from '../../security/export-delivery.js';
+import {
+  getEffectiveSecurityExportDeliveryPolicy,
+  resetTenantSecurityExportDeliveryPolicy,
+  setTenantSecurityExportDeliveryPolicy,
+  type EffectiveSecurityExportDeliveryPolicy
+} from '../../security/export-delivery-policy.js';
 
 const CHAIN_HASH_REGEX = /^[a-f0-9]{64}$/;
 const IDEMPOTENCY_KEY_ALLOWED = /^[A-Za-z0-9._:-]+$/;
@@ -104,6 +111,15 @@ const DELIVERY_LIST_QUERY_SCHEMA = z.object({
 
 const DELIVERY_REDIVE_PARAMS_SCHEMA = z.object({
   deliveryId: z.string().min(1).max(96)
+});
+
+const DELIVERY_POLICY_BODY_SCHEMA = z.object({
+  mode: z.enum(['inherit_remote_policy', 'disabled', 'allowlist_only']),
+  allowedTargets: z.array(z.string().min(1)).max(128).optional().default([])
+});
+
+const DELIVERY_PREVIEW_BODY_SCHEMA = z.object({
+  destinationUrl: z.string().url().max(2048)
 });
 
 const DELIVERY_BODY_SCHEMA = z.object({
@@ -279,6 +295,38 @@ function verifyExportBundleForTenant(bundle: SecurityAuditExportBundle, tenantId
   };
 }
 
+function toSecurityExportDeliveryPolicyPayload(policy: EffectiveSecurityExportDeliveryPolicy) {
+  return {
+    object: 'security_export.delivery_policy',
+    tenant_id: policy.tenantId,
+    source: policy.source,
+    policy_status: policy.policyStatus,
+    mode: policy.mode,
+    allowed_targets: policy.allowedTargets,
+    deployment_default_mode: policy.deploymentDefaultMode,
+    deployment_default_allowed_targets: policy.deploymentDefaultAllowedTargets,
+    updated_at: policy.updatedAt
+  };
+}
+
+function recordSecurityExportDeliveryPolicyAudit(params: {
+  tenantId: string;
+  req: { ip: string; url: string; requestContext?: { requestId?: string } };
+  type: 'security_export_delivery_policy_updated' | 'security_export_delivery_policy_reset' | 'security_export_delivery_previewed';
+  details?: Record<string, string | number | boolean | null | undefined>;
+}) {
+  securityAuditLog.record({
+    tenant_id: params.tenantId,
+    type: params.type,
+    ip: params.req.ip,
+    request_id: params.req.requestContext?.requestId,
+    details: {
+      path: params.req.url,
+      ...Object.fromEntries(Object.entries(params.details ?? {}).filter(([, value]) => value !== undefined))
+    }
+  });
+}
+
 export async function registerSecurityEventsRoute(app: FastifyInstance) {
   app.get(getSecurityExportJwksPath(), async () => securityExportSigningRegistry.getPublicJwks());
 
@@ -363,6 +411,75 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
     };
   });
 
+  app.get('/v1/security/export/delivery-policy', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    const policy = await getEffectiveSecurityExportDeliveryPolicy(tenantId);
+    return toSecurityExportDeliveryPolicyPayload(policy);
+  });
+
+  app.put('/v1/security/export/delivery-policy', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    const parsed = DELIVERY_POLICY_BODY_SCHEMA.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return reply.status(400).send(invalidRequest('Invalid payload for security export delivery policy.', parsed.error.flatten()));
+    }
+
+    const result = await setTenantSecurityExportDeliveryPolicy(tenantId, parsed.data);
+    if (!result.ok) {
+      return reply.status(result.statusCode).send(
+        invalidRequest(result.reason, {
+          code: result.code
+        })
+      );
+    }
+
+    recordSecurityExportDeliveryPolicyAudit({
+      tenantId,
+      req,
+      type: 'security_export_delivery_policy_updated',
+      details: {
+        mode: result.policy.mode,
+        allowed_targets: result.policy.allowedTargets.length
+      }
+    });
+
+    const policy = await getEffectiveSecurityExportDeliveryPolicy(tenantId);
+    return toSecurityExportDeliveryPolicyPayload(policy);
+  });
+
+  app.delete('/v1/security/export/delivery-policy', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    const reset = await resetTenantSecurityExportDeliveryPolicy(tenantId);
+    if (reset) {
+      recordSecurityExportDeliveryPolicyAudit({
+        tenantId,
+        req,
+        type: 'security_export_delivery_policy_reset',
+        details: {
+          reason: 'reset_to_deployment_defaults'
+        }
+      });
+    }
+
+    const policy = await getEffectiveSecurityExportDeliveryPolicy(tenantId);
+    return {
+      reset,
+      ...toSecurityExportDeliveryPolicyPayload(policy)
+    };
+  });
+
   app.get('/v1/security/export', async (req, reply) => {
     const tenantId = req.requestContext?.tenantId;
     if (!tenantId) {
@@ -383,6 +500,54 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
     );
 
     return exportBundle;
+  });
+
+  app.post('/v1/security/export/deliveries/preview', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    const parsed = DELIVERY_PREVIEW_BODY_SCHEMA.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return reply.status(400).send(invalidRequest('Invalid payload for security export delivery preview.', parsed.error.flatten()));
+    }
+
+    try {
+      const preview = await previewSecurityExportDeliveryTarget({
+        tenantId,
+        destinationUrl: parsed.data.destinationUrl
+      });
+
+      recordSecurityExportDeliveryPolicyAudit({
+        tenantId,
+        req,
+        type: 'security_export_delivery_previewed',
+        details: {
+          allowed: preview.allowed,
+          mode: preview.policy.mode,
+          host: preview.destination.host,
+          path_hash: preview.destination.path_hash,
+          matched_rule: preview.matched_rule,
+          pinned_address_family: preview.pinned_address_family,
+          reason: preview.reason
+        }
+      });
+
+      return {
+        object: 'security_export_delivery_preview',
+        tenant_id: tenantId,
+        allowed: preview.allowed,
+        reason: preview.reason,
+        matched_rule: preview.matched_rule,
+        destination: preview.destination,
+        pinned_address: preview.pinned_address,
+        pinned_address_family: preview.pinned_address_family,
+        policy: toSecurityExportDeliveryPolicyPayload(preview.policy)
+      };
+    } catch (error) {
+      return reply.status(400).send(invalidRequest(error instanceof Error ? error.message : String(error)));
+    }
   });
 
   app.get('/v1/security/export/deliveries', async (req, reply) => {
