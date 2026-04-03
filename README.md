@@ -40,6 +40,7 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - **Security Risk Summary** (`/v1/security/summary`) + tenant bazlı risk skoru / alarm bayrakları
 - **Tamper-evident + signed Security Export** (`/v1/security/export`, `/v1/security/export/verify`) + hash-chain integrity + Ed25519 bundle signature doğrulaması
 - **Security Export Signing Registry** (`GET/POST /v1/security/export/keys*` + `/.well-known/smart-ai/security-export-keys.json`) + active/verify-only key rotation + public JWKS discovery
+- **Dedicated Security Export Delivery Egress Policy** (`GET/PUT/DELETE /v1/security/export/delivery-policy` + `POST /v1/security/export/deliveries/preview`) + separate delivery control plane + host/path-prefix allowlist + target preview + pinned-address visibility
 - **Resilient Security Export Delivery Queue** (`POST /v1/security/export/deliveries` with `mode=async`) + encrypted retry payload store + backoff/dead-letter lifecycle + Idempotency-Key dedupe + Ed25519 delivery headers
 - **Header abuse guard** (Authorization / tenant header boyut limitleri + UI oversized key koruması)
 - **UI session lifecycle hardening** (`/ui/session` introspection + `/ui/session/refresh` token rotation + idle-timeout + session cap eviction + unsafe `/v1/*` writes için Origin binding)
@@ -251,6 +252,20 @@ curl -X POST 'http://127.0.0.1:8080/v1/security/export/keys/rotate' \
   -H 'content-type: application/json' \
   -d '{}'
 
+# dedicated delivery-egress policy'yi host+path seviyesinde tanımla
+curl -X PUT 'http://127.0.0.1:8080/v1/security/export/delivery-policy' \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a' \
+  -H 'content-type: application/json' \
+  -d '{"mode":"allowlist_only","allowedTargets":["siem.example.com/hooks/smart-ai","https://logs.example.com/v1/tenants/tenant-a"]}'
+
+# gerçek gönderim yapmadan hedefi preview et
+curl -X POST 'http://127.0.0.1:8080/v1/security/export/deliveries/preview' \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a' \
+  -H 'content-type: application/json' \
+  -d '{"destinationUrl":"https://siem.example.com/hooks/smart-ai?token=hidden"}'
+
 # tek denemelik sync delivery
 curl -X POST 'http://127.0.0.1:8080/v1/security/export/deliveries' \
   -H 'Authorization: Bearer dev-admin-key' \
@@ -274,10 +289,11 @@ curl 'http://127.0.0.1:8080/v1/security/export/deliveries?status=dead_letter&lim
 
 Export bundle'ı artık sıralı `sequence`, `prev_chain_hash`, `chain_hash` alanlarıyla birlikte **Ed25519 signature metadata** taşır. Böylece SIEM/forensics hattı, payload transfer sonrası bile bundle üzerinde hem server-side hash-chain bütünlüğü hem de detached signature doğrulaması yapabilir. Public verification için `/.well-known/smart-ai/security-export-keys.json` JWKS endpointi yayınlanır ve signing key rotation geçmişi verify-only anahtarlarla korunur.
 
-`mode=async` delivery hattı production-grade operasyon için üç ek güvenlik/direnç katmanı sağlar:
+Security export delivery hattı production-grade operasyon için dört ek güvenlik/direnç katmanı sağlar:
+- delivery egress allowlist artık remote source policy’den ayrıdır; dedicated `delivery-policy` control plane ile **host + path-prefix** seviyesinde yönetilir,
+- `preview` endpoint’i gerçek gönderim yapmadan `allowed/reason/matched_rule/pinned_address` verdict’i döndürür,
 - retry queue payload'ı düz JSON değil, AES-256-GCM ile encrypted-at-rest saklanır,
-- `Idempotency-Key` ile aynı export isteğinin duplicate/replay flood'u bastırılır,
-- retryable ağ/5xx/429 hataları backoff ile tekrar denenir; limit aşılırsa receipt `dead_letter` olur ve `/v1/security/events` içinde kanıt bırakır.
+- `Idempotency-Key` ile aynı export isteğinin duplicate/replay flood'u bastırılır; retryable ağ/5xx/429 hataları backoff ile tekrar denenir, limit aşılırsa receipt `dead_letter` olur ve `/v1/security/events` içinde kanıt bırakır.
 
 ## Auth Context Introspection
 ```bash
@@ -311,6 +327,7 @@ Yeni güvenlik akışı:
 - Dashboard ve Chat UI, `/v1/auth/context` ile scope farkındalığı kazanır; admin/operate yetkisi yoksa ilgili kontroller otomatik disable edilir.
 - Dashboard, tenant model policy’yi okuyup güncelleyebilir; Chat UI varsayılan tenant modelini otomatik seçer.
 - Dashboard, `/v1/security/summary` ile 24h risk seviyesi + alarm bayraklarını da gösterir.
+- Dashboard, dedicated delivery-egress policy plane’i (`/v1/security/export/delivery-policy`) yönetir ve export hedeflerini gerçek gönderimden önce preview edebilir.
 - UI session ve security audit state artık restart sonrası korunur; session token plaintext halde değil yalnızca hash+metadata olarak saklanır.
 - `GET /v1/ui/sessions`, `POST /v1/ui/sessions/:sessionId/revoke` ve `POST /v1/ui/sessions/revoke-all` ile admin kullanıcı tenant içindeki aktif web oturumlarını yönetebilir.
 - Dashboard, mevcut oturumu düşürmeden “Diğer Oturumları Kapat” aksiyonu ile güvenli incident-response akışı sunar.
