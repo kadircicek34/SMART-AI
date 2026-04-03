@@ -1,4 +1,4 @@
-# SECURITY REPORT — SMART-AI v1.14
+# SECURITY REPORT — SMART-AI v1.15
 
 ## Kapsam
 Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
@@ -20,8 +20,35 @@ Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
 | UI static route security | ✅ | path traversal bloklandı (`isPathInside`) |
 | MCP call güvenliği | ✅ | sabit command template + JSON args + adaptive timeout + circuit guard |
 | MCP persistence güvenliği | ✅ | snapshot atomik tmp→rename ile yazılıyor |
-| Security export delivery egress | ✅ | HTTPS-only + allowlist + DNS pinning + Ed25519 signature + redacted receipts |
+| Security export delivery egress | ✅ | dedicated delivery-egress policy + host/path allowlist + HTTPS-only + DNS pinning + Ed25519 signature + redacted receipts |
 | Dependencies | ✅ | `npm audit --omit=dev` sonucu 0 vuln |
+
+## 2026-04-03 Güvenlik sertleştirmesi — delivery egress policy plane + target preview
+- **Dedicated delivery-egress control plane**
+  - Yeni endpointler: `GET/PUT/DELETE /v1/security/export/delivery-policy`
+  - Security export delivery allowlist’i artık remote source policy’den bağımsız tenant/deployment policy ile yönetiliyor.
+  - `inherit_remote_policy`, `allowlist_only`, `disabled` modları ile migration + fail-closed operasyon yüzeyi sağlandı.
+- **Host + path-prefix enforcement**
+  - Delivery allowlist host seviyesinden `host + path-prefix` kuralı seviyesine indi.
+  - Aynı host üzerindeki yanlış webhook path’lerine giden teslimler fail-closed bloke ediliyor.
+  - Rule formatı `siem.example.com/hooks`, `https://logs.example.com/v1/tenants/tenant-a`, `*.ops.example.com/audit` gibi minimize edilmiş least-privilege ifadeleri destekliyor.
+- **Preflight target preview**
+  - Yeni endpoint: `POST /v1/security/export/deliveries/preview`
+  - Operatör gerçek gönderim yapmadan `allowed`, `reason`, `matched_rule`, `pinned_address` verdict’ini görebiliyor.
+  - Path/query secret’ları preview sonucunda redacted fingerprint seviyesinde tutuluyor.
+- **Telemetry / audit güçlendirmesi**
+  - Yeni audit event tipleri: `security_export_delivery_previewed`, `security_export_delivery_policy_updated`, `security_export_delivery_policy_reset`
+  - Delivery policy değişiklikleri ve preview verdict’leri olay izi bırakıyor; incident-response görünürlüğü artıyor.
+- **Dashboard operator hardening**
+  - `/ui/dashboard` delivery policy paneli + preview aksiyonu eklendi.
+  - Admin olmayan oturumlar için delivery policy ve preview yüzeyi salt-okunur/disabled kalıyor.
+- **Dependency posture**
+  - `npm audit --omit=dev` tekrar temiz geçti (0 vulnerability).
+
+Kalan risk:
+- Delivery queue/audit/policy/session store hâlâ local file tabanlı; multi-instance shared backend gerekecek.
+- Signing key rotation hâlâ admin tetiklemeli; otomatik expiry/rotation scheduler + alerting henüz yok.
+- Deployment default delivery policy backward-compatible migration için `inherit_remote_policy` kalabilir; daha sert secure-by-default posture isteyen kurulumlar explicit `allowlist_only` kullanmalı.
 
 ## 2026-04-02 Güvenlik sertleştirmesi — dead-letter redrive + anti-rebinding pinning
 - **Dead-letter recovery control plane**
