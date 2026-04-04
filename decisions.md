@@ -1,5 +1,42 @@
 # DECISIONS — OpenRouter Agentic Intelligence API
 
+## 2026-04-04 — Signing lifecycle policy + auto-rotation guard kararı
+### Problem
+Security export signing registry artık Ed25519 + JWKS ile dış doğrulamayı destekliyordu; ancak production güvenlik modelinde üç kritik boşluk kalmıştı:
+1. Active signing key yalnızca manuel rotate ediliyordu; overdue/expired anahtarlar için otomatik lifecycle policy ve sağlık görünürlüğü yoktu.
+2. Verify-only anahtarlar retention politikası olmadan JWKS yüzeyinde gereğinden uzun kalabiliyordu; bu hem gereksiz public verification surface hem de key hygiene sorunu yaratıyordu.
+3. Dashboard/API tarafında signing health yalnızca key listesi seviyesinde görünüyordu; operatör rotate/expire/warn eşiklerini yönetemiyor ve fail-closed posture'u kontrol edemiyordu.
+
+### Seçenekler
+- A: Mevcut manuel rotation modelini koruyup sadece dokümantasyon uyarısı eklemek
+- B: Auto-rotation eklemeden yalnızca dashboard metriklerini genişletmek
+- C: Lifecycle policy API + auto-rotation guard + verify-only retention pruning + dashboard health control plane paketini tek koşumda teslim etmek
+
+### Karar
+**C seçildi:**
+1. **Yeni özellik:** `GET/PUT /v1/security/export/signing-policy` endpointleri ve dashboard policy formu ile operatör auto-rotate / expire / warn / verify-retention eşiklerini yönetebilecek.
+2. **Ciddi güvenlik iyileştirmesi #1:** Security export signing registry active key rotate süresi dolduğunda export/delivery öncesi otomatik rotation yapabilecek; auto-rotation kapalıysa expired key ile imzalama fail-closed reddedilecek.
+3. **Ciddi güvenlik iyileştirmesi #2:** Verify-only anahtarlar retention süresi dolunca otomatik prune edilerek public JWKS yüzeyi daraltılacak.
+4. **Ciddi güvenlik iyileştirmesi #3:** `/v1/security/summary` ve `/v1/security/export/keys` signing lifecycle health + alert durumunu expose edecek; manual rotate/policy update aksiyonları audit log’a yazılacak.
+5. **Ops / UX iyileştirmesi:** Dashboard signing paneli health status, rotate due / expire görünürlüğü ve policy kaydetme akışı kazanacak.
+
+### Gerekçe
+- Export evidence zinciri asymmetric ve production-grade olsa da uzun ömürlü active key, anahtar hijyeninde operasyonel risk bırakıyordu.
+- Verify-only key retention olmadan JWKS yüzeyi zamanla şişer ve gerekli minimum public verification surface ilkesinden uzaklaşır.
+- Policy ve health görünürlüğü olmadan operatör ancak manuel rotate ile reaksiyon verebiliyordu; proaktif lifecycle control plane gerekiyordu.
+
+### Etki
+- Export/delivery signing hattı artık lifecycle-aware ve fail-closed posture ile çalışacak.
+- Active key expiry posture’u dashboard + API üzerinden görünür ve yönetilebilir hale gelecek.
+- Public JWKS yalnızca retention içindeki verify-only anahtarları yayınlayacak.
+
+### Bilinçli Olarak Ertelenenler
+- Delivery queue/audit/policy/session store’larını shared backend’e taşıma
+- Delivery policy için rollout analytics, trend kartları ve operatör playbook akışı
+- Export delivery için merkezi egress proxy / VPC-level outbound enforcement
+
+---
+
 ## 2026-04-03 — Delivery egress policy plane + target preview kararı
 ### Problem
 Security export delivery hattı dayanıklı hale gelmişti; fakat production güvenlik modelinde üç kritik boşluk kalmıştı:
