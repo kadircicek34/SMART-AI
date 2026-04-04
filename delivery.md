@@ -1,13 +1,48 @@
-# DELIVERY — SMART-AI v1.15 (Delivery Egress Policy Plane + Target Preview)
+# DELIVERY — SMART-AI v1.16 (Signing Lifecycle Policy + Auto-Rotation Guard)
 
 ## Özet
-Bu koşumda en yüksek etkili günlük iyileştirme olarak **delivery egress policy plane + target preview paketi** teslim edildi.
+Bu koşumda en yüksek etkili günlük iyileştirme olarak **signing lifecycle policy + auto-rotation guard paketi** teslim edildi.
 
 Teslimin odağı:
-- security export delivery egress allowlist’ini remote source policy’den ayırmak,
-- allowlist’i host seviyesinden host+path-prefix seviyesine indirip yanlış webhook path’lerini fail-closed kapatmak,
-- operatöre gerçek gönderim öncesi preview + matched rule + pinned address görünürlüğü vermek,
-- dashboard + audit + test + delivery gate kanıtını tek turda tamamlamak.
+- active security export signing key için production-grade lifecycle policy yüzeyi kurmak,
+- overdue/expired active key riskini auto-rotation + fail-closed expiry guard ile kapatmak,
+- verify-only key retention pruning ile public JWKS yüzeyini daraltmak,
+- dashboard + audit + test + smoke + delivery gate kanıtını tek turda tamamlamak.
+
+## 2026-04-04 Teslim paketi (Signing lifecycle policy + auto-rotation guard)
+### Yapılanlar
+1. **Yeni özellik — signing lifecycle policy control plane**
+   - `GET /v1/security/export/signing-policy` ve `PUT /v1/security/export/signing-policy` eklendi.
+   - Dashboard signing paneli artık auto-rotate, rotate-after, expire-after, warn-before ve verify-retention eşiklerini yönetiyor.
+2. **Ciddi güvenlik iyileştirmesi — auto-rotation + fail-closed expiry guard**
+   - Active signing key rotate window'unu geçtiğinde export/delivery öncesi otomatik rotate edilebiliyor.
+   - Auto-rotation kapalıysa expired key ile imzalama `503` fail-closed reddediliyor ve lifecycle state response'a ekleniyor.
+3. **Ciddi güvenlik iyileştirmesi — verify-only retention pruning**
+   - Verify-only anahtarlar retention süresi dolunca otomatik prune ediliyor.
+   - Public JWKS yüzeyi yalnızca active + retention içindeki verify-only anahtarları yayınlıyor.
+4. **Ciddi güvenlik iyileştirmesi — signing health telemetry + audit**
+   - `/v1/security/export/keys` ve `/v1/security/summary` signing lifecycle health + alert durumunu expose ediyor.
+   - `security_export_signing_rotated` ve `security_export_signing_policy_updated` audit event’leri eklendi.
+5. **UX / DX iyileştirmesi — dashboard lifecycle görünürlüğü**
+   - Signing tablosu rotate-due / expiring / expired / prune badge’leri gösteriyor.
+   - Policy kaydetme akışı ve health status alanı dashboard üzerinde aktif hale geldi.
+6. **Test / kalite iyileştirmesi**
+   - Yeni `service/tests/contract/security-export-signing-policy.test.ts` policy CRUD + auto-rotation contract’larını kapsıyor.
+   - `service/tests/security/export-signing.test.ts` lifecycle auto-rotation, prune ve expiry guard senaryolarıyla genişletildi.
+   - `README.md`, `service/README.md`, `service/.env.example` yeni endpoint/env yüzeyiyle güncellendi.
+
+### Verification
+- `npm run typecheck` ✅
+- `npx tsx --test tests/security/export-signing.test.ts tests/contract/security-export-signing-policy.test.ts tests/contract/security-events.test.ts` ✅ (**15/15**)
+- `npm test` ✅ (**171/171**)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `PORT=18080 npx tsx api/server.ts` + `curl /v1/security/export/signing-policy` + `curl /v1/security/export?limit=5` smoke ✅ (`policy_object=security_export_signing_policy`, `lifecycle_status=healthy`, `signature.key_id=sexp_*`)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+
+### Kalan riskler
+- Delivery queue/audit/policy/session persistence hâlâ local file tabanlı; shared backend gerekecek.
+- Signing lifecycle maintenance şu an process-local timer + request-path tetikleme ile çalışıyor; multi-instance ortamda distributed coordination yok.
+- Export delivery için merkezi egress proxy / VPC-level outbound enforcement henüz yok.
 
 ## 2026-04-03 Teslim paketi (Delivery egress policy plane + target preview)
 ### Yapılanlar
