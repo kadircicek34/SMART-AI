@@ -246,20 +246,34 @@ function renderSecuritySigningTable(keys = []) {
 
   if (!keys.length) {
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td colspan="5">Henüz signing key kaydı yok</td>';
+    tr.innerHTML = '<td colspan="6">Henüz signing key kaydı yok</td>';
     tbody.appendChild(tr);
     return;
   }
 
   for (const key of keys) {
     const tr = document.createElement('tr');
-    const statusLabel = key.status === 'active' ? `${key.status} <span class="badge success">live</span>` : key.status;
+    const lifecycle = key.lifecycle ?? {};
+    const statusBits = [key.status === 'active' ? `${key.status} <span class="badge success">live</span>` : key.status];
+    if (lifecycle.expired) {
+      statusBits.push('<span class="badge danger">expired</span>');
+    } else if (lifecycle.rotation_due) {
+      statusBits.push('<span class="badge warn">rotate</span>');
+    } else if (lifecycle.expiring_soon) {
+      statusBits.push('<span class="badge warn">warn</span>');
+    }
+    if (lifecycle.retention_expired) {
+      statusBits.push('<span class="badge warn">prune</span>');
+    }
+    const rotateDue = lifecycle.rotation_due_at ? new Date(lifecycle.rotation_due_at).toLocaleString('tr-TR') : '—';
+    const expireOrRetain = lifecycle.expires_at ?? lifecycle.retained_until;
     tr.innerHTML = `
-      <td>${statusLabel}</td>
+      <td>${statusBits.join(' ')}</td>
       <td>${escapeHtml(key.key_id)}</td>
       <td>${escapeHtml(key.algorithm)}</td>
       <td>${escapeHtml(String(key.fingerprint ?? '—').slice(0, 22))}</td>
-      <td>${escapeHtml(new Date(key.activated_at).toLocaleString('tr-TR'))}</td>
+      <td>${escapeHtml(rotateDue)}</td>
+      <td>${escapeHtml(expireOrRetain ? new Date(expireOrRetain).toLocaleString('tr-TR') : '—')}</td>
     `;
     tbody.appendChild(tr);
   }
@@ -698,14 +712,49 @@ async function loadSecuritySigningKeys(settings) {
 
   const keys = Array.isArray(response?.data) ? response.data : [];
   const active = keys.find((key) => key.status === 'active');
+  const lifecycle = response?.lifecycle ?? {};
+  const policy = response?.policy ?? lifecycle.policy ?? {};
   document.getElementById('securitySigningMetric').textContent =
     active ? `active=${active.key_id.slice(0, 16)}…, verify=${Math.max(0, keys.length - 1)}` : 'key yok';
+  document.getElementById('securitySigningHealthStatus').value = lifecycle.status ?? 'healthy';
+  document.getElementById('securitySigningAutoRotate').value = String(policy.auto_rotate ?? true);
+  document.getElementById('securitySigningRotateAfterHours').value = String(policy.rotate_after_hours ?? 720);
+  document.getElementById('securitySigningExpireAfterHours').value = String(policy.expire_after_hours ?? 1080);
+  document.getElementById('securitySigningWarnBeforeHours').value = String(policy.warn_before_hours ?? 168);
+  document.getElementById('securitySigningVerifyRetentionHours').value = String(policy.verify_retention_hours ?? 2160);
+  const alerts = Array.isArray(lifecycle.alerts) && lifecycle.alerts.length ? lifecycle.alerts.join(', ') : 'none';
   document.getElementById('securitySigningSummary').textContent =
     active
-      ? `active=${active.key_id}, verify_only=${Math.max(0, keys.length - 1)}, jwks=${response?.jwks_path ?? '/.well-known/smart-ai/security-export-keys.json'}`
+      ? `active=${active.key_id}, verify_only=${Math.max(0, keys.length - 1)}, status=${lifecycle.status ?? 'healthy'}, alerts=${alerts}, jwks=${response?.jwks_path ?? '/.well-known/smart-ai/security-export-keys.json'}`
       : 'Ed25519 signing key registry henüz bootstrap edilmedi.';
   renderSecuritySigningTable(keys);
-  return keys;
+  return response;
+}
+
+async function saveSecuritySigningPolicy(settings) {
+  await maybeRefreshSession(settings);
+
+  const payload = {
+    auto_rotate: document.getElementById('securitySigningAutoRotate').value === 'true',
+    rotate_after_hours: Number(document.getElementById('securitySigningRotateAfterHours').value),
+    expire_after_hours: Number(document.getElementById('securitySigningExpireAfterHours').value),
+    warn_before_hours: Number(document.getElementById('securitySigningWarnBeforeHours').value),
+    verify_retention_hours: Number(document.getElementById('securitySigningVerifyRetentionHours').value)
+  };
+
+  const response = await safeFetchJson(`${settings.baseUrl}/v1/security/export/signing-policy`, {
+    method: 'PUT',
+    headers: {
+      ...authHeaders(settings),
+      origin: window.location.origin
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const lifecycle = response?.lifecycle ?? {};
+  log(`Security signing policy kaydedildi. status=${lifecycle.status ?? 'unknown'}, active=${lifecycle.active_key_id ?? 'unknown'}`);
+  await loadSecuritySigningKeys(settings);
+  return response;
 }
 
 async function rotateSecuritySigningKey(settings) {
@@ -1083,6 +1132,19 @@ async function init() {
       log(`Hata: ${String(error)}`);
     } finally {
       button.disabled = false;
+    }
+  });
+
+  document.getElementById('saveSecuritySigningPolicy').addEventListener('click', async () => {
+    const next = readSettingsForm();
+    setSettings(next);
+
+    try {
+      await saveSecuritySigningPolicy(next);
+      setStatus('Security export signing lifecycle policy kaydedildi.');
+    } catch (error) {
+      setStatus(String(error), true);
+      log(`Hata: ${String(error)}`);
     }
   });
 

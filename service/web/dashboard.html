@@ -203,10 +203,40 @@
 
       <section class="card">
         <h2>Security Export Signing</h2>
+        <div class="grid-2">
+          <label>
+            Auto Rotate
+            <select id="securitySigningAutoRotate">
+              <option value="true">enabled</option>
+              <option value="false">disabled</option>
+            </select>
+          </label>
+          <label>
+            Rotate After (hours)
+            <input id="securitySigningRotateAfterHours" type="number" min="0.001" step="0.001" value="720" />
+          </label>
+          <label>
+            Expire After (hours)
+            <input id="securitySigningExpireAfterHours" type="number" min="0.001" step="0.001" value="1080" />
+          </label>
+          <label>
+            Warn Before (hours)
+            <input id="securitySigningWarnBeforeHours" type="number" min="0.001" step="0.001" value="168" />
+          </label>
+          <label>
+            Verify Retention (hours)
+            <input id="securitySigningVerifyRetentionHours" type="number" min="0.001" step="0.001" value="2160" />
+          </label>
+          <label>
+            Lifecycle Health
+            <input id="securitySigningHealthStatus" type="text" value="healthy" readonly />
+          </label>
+        </div>
         <div class="actions">
+          <button id="saveSecuritySigningPolicy">Signing Policy Kaydet</button>
           <button id="rotateSecuritySigningKey" class="secondary">Signing Key Rotate</button>
         </div>
-        <p id="securitySigningSummary" class="muted">Ed25519 signing key registry ve public JWKS burada görünür.</p>
+        <p id="securitySigningSummary" class="muted">Ed25519 signing key registry, lifecycle policy ve public JWKS burada görünür.</p>
         <table>
           <thead>
             <tr>
@@ -214,7 +244,8 @@
               <th>Key ID</th>
               <th>Algoritma</th>
               <th>Fingerprint</th>
-              <th>Aktifleşme</th>
+              <th>Rotate Due</th>
+              <th>Expire / Retain</th>
             </tr>
           </thead>
           <tbody id="securitySigningTableBody"></tbody>

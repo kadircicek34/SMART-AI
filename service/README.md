@@ -104,6 +104,12 @@
 - `SECURITY_EXPORT_DELIVERY_MAX_ATTEMPTS` (varsayılan: 4)
 - `SECURITY_EXPORT_DELIVERY_MAX_MANUAL_REDRIVES` (varsayılan: 2)
 - `SECURITY_EXPORT_SIGNING_MAX_VERIFY_KEYS` (varsayılan: 4)
+- `SECURITY_EXPORT_SIGNING_AUTO_ROTATE_ENABLED` (varsayılan: `true`)
+- `SECURITY_EXPORT_SIGNING_ROTATE_AFTER_HOURS` (varsayılan: `720`)
+- `SECURITY_EXPORT_SIGNING_EXPIRE_AFTER_HOURS` (varsayılan: `1080`)
+- `SECURITY_EXPORT_SIGNING_WARN_BEFORE_HOURS` (varsayılan: `168`)
+- `SECURITY_EXPORT_SIGNING_VERIFY_RETENTION_HOURS` (varsayılan: `2160`)
+- `SECURITY_EXPORT_SIGNING_MAINTENANCE_INTERVAL_MS` (varsayılan: `300000`)
 - `SECURITY_EXPORT_DELIVERY_ALLOWED_PORTS` (varsayılan: `443`)
 - `SECURITY_EXPORT_DELIVERY_ALLOW_IP_LITERALS` (varsayılan: `false`, önerilen: kapalı)
 - `SECURITY_EXPORT_DELIVERY_USER_AGENT` (varsayılan: `SMART-AI-Security-Delivery/1.0`)
@@ -129,7 +135,9 @@
 - `GET /v1/security/events` → tenant-scope güvenlik olay akışı (auth/rate-limit/origin/session/job/model policy)
 - `GET /v1/security/summary` → tenant güvenlik risk özeti (riskScore/riskLevel/flags/top IP + integrity)
 - `GET /v1/security/export` → admin-scope tamper-evident + Ed25519 imzalı audit bundle export (sequence + prev_chain_hash + chain_hash + signature)
-- `GET /v1/security/export/keys` → export signing key registry (active + verify_only key metadata)
+- `GET /v1/security/export/keys` → export signing key registry + lifecycle health + effective policy (active + verify_only key metadata)
+- `GET /v1/security/export/signing-policy` → export signing lifecycle policy + health görünümü
+- `PUT /v1/security/export/signing-policy` → auto-rotate / expire / warn / verify-retention eşiklerini güncelle
 - `POST /v1/security/export/keys/rotate` → yeni active Ed25519 key üret, önceki active key’i verify-only durumuna taşı
 - `GET /.well-known/smart-ai/security-export-keys.json` → public JWKS discovery endpoint
 - `GET /v1/security/export/delivery-policy` → effective delivery-egress policy (deployment/tenant source + mode + allowed target rules)
@@ -164,6 +172,9 @@
 - Güvenlik olayları `rag_remote_url_previewed`, `rag_remote_url_ingested`, `rag_remote_url_blocked`, `rag_remote_url_fetch_failed`, `rag_remote_policy_denied`, `rag_remote_policy_updated`, `rag_remote_policy_reset` tipleriyle audit log’a yazılır.
 
 ## Security export delivery
+- Export signing hattı artık lifecycle-aware çalışır: active key için **auto-rotate**, expiry guardrail, warn window ve verify-only retention policy uygulanır.
+- `GET/PUT /v1/security/export/signing-policy` ile aktif imzalama anahtarının rotate/expire/warn/retention eşikleri yönetilir; `/v1/security/export/keys` ve `/v1/security/summary` lifecycle health/alert durumunu döner.
+- Expired active signing key, auto-rotation kapalıysa export/delivery isteklerini fail-closed reddeder; verify-only anahtarlar retention süresi dolunca JWKS yüzeyinden prune edilir.
 - Security export artık dashboard’dan veya API üzerinden dedicated **delivery-egress policy plane** ile yönetilen allowlisted HTTPS webhook/SIEM hedeflerine push edilebilir.
 - `GET/PUT/DELETE /v1/security/export/delivery-policy` ile remote source policy’den bağımsız tenant delivery policy yönetilir; production için önerilen mod `allowlist_only`’dir.
 - Delivery allowlist artık sadece host değil **host + path-prefix** kuralı seviyesinde tutulur. Örnek: `siem.example.com/hooks/smart-ai`, `https://logs.example.com/v1/tenants/tenant-a`, `*.ops.example.com/audit`.
