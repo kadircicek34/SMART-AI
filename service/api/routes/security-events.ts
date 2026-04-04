@@ -13,6 +13,7 @@ import {
   ensureSignedSecurityAuditExportBundle,
   getSecurityExportJwksPath,
   securityExportSigningRegistry,
+  SecurityExportSigningError,
   verifySecurityAuditExportBundleSignature
 } from '../../security/export-signing.js';
 import {
@@ -120,6 +121,14 @@ const DELIVERY_POLICY_BODY_SCHEMA = z.object({
 
 const DELIVERY_PREVIEW_BODY_SCHEMA = z.object({
   destinationUrl: z.string().url().max(2048)
+});
+
+const SIGNING_POLICY_BODY_SCHEMA = z.object({
+  auto_rotate: z.boolean(),
+  rotate_after_hours: z.number().positive().max(24 * 365 * 5),
+  expire_after_hours: z.number().positive().max(24 * 365 * 5),
+  warn_before_hours: z.number().positive().max(24 * 365 * 5),
+  verify_retention_hours: z.number().positive().max(24 * 365 * 5)
 });
 
 const DELIVERY_BODY_SCHEMA = z.object({
@@ -327,6 +336,37 @@ function recordSecurityExportDeliveryPolicyAudit(params: {
   });
 }
 
+function recordSecurityExportSigningAudit(params: {
+  tenantId: string;
+  req: { ip: string; url: string; requestContext?: { requestId?: string } };
+  type: 'security_export_signing_rotated' | 'security_export_signing_policy_updated';
+  details?: Record<string, string | number | boolean | null | undefined>;
+}) {
+  securityAuditLog.record({
+    tenant_id: params.tenantId,
+    type: params.type,
+    ip: params.req.ip,
+    request_id: params.req.requestContext?.requestId,
+    details: {
+      path: params.req.url,
+      ...Object.fromEntries(Object.entries(params.details ?? {}).filter(([, value]) => value !== undefined))
+    }
+  });
+}
+
+function replyForSecurityExportSigningError(reply: { status: (code: number) => { send: (payload: unknown) => unknown } }, error: unknown) {
+  if (!(error instanceof SecurityExportSigningError)) {
+    return null;
+  }
+
+  return reply.status(error.statusCode).send(
+    apiError(error.message, {
+      code: error.code,
+      lifecycle: securityExportSigningRegistry.getLifecycleState()
+    })
+  );
+}
+
 export async function registerSecurityEventsRoute(app: FastifyInstance) {
   app.get(getSecurityExportJwksPath(), async () => securityExportSigningRegistry.getPublicJwks());
 
@@ -375,7 +415,8 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
     return {
       object: 'security_summary',
       tenant_id: tenantId,
-      ...summary
+      ...summary,
+      signing: securityExportSigningRegistry.getLifecycleState()
     };
   });
 
@@ -385,13 +426,84 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
       return reply.status(401).send(authError());
     }
 
+    try {
+      const lifecycle = securityExportSigningRegistry.getLifecycleState();
+      return {
+        object: 'security_export_signing_keys',
+        tenant_id: tenantId,
+        jwks_path: getSecurityExportJwksPath(),
+        active_key_id: lifecycle.active_key_id,
+        policy: lifecycle.policy,
+        lifecycle,
+        data: securityExportSigningRegistry.listKeySummaries()
+      };
+    } catch (error) {
+      const handled = replyForSecurityExportSigningError(reply, error);
+      if (handled) {
+        return handled;
+      }
+      throw error;
+    }
+  });
+
+  app.get('/v1/security/export/signing-policy', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    const lifecycle = securityExportSigningRegistry.getLifecycleState();
     return {
-      object: 'security_export_signing_keys',
+      object: 'security_export_signing_policy',
       tenant_id: tenantId,
       jwks_path: getSecurityExportJwksPath(),
-      active_key_id: securityExportSigningRegistry.getActiveKeySummary().key_id,
-      data: securityExportSigningRegistry.listKeySummaries()
+      data: lifecycle.policy,
+      lifecycle
     };
+  });
+
+  app.put('/v1/security/export/signing-policy', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    const parsed = SIGNING_POLICY_BODY_SCHEMA.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return reply.status(400).send(invalidRequest('Invalid request body for signing policy.', parsed.error.flatten()));
+    }
+
+    try {
+      const policy = await securityExportSigningRegistry.updateLifecyclePolicy(parsed.data);
+      const lifecycle = securityExportSigningRegistry.getLifecycleState();
+      recordSecurityExportSigningAudit({
+        tenantId,
+        req,
+        type: 'security_export_signing_policy_updated',
+        details: {
+          auto_rotate: policy.auto_rotate,
+          rotate_after_hours: policy.rotate_after_hours,
+          expire_after_hours: policy.expire_after_hours,
+          warn_before_hours: policy.warn_before_hours,
+          verify_retention_hours: policy.verify_retention_hours
+        }
+      });
+
+      return {
+        object: 'security_export_signing_policy',
+        tenant_id: tenantId,
+        jwks_path: getSecurityExportJwksPath(),
+        updated: true,
+        data: policy,
+        lifecycle
+      };
+    } catch (error) {
+      const handled = replyForSecurityExportSigningError(reply, error);
+      if (handled) {
+        return handled;
+      }
+      throw error;
+    }
   });
 
   app.post('/v1/security/export/keys/rotate', async (req, reply) => {
@@ -400,15 +512,38 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
       return reply.status(401).send(authError());
     }
 
-    const activeKey = await securityExportSigningRegistry.rotate();
-    return {
-      object: 'security_export_signing_keys',
-      tenant_id: tenantId,
-      jwks_path: getSecurityExportJwksPath(),
-      active_key_id: activeKey.key_id,
-      rotated: true,
-      data: securityExportSigningRegistry.listKeySummaries()
-    };
+    try {
+      const previousActiveKeyId = securityExportSigningRegistry.getActiveKeySummary().key_id;
+      const activeKey = await securityExportSigningRegistry.rotate();
+      const lifecycle = securityExportSigningRegistry.getLifecycleState();
+      recordSecurityExportSigningAudit({
+        tenantId,
+        req,
+        type: 'security_export_signing_rotated',
+        details: {
+          previous_active_key_id: previousActiveKeyId,
+          active_key_id: activeKey.key_id,
+          verify_only_count: lifecycle.verify_only.total
+        }
+      });
+
+      return {
+        object: 'security_export_signing_keys',
+        tenant_id: tenantId,
+        jwks_path: getSecurityExportJwksPath(),
+        active_key_id: activeKey.key_id,
+        rotated: true,
+        policy: lifecycle.policy,
+        lifecycle,
+        data: securityExportSigningRegistry.listKeySummaries()
+      };
+    } catch (error) {
+      const handled = replyForSecurityExportSigningError(reply, error);
+      if (handled) {
+        return handled;
+      }
+      throw error;
+    }
   });
 
   app.get('/v1/security/export/delivery-policy', async (req, reply) => {
@@ -491,15 +626,23 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
       return reply.status(400).send(invalidRequest('Invalid query for security export.', parsed.error.flatten()));
     }
 
-    const exportBundle = ensureSignedSecurityAuditExportBundle(
-      securityAuditLog.export(tenantId, {
-        sinceTimestamp: parsed.data.since ? Date.parse(parsed.data.since) : undefined,
-        limit: parsed.data.limit,
-        topIpLimit: parsed.data.top_ip_limit
-      })
-    );
+    try {
+      const exportBundle = ensureSignedSecurityAuditExportBundle(
+        securityAuditLog.export(tenantId, {
+          sinceTimestamp: parsed.data.since ? Date.parse(parsed.data.since) : undefined,
+          limit: parsed.data.limit,
+          topIpLimit: parsed.data.top_ip_limit
+        })
+      );
 
-    return exportBundle;
+      return exportBundle;
+    } catch (error) {
+      const handled = replyForSecurityExportSigningError(reply, error);
+      if (handled) {
+        return handled;
+      }
+      throw error;
+    }
   });
 
   app.post('/v1/security/export/deliveries/preview', async (req, reply) => {
@@ -594,15 +737,16 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
     const sinceTimestamp = parsed.data.since
       ? Date.parse(parsed.data.since)
       : Date.now() - parsed.data.windowHours * 60 * 60 * 1000;
-    const bundle = ensureSignedSecurityAuditExportBundle(
-      securityAuditLog.export(tenantId, {
-        sinceTimestamp,
-        limit: parsed.data.limit,
-        topIpLimit: parsed.data.topIpLimit
-      })
-    );
 
     try {
+      const bundle = ensureSignedSecurityAuditExportBundle(
+        securityAuditLog.export(tenantId, {
+          sinceTimestamp,
+          limit: parsed.data.limit,
+          topIpLimit: parsed.data.topIpLimit
+        })
+      );
+
       if (parsed.data.mode === 'async') {
         const queued = await enqueueSecurityAuditExportDelivery({
           tenantId,
@@ -656,6 +800,11 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
         }
 
         return reply.status(error.statusCode).send(apiError(error.message, error.record));
+      }
+
+      const handled = replyForSecurityExportSigningError(reply, error);
+      if (handled) {
+        return handled;
       }
 
       throw error;
@@ -718,6 +867,11 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
         }
 
         return reply.status(error.statusCode).send(apiError(error.message, error.record));
+      }
+
+      const handled = replyForSecurityExportSigningError(reply, error);
+      if (handled) {
+        return handled;
       }
 
       throw error;
