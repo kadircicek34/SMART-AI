@@ -1,20 +1,25 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "Delivery egress policy plane + target preview production-grade olarak teslim edildi",
+  "current_task": "Signing lifecycle policy + auto-rotation guard production-grade olarak teslim edildi",
   "next_actions": [
     "Delivery queue, security audit, UI session ve policy store'larını shared backend'e taşı",
-    "Security export signing için otomatik expiry/rotation scheduler + alerting ekle",
     "Delivery policy için rollout analytics, trend kartları ve operatör playbook akışı ekle",
-    "Kurulumlara secure-by-default allowlist_only rollout/migration yardımı sağlayan admin tooling ekle"
+    "Export delivery için merkezi egress proxy / VPC-level outbound enforcement tasarla",
+    "Signing lifecycle policy için multi-instance leader election / distributed scheduler desteği değerlendir"
   ],
   "risks": [
     "Delivery queue/audit/policy/session persistence hâlâ local file tabanlı; multi-instance shared backend gerekecek",
-    "Signing key rotation şu an manual/admin tetiklemeli; otomatik expiry/rotation policy henüz yok",
+    "Signing lifecycle maintenance şu an process-local timer + request-path tetikleme ile çalışıyor; multi-instance ortamda distributed coordination yok",
     "Deployment default delivery policy backward-compatible migration için inherit_remote_policy kalabilir; explicit allowlist_only konfigürasyonu yapılmazsa sınır daha geniş kalabilir",
-    "Remote URL ve security export egress için merkezi egress proxy / VPC-level outbound control henüz yok"
+    "Export delivery için merkezi egress proxy / VPC-level outbound control henüz yok"
   ],
   "decisions": [
+    {
+      "date": "2026-04-04",
+      "decision": "Security export signing hattını lifecycle policy + auto-rotation guard + retention prune ile sertleştir",
+      "reason": "Active signing key hijyenini fail-closed hale getirmek, verify-only JWKS yüzeyini daraltmak ve operatöre policy/health control plane vermek"
+    },
     {
       "date": "2026-04-03",
       "decision": "Security export delivery hattını dedicated delivery-egress policy plane + host/path preview ile sertleştir",
@@ -34,11 +39,6 @@
       "date": "2026-03-31",
       "decision": "Security export delivery hattını async retry/backoff queue + encrypted persistence + dead-letter lifecycle ile canlıya al",
       "reason": "Webhook/SIEM delivery yüzeyini transient upstream hatalarında otomatik toparlanan, replay-safe ve production-grade bir operasyona dönüştürmek"
-    },
-    {
-      "date": "2026-03-30",
-      "decision": "Tamper-evident security export delivery pipeline'ını allowlist + DNS pinning + HMAC ile canlıya al",
-      "reason": "Tenant security evidence'ını SIEM/webhook tarafına güvenli, auditlenebilir ve tamper-evident biçimde göndermek"
     }
   ],
   "artifacts": [
@@ -48,18 +48,19 @@
     "security-report.md",
     "test-report.md",
     "task.md",
+    "state.json",
     "service/README.md",
     "service/.env.example",
     "service/config.ts",
     "service/api/routes/security-events.ts",
-    "service/rag/remote-policy.ts",
     "service/security/audit-log.ts",
-    "service/security/export-delivery.ts",
-    "service/security/export-delivery-policy.ts",
-    "service/web/dashboard.html",
+    "service/security/export-signing.ts",
+    "service/web/assets/app.css",
     "service/web/assets/dashboard.js",
-    "service/tests/contract/security-export-deliveries.test.ts",
-    "service/tests/contract/security-export-delivery-policy.test.ts"
+    "service/web/dashboard.html",
+    "service/tests/contract/security-events.test.ts",
+    "service/tests/contract/security-export-signing-policy.test.ts",
+    "service/tests/security/export-signing.test.ts"
   ],
-  "updated_at": "2026-04-03T07:00:00+03:00"
+  "updated_at": "2026-04-04T07:25:00+03:00"
 }

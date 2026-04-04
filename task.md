@@ -1,5 +1,14 @@
 # TASKS — OpenRouter Agentic Intelligence API
 
+## v1.16 Delta (Signing Lifecycle Policy + Auto-Rotation Guard) — Tamamlandı
+- [x] Yeni özellik: `GET/PUT /v1/security/export/signing-policy` endpointleri eklendi
+- [x] Güvenlik: active signing key için auto-rotation / expiry guard / warn window policy uygulandı
+- [x] Güvenlik: expired active key ile export ve delivery imzalama fail-closed reddediliyor
+- [x] Güvenlik: verify-only signing key retention pruning + JWKS yüzeyi daraltma eklendi
+- [x] Dashboard’a signing lifecycle policy formu, health status ve rotate/expire görünürlüğü eklendi
+- [x] Contract + unit testleri: lifecycle policy CRUD, auto-rotation, retention prune ve expiry guard regresyonları yazıldı
+- [x] Fresh verification: typecheck + focused lifecycle tests + full test + audit + smoke + delivery-gate tamamlandı
+
 ## v1.15 Delta (Delivery Egress Policy Plane + Target Preview) — Tamamlandı
 - [x] Yeni özellik: `GET/PUT/DELETE /v1/security/export/delivery-policy` ve `POST /v1/security/export/deliveries/preview` endpointlerini eklendi
 - [x] Güvenlik: export delivery allowlist’i remote source policy’den ayrıldı; dedicated tenant/deployment delivery-egress policy plane kuruldu

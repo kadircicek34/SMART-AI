@@ -245,6 +245,17 @@ curl 'http://127.0.0.1:8080/v1/security/export/keys' \
 
 curl 'http://127.0.0.1:8080/.well-known/smart-ai/security-export-keys.json'
 
+# signing lifecycle policy health + eşikleri gör/güncelle
+curl 'http://127.0.0.1:8080/v1/security/export/signing-policy' \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a'
+
+curl -X PUT 'http://127.0.0.1:8080/v1/security/export/signing-policy' \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a' \
+  -H 'content-type: application/json' \
+  -d '{"auto_rotate":true,"rotate_after_hours":720,"expire_after_hours":1080,"warn_before_hours":168,"verify_retention_hours":2160}'
+
 # aktif signing key rotate et (önceki key verify-only kalır)
 curl -X POST 'http://127.0.0.1:8080/v1/security/export/keys/rotate' \
   -H 'Authorization: Bearer dev-admin-key' \
@@ -288,6 +299,8 @@ curl 'http://127.0.0.1:8080/v1/security/export/deliveries?status=dead_letter&lim
 ```
 
 Export bundle'ı artık sıralı `sequence`, `prev_chain_hash`, `chain_hash` alanlarıyla birlikte **Ed25519 signature metadata** taşır. Böylece SIEM/forensics hattı, payload transfer sonrası bile bundle üzerinde hem server-side hash-chain bütünlüğü hem de detached signature doğrulaması yapabilir. Public verification için `/.well-known/smart-ai/security-export-keys.json` JWKS endpointi yayınlanır ve signing key rotation geçmişi verify-only anahtarlarla korunur.
+
+Export signing hattı artık lifecycle-aware çalışır: admin kullanıcı `/v1/security/export/signing-policy` ile auto-rotate, expiry, warn window ve verify-only retention eşiklerini yönetebilir. Active key rotate süresi dolduğunda yeni export imzalanmadan önce otomatik anahtar üretilebilir; auto-rotation kapalıysa expired key ile export/delivery istekleri fail-closed reddedilir. Verify-only anahtarlar retention süresi dolunca JWKS yüzeyinden prune edilir ve `/v1/security/summary` ile dashboard signing health/alert görünürlüğü sağlar.
 
 Security export delivery hattı production-grade operasyon için dört ek güvenlik/direnç katmanı sağlar:
 - delivery egress allowlist artık remote source policy’den ayrıdır; dedicated `delivery-policy` control plane ile **host + path-prefix** seviyesinde yönetilir,
