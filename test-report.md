@@ -1,9 +1,30 @@
-# TEST REPORT — SMART-AI v1.15 (Delivery Egress Policy Plane + Target Preview)
+# TEST REPORT — SMART-AI v1.16 (Signing Lifecycle Policy + Auto-Rotation Guard)
 
 ## Test Stratejisi
 - Contract tests: OpenAI-compatible + RAG + Memory + MCP + UI endpointleri
 - Security tests: key-store + policy allowlist + UI session token auth akışı
 - Unit tests: orchestrator/verifier, deep_research, financial runtime, qmd, memory, MCP circuit/store
+
+## 2026-04-04 Ek doğrulama (Signing lifecycle policy + auto-rotation guard)
+- `npm run typecheck` ✅
+- `npx tsx --test tests/security/export-signing.test.ts tests/contract/security-export-signing-policy.test.ts tests/contract/security-events.test.ts` ✅ (**15/15**)
+- `npm test` ✅ (**171/171**)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `PORT=18080 npx tsx api/server.ts` + `curl /v1/security/export/signing-policy` + `curl /v1/security/export?limit=5` smoke ✅ (`policy_object=security_export_signing_policy`, `lifecycle_status=healthy`, `signature.key_id=sexp_*`)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+- Yeni testler / güncellemeler:
+  - `service/tests/security/export-signing.test.ts`
+    - auto-rotation due-window davranışı
+    - verify-only retention pruning doğrulaması
+    - auto-rotate kapalıyken expired key ile fail-closed sign reject doğrulaması
+  - `service/tests/contract/security-export-signing-policy.test.ts`
+    - signing policy GET/PUT contract doğrulaması
+    - policy değişince export öncesi active key auto-rotation kontratı
+    - read-only credential için admin deny doğrulaması
+  - `service/tests/contract/security-events.test.ts`
+    - `/v1/security/summary` içinde signing lifecycle telemetry regresyonu
+  - Dashboard/API smoke etkisi
+    - signing lifecycle policy formu, health status ve rotate/expire görünürlüğü aynı `/ui/dashboard` yüzeyinde API kontratlarıyla hizalandı
 
 ## 2026-04-03 Ek doğrulama (Delivery egress policy plane + target preview)
 - `npm run typecheck` ✅

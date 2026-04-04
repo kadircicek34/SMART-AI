@@ -1,4 +1,4 @@
-# SECURITY REPORT — SMART-AI v1.15
+# SECURITY REPORT — SMART-AI v1.16
 
 ## Kapsam
 Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
@@ -22,6 +22,29 @@ Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
 | MCP persistence güvenliği | ✅ | snapshot atomik tmp→rename ile yazılıyor |
 | Security export delivery egress | ✅ | dedicated delivery-egress policy + host/path allowlist + HTTPS-only + DNS pinning + Ed25519 signature + redacted receipts |
 | Dependencies | ✅ | `npm audit --omit=dev` sonucu 0 vuln |
+
+## 2026-04-04 Güvenlik sertleştirmesi — signing lifecycle policy + auto-rotation guard
+- **Lifecycle policy control plane**
+  - Yeni endpointler: `GET /v1/security/export/signing-policy`, `PUT /v1/security/export/signing-policy`
+  - Dashboard signing paneli artık auto-rotate, rotate-after, expire-after, warn-before ve verify-retention eşiklerini yönetebiliyor.
+  - `/v1/security/export/keys` ve `/v1/security/summary` signing lifecycle health + alert durumunu expose ediyor.
+- **Auto-rotation + fail-closed expiry guard**
+  - Active signing key rotate window'unu geçtiğinde export/delivery öncesi auto-rotation tetiklenebiliyor.
+  - Auto-rotation kapalıysa expired active key ile imzalama `503` fail-closed reddediliyor; operatöre lifecycle state geri dönüyor.
+  - Manual rotate ve policy update aksiyonları audit log’a yazılıyor (`security_export_signing_rotated`, `security_export_signing_policy_updated`).
+- **JWKS surface minimization**
+  - Verify-only anahtarlar artık retention süresi dolunca prune ediliyor; public JWKS yalnızca geçerli active + retention içindeki verify-only anahtarları yayınlıyor.
+  - Bu sayede gereksiz uzun key exposure azaltıldı ve key hygiene posture’u güçlendi.
+- **Operational visibility**
+  - Dashboard signing tablosu rotate-due / expiring / expired / prune işaretleri gösteriyor.
+  - Health status ve alerts aynı control plane üzerinde operatöre sunuluyor.
+- **Dependency posture**
+  - `npm audit --omit=dev` tekrar temiz geçti (0 vulnerability).
+
+Kalan risk:
+- Delivery queue/audit/policy/session store hâlâ local file tabanlı; multi-instance shared backend gerekecek.
+- Signing lifecycle maintenance şu an process-local timer + request-path tetikleme ile çalışıyor; multi-instance ortamda distributed coordination yok.
+- Export delivery için merkezi egress proxy / VPC-level outbound enforcement henüz yok.
 
 ## 2026-04-03 Güvenlik sertleştirmesi — delivery egress policy plane + target preview
 - **Dedicated delivery-egress control plane**
