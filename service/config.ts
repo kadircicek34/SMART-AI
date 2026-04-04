@@ -282,6 +282,12 @@ export const config = {
     exportDeliveryPolicyDefaultAllowedTargets: parseCsv(process.env.SECURITY_EXPORT_DELIVERY_POLICY_DEFAULT_ALLOWED_TARGETS),
     exportDeliveryPolicyMaxAllowedTargets: Number(process.env.SECURITY_EXPORT_DELIVERY_POLICY_MAX_ALLOWED_TARGETS ?? 32),
     exportSigningMaxVerifyKeys: Number(process.env.SECURITY_EXPORT_SIGNING_MAX_VERIFY_KEYS ?? 4),
+    exportSigningAutoRotateEnabled: (process.env.SECURITY_EXPORT_SIGNING_AUTO_ROTATE_ENABLED ?? 'true').toLowerCase() === 'true',
+    exportSigningRotateAfterHours: Number(process.env.SECURITY_EXPORT_SIGNING_ROTATE_AFTER_HOURS ?? 720),
+    exportSigningExpireAfterHours: Number(process.env.SECURITY_EXPORT_SIGNING_EXPIRE_AFTER_HOURS ?? 1080),
+    exportSigningWarnBeforeHours: Number(process.env.SECURITY_EXPORT_SIGNING_WARN_BEFORE_HOURS ?? 168),
+    exportSigningVerifyRetentionHours: Number(process.env.SECURITY_EXPORT_SIGNING_VERIFY_RETENTION_HOURS ?? 2160),
+    exportSigningMaintenanceIntervalMs: Number(process.env.SECURITY_EXPORT_SIGNING_MAINTENANCE_INTERVAL_MS ?? 300000),
     exportDeliveryAllowedPorts: (() => {
       const parsed = parseNumberCsv(process.env.SECURITY_EXPORT_DELIVERY_ALLOWED_PORTS);
       return parsed.length > 0 ? parsed : [443];

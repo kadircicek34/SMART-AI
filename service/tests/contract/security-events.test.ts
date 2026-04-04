@@ -141,6 +141,8 @@ test('GET /v1/security/summary returns risk and integrity telemetry', async () =
   assert.ok(body.riskScore >= 1);
   assert.equal(body.integrity.verified, true);
   assert.match(body.integrity.headChainHash, /^[a-f0-9]{64}$/);
+  assert.equal(body.signing.object, 'security_export_signing_lifecycle');
+  assert.match(body.signing.active_key_id, /^sexp_/);
 });
 
 test('GET /v1/security/export returns admin-only tamper-evident bundle', async () => {
