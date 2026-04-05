@@ -1,9 +1,27 @@
-# TEST REPORT — SMART-AI v1.16 (Signing Lifecycle Policy + Auto-Rotation Guard)
+# TEST REPORT — SMART-AI v1.17 (Signing Maintenance Control Plane + Shared-Store Coordination)
 
 ## Test Stratejisi
 - Contract tests: OpenAI-compatible + RAG + Memory + MCP + UI endpointleri
 - Security tests: key-store + policy allowlist + UI session token auth akışı
 - Unit tests: orchestrator/verifier, deep_research, financial runtime, qmd, memory, MCP circuit/store
+
+## 2026-04-05 Ek doğrulama (Signing maintenance control plane + shared-store coordination)
+- `npm run typecheck` ✅
+- `npm test` ✅ (**175/175**)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `PORT=18081 APP_API_KEYS=dev-admin-key npm run start` + `curl /health` + `curl /v1/security/export/signing-maintenance` + `curl /v1/security/export/keys` smoke ✅ (`maintenance_object=security_export_signing_maintenance`, `leader_active=false`, `keys.maintenance.object=security_export_signing_maintenance`, `status=healthy`)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+- Yeni testler / güncellemeler:
+  - `service/tests/security/export-signing.test.ts`
+    - maintenance dry-run preview davranışı
+    - shared signing store kullanan iki registry arasında rotated active key + maintenance history senkronu
+  - `service/tests/contract/security-export-signing-policy.test.ts`
+    - `POST /v1/security/export/signing-maintenance/run` dry-run + execute contract doğrulaması
+    - `GET /v1/security/export/signing-maintenance` history/last-run contract doğrulaması
+  - `service/tests/contract/security-events.test.ts`
+    - `security_export_signing_maintenance_run` audit event feed doğrulaması
+  - Dashboard/API smoke etkisi
+    - signing paneli maintenance summary, history tablosu ve dry-run/execute aksiyonlarıyla `/ui/dashboard` üzerinde hizalandı
 
 ## 2026-04-04 Ek doğrulama (Signing lifecycle policy + auto-rotation guard)
 - `npm run typecheck` ✅

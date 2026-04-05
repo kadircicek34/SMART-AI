@@ -1,4 +1,4 @@
-# SECURITY REPORT — SMART-AI v1.16
+# SECURITY REPORT — SMART-AI v1.17
 
 ## Kapsam
 Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
@@ -22,6 +22,27 @@ Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:
 | MCP persistence güvenliği | ✅ | snapshot atomik tmp→rename ile yazılıyor |
 | Security export delivery egress | ✅ | dedicated delivery-egress policy + host/path allowlist + HTTPS-only + DNS pinning + Ed25519 signature + redacted receipts |
 | Dependencies | ✅ | `npm audit --omit=dev` sonucu 0 vuln |
+
+## 2026-04-05 Güvenlik sertleştirmesi — signing maintenance control plane + shared-store coordination
+- **Manual maintenance control plane**
+  - Yeni endpointler: `GET /v1/security/export/signing-maintenance`, `POST /v1/security/export/signing-maintenance/run`
+  - Admin operatör maintenance dry-run ile rotate/prune aksiyonlarını önceden görebiliyor; execute akışı audit event olarak kayda geçiyor (`security_export_signing_maintenance_run`).
+  - Dashboard signing paneli leader lease, revision, son koşum özeti ve history tablosu gösteriyor.
+- **Shared-store refresh hardening**
+  - Signing registry kritik read/sign/mutate akışlarından önce store dosyasını yeniden yükleyerek stale active key kullanımını azaltıyor.
+  - Aynı store'u paylaşan çoklu instance'lar rotate sonrası güncel active key'e hizalanıyor; follower instance eski memory snapshot'ıyla imza üretmiyor.
+- **Leader lease ile tek-yazarlı maintenance**
+  - Auto-rotate/prune mutasyonları lease tabanlı koordinasyonla tek lider instance tarafından diske yazılıyor.
+  - Bu sayede multi-instance shared-file kurulumlarında duplicate rotate/prune ve state overwrite riski daraltıldı.
+- **Sync persistence guard**
+  - Signing lifecycle mutasyonları atomic sync persistence ile diske yazılıyor; rotate sonrası crash/restart penceresinde memory-only drift riski azaltıldı.
+- **Dependency posture**
+  - `npm audit --omit=dev` tekrar temiz geçti (0 vulnerability).
+
+Kalan risk:
+- Delivery queue/audit/policy/session persistence hâlâ local file tabanlı; gerçek shared backend gerekecek.
+- Lease tabanlı koordinasyon shared-file senaryosunu iyileştirir ama network-partition tolerant distributed lock değildir; tam HA için merkezi coordination/backend gerekir.
+- Export delivery için merkezi egress proxy / VPC-level outbound enforcement henüz yok.
 
 ## 2026-04-04 Güvenlik sertleştirmesi — signing lifecycle policy + auto-rotation guard
 - **Lifecycle policy control plane**

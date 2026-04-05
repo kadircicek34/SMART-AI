@@ -1,13 +1,46 @@
-# DELIVERY — SMART-AI v1.16 (Signing Lifecycle Policy + Auto-Rotation Guard)
+# DELIVERY — SMART-AI v1.17 (Signing Maintenance Control Plane + Shared-Store Coordination)
 
 ## Özet
-Bu koşumda en yüksek etkili günlük iyileştirme olarak **signing lifecycle policy + auto-rotation guard paketi** teslim edildi.
+Bu koşumda en yüksek etkili günlük iyileştirme olarak **signing maintenance control plane + shared-store coordination paketi** teslim edildi.
 
 Teslimin odağı:
-- active security export signing key için production-grade lifecycle policy yüzeyi kurmak,
-- overdue/expired active key riskini auto-rotation + fail-closed expiry guard ile kapatmak,
-- verify-only key retention pruning ile public JWKS yüzeyini daraltmak,
+- signing maintenance akışını operatör için dry-run + execute kontrol düzlemine yükseltmek,
+- shared signing store kullanan çoklu instance’larda stale key / duplicate rotation riskini azaltmak,
+- rotate/prune mutasyonlarını lease tabanlı tek-yazarlı modele geçirmek,
 - dashboard + audit + test + smoke + delivery gate kanıtını tek turda tamamlamak.
+
+## 2026-04-05 Teslim paketi (Signing maintenance control plane + shared-store coordination)
+### Yapılanlar
+1. **Yeni özellik — signing maintenance API + dashboard control plane**
+   - `GET /v1/security/export/signing-maintenance` ve `POST /v1/security/export/signing-maintenance/run` eklendi.
+   - Dashboard signing paneli artık leader lease, revision, son maintenance koşumu, history tablosu ve dry-run/execute aksiyonlarını gösteriyor.
+2. **Ciddi güvenlik iyileştirmesi — shared-store refresh / stale key closure**
+   - Signing registry kritik operasyonlar öncesi store dosyasını yeniden okuyarak başka instance’ın rotate ettiği active key’e hizalanıyor.
+   - Aynı store’u paylaşan instance’lar artık stale memory snapshot ile imzalama yapmıyor.
+3. **Ciddi güvenlik iyileştirmesi — leader lease ile tek-yazarlı maintenance**
+   - Auto-rotate/prune mutasyonları lease tabanlı koordinasyonla tek lider instance tarafından diske yazılıyor.
+   - Follower instance’lar store refresh ile güncel key’e hizalanıyor; duplicate maintenance write riski daraltılıyor.
+4. **Ciddi güvenlik iyileştirmesi — sync atomic persistence**
+   - Rotation ve maintenance state’i atomic sync persistence ile diske yazılıyor.
+   - Crash/restart anında memory-only drift ve yarım kalmış signing state riski azaltıldı.
+5. **UX / DX iyileştirmesi — audit + docs + dashboard görünürlüğü**
+   - `security_export_signing_maintenance_run` audit event’i eklendi.
+   - `README.md`, `service/README.md`, `service/.env.example` ve dashboard maintenance yüzeyi güncellendi.
+6. **Test / kalite iyileştirmesi**
+   - Shared-store coordination, dry-run preview ve maintenance event feed senaryoları yeni testlerle kapsandı.
+   - Tam regresyon paketi 175/175 yeşil ve dependency audit temiz.
+
+### Verification
+- `npm run typecheck` ✅
+- `npm test` ✅ (**175/175**)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `PORT=18081 APP_API_KEYS=dev-admin-key npm run start` + `curl /health` + `curl /v1/security/export/signing-maintenance` + `curl /v1/security/export/keys` smoke ✅ (`maintenance_object=security_export_signing_maintenance`, `keys.maintenance.object=security_export_signing_maintenance`, `status=healthy`)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+
+### Kalan riskler
+- Delivery queue/audit/policy/session persistence hâlâ local file tabanlı; gerçek shared backend gerekecek.
+- Lease tabanlı koordinasyon shared-file senaryosunu sertleştirir fakat tam distributed lock/consensus çözümü değildir; HA multi-node için merkezi backend gerekir.
+- Export delivery için merkezi egress proxy / VPC-level outbound enforcement henüz yok.
 
 ## 2026-04-04 Teslim paketi (Signing lifecycle policy + auto-rotation guard)
 ### Yapılanlar
