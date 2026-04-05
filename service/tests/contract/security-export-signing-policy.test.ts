@@ -34,6 +34,8 @@ before(async () => {
   process.env.SECURITY_EXPORT_SIGNING_WARN_BEFORE_HOURS = '168';
   process.env.SECURITY_EXPORT_SIGNING_VERIFY_RETENTION_HOURS = '2160';
   process.env.SECURITY_EXPORT_SIGNING_MAINTENANCE_INTERVAL_MS = '0';
+  process.env.SECURITY_EXPORT_SIGNING_MAINTENANCE_LEASE_TTL_MS = '60000';
+  process.env.SECURITY_EXPORT_SIGNING_MAINTENANCE_HISTORY_LIMIT = '12';
   process.env.OPENROUTER_ALLOWED_MODELS = 'deepseek/deepseek-chat-v3.1,openai/gpt-4o-mini';
   process.env.OPENROUTER_DEFAULT_MODEL = 'deepseek/deepseek-chat-v3.1';
   process.env.MASTER_KEY_BASE64 = Buffer.alloc(32, 6).toString('base64');
@@ -62,6 +64,8 @@ test('GET/PUT /v1/security/export/signing-policy exposes lifecycle policy and ke
   assert.equal(initial.data.auto_rotate, true);
   assert.equal(initial.lifecycle.object, 'security_export_signing_lifecycle');
   assert.match(initial.lifecycle.active_key_id, /^sexp_/);
+  assert.equal(initial.maintenance.object, 'security_export_signing_maintenance');
+  assert.equal(initial.maintenance.revision >= 1, true);
 
   const updateRes = await app.inject({
     method: 'PUT',
@@ -96,9 +100,75 @@ test('GET/PUT /v1/security/export/signing-policy exposes lifecycle policy and ke
   assert.equal(keys.policy.rotate_after_hours, 24);
   assert.equal(keys.lifecycle.policy.verify_retention_hours, 240);
   assert.equal(keys.lifecycle.status, 'healthy');
+  assert.equal(keys.maintenance.object, 'security_export_signing_maintenance');
   assert.ok(Array.isArray(keys.data));
   assert.equal(keys.data.length, 1);
   assert.match(keys.data[0].lifecycle.expires_at, /T/);
+});
+
+test('POST /v1/security/export/signing-maintenance/run supports dry-run preview and manual maintenance execution', async () => {
+  const tenantId = 'tenant-signing-maintenance';
+
+  const policyRes = await app.inject({
+    method: 'PUT',
+    url: '/v1/security/export/signing-policy',
+    headers: authHeaders('signing-admin-key', tenantId),
+    payload: {
+      auto_rotate: true,
+      rotate_after_hours: 0.0001,
+      expire_after_hours: 0.001,
+      warn_before_hours: 0.0005,
+      verify_retention_hours: 24
+    }
+  });
+
+  assert.equal(policyRes.statusCode, 200);
+  const beforeActiveKeyId = policyRes.json().lifecycle.active_key_id;
+  await sleep(1200);
+
+  const dryRunRes = await app.inject({
+    method: 'POST',
+    url: '/v1/security/export/signing-maintenance/run',
+    headers: authHeaders('signing-admin-key', tenantId),
+    payload: {
+      dry_run: true
+    }
+  });
+
+  assert.equal(dryRunRes.statusCode, 200);
+  const dryRun = dryRunRes.json();
+  assert.equal(dryRun.object, 'security_export_signing_maintenance');
+  assert.equal(dryRun.data.dry_run, true);
+  assert.equal(dryRun.data.skipped_reason, 'dry_run');
+  assert.ok(dryRun.data.actions.includes('rotate_due_active_key'));
+
+  const executeRes = await app.inject({
+    method: 'POST',
+    url: '/v1/security/export/signing-maintenance/run',
+    headers: authHeaders('signing-admin-key', tenantId),
+    payload: {}
+  });
+
+  assert.equal(executeRes.statusCode, 200);
+  const executed = executeRes.json();
+  assert.equal(executed.data.changed, true);
+  assert.equal(executed.data.rotation_performed, true);
+  assert.notEqual(executed.lifecycle.active_key_id, beforeActiveKeyId);
+  assert.equal(executed.maintenance.last_run.run_id, executed.data.run_id);
+  assert.ok(Array.isArray(executed.maintenance.history));
+  assert.equal(executed.maintenance.history[0].run_id, executed.data.run_id);
+
+  const getRes = await app.inject({
+    method: 'GET',
+    url: '/v1/security/export/signing-maintenance',
+    headers: authHeaders('signing-admin-key', tenantId)
+  });
+
+  assert.equal(getRes.statusCode, 200);
+  const maintenance = getRes.json();
+  assert.equal(maintenance.data.object, 'security_export_signing_maintenance');
+  assert.equal(maintenance.data.last_run.run_id, executed.data.run_id);
+  assert.equal(maintenance.data.history[0].run_id, executed.data.run_id);
 });
 
 test('security export auto-rotates overdue signing keys before export when lifecycle policy becomes due', async () => {
@@ -126,7 +196,7 @@ test('security export auto-rotates overdue signing keys before export when lifec
   });
 
   assert.equal(policyRes.statusCode, 200);
-  await sleep(500);
+  await sleep(1200);
 
   const exportRes = await app.inject({
     method: 'GET',

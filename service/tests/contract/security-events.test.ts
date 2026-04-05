@@ -15,6 +15,9 @@ before(async () => {
   process.env.SECURITY_AUDIT_STORE_FILE = `/tmp/smart-ai-test-security-audit-events-${process.pid}.json`;
   process.env.SECURITY_EXPORT_SIGNING_STORE_FILE = `/tmp/smart-ai-test-security-export-signing-events-${process.pid}.json`;
   process.env.SECURITY_EXPORT_SIGNING_MAX_VERIFY_KEYS = '2';
+  process.env.SECURITY_EXPORT_SIGNING_MAINTENANCE_INTERVAL_MS = '0';
+  process.env.SECURITY_EXPORT_SIGNING_MAINTENANCE_LEASE_TTL_MS = '60000';
+  process.env.SECURITY_EXPORT_SIGNING_MAINTENANCE_HISTORY_LIMIT = '12';
   process.env.OPENROUTER_ALLOWED_MODELS = 'deepseek/deepseek-chat-v3.1,openai/gpt-4o-mini';
   process.env.OPENROUTER_DEFAULT_MODEL = 'deepseek/deepseek-chat-v3.1';
   process.env.MASTER_KEY_BASE64 = Buffer.alloc(32, 2).toString('base64');
@@ -143,6 +146,65 @@ test('GET /v1/security/summary returns risk and integrity telemetry', async () =
   assert.match(body.integrity.headChainHash, /^[a-f0-9]{64}$/);
   assert.equal(body.signing.object, 'security_export_signing_lifecycle');
   assert.match(body.signing.active_key_id, /^sexp_/);
+});
+
+test('manual signing maintenance run is written to tenant security event feed', async () => {
+  const sessionRes = await app.inject({
+    method: 'POST',
+    url: '/ui/session',
+    payload: {
+      apiKey: 'test-admin-key',
+      tenantId: 'tenant-security-maintenance-event'
+    },
+    headers: {
+      origin: 'https://dashboard.example.com'
+    }
+  });
+  const session = sessionRes.json();
+
+  await app.inject({
+    method: 'PUT',
+    url: '/v1/security/export/signing-policy',
+    headers: {
+      authorization: `Bearer ${session.token}`,
+      'x-tenant-id': 'tenant-security-maintenance-event',
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      auto_rotate: true,
+      rotate_after_hours: 0.0001,
+      expire_after_hours: 0.001,
+      warn_before_hours: 0.0005,
+      verify_retention_hours: 24
+    }
+  });
+
+  await app.inject({
+    method: 'POST',
+    url: '/v1/security/export/signing-maintenance/run',
+    headers: {
+      authorization: `Bearer ${session.token}`,
+      'x-tenant-id': 'tenant-security-maintenance-event',
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {}
+  });
+
+  const eventsRes = await app.inject({
+    method: 'GET',
+    url: '/v1/security/events?type=security_export_signing_maintenance_run&limit=5',
+    headers: {
+      authorization: `Bearer ${session.token}`,
+      'x-tenant-id': 'tenant-security-maintenance-event'
+    }
+  });
+
+  assert.equal(eventsRes.statusCode, 200);
+  const body = eventsRes.json();
+  assert.ok(body.data.length >= 1);
+  assert.ok(body.data.every((event: any) => event.type === 'security_export_signing_maintenance_run'));
 });
 
 test('GET /v1/security/export returns admin-only tamper-evident bundle', async () => {

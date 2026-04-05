@@ -181,3 +181,87 @@ test('security export signing registry blocks signing with an expired active key
       /expired/i.test(error.message)
   );
 });
+
+test('security export signing maintenance dry-run previews actions without mutating active key', async () => {
+  const storeFile = `/tmp/smart-ai-export-signing-maintenance-dry-run-${process.pid}-${Date.now()}.json`;
+  const registry = createSecurityExportSigningRegistry({
+    filePath: storeFile,
+    masterKey: Buffer.alloc(32, 27),
+    maxVerifyKeys: 2,
+    defaultPolicy: buildPolicy({
+      auto_rotate: true,
+      rotate_after_hours: 1 / 3600,
+      expire_after_hours: 1,
+      warn_before_hours: 0.5,
+      verify_retention_hours: 24
+    }),
+    maintenanceIntervalMs: 0,
+    maintenanceLeaseTtlMs: 5_000,
+    maintenanceHistoryLimit: 8
+  });
+
+  const initialActiveKeyId = registry.getActiveKeySummary().key_id;
+  const initialMaintenance = registry.getMaintenanceState();
+  await sleep(1200);
+
+  const preview = registry.runMaintenanceNow({ dryRun: true });
+  assert.equal(preview.dry_run, true);
+  assert.equal(preview.changed, false);
+  assert.equal(preview.skipped_reason, 'dry_run');
+  assert.ok(preview.actions.includes('rotate_due_active_key'));
+  assert.equal(registry.getActiveKeySummary().key_id, initialActiveKeyId);
+
+  const maintenance = registry.getMaintenanceState();
+  assert.equal(maintenance.last_run?.run_id, initialMaintenance.last_run?.run_id);
+  assert.equal(maintenance.history.length, initialMaintenance.history.length);
+});
+
+test('security export signing registries sharing one store sync rotated active key and maintenance history across instances', async () => {
+  const storeFile = `/tmp/smart-ai-export-signing-shared-${process.pid}-${Date.now()}.json`;
+  const registryA = createSecurityExportSigningRegistry({
+    filePath: storeFile,
+    masterKey: Buffer.alloc(32, 31),
+    maxVerifyKeys: 3,
+    defaultPolicy: buildPolicy({
+      auto_rotate: true,
+      rotate_after_hours: 1 / 3600,
+      expire_after_hours: 1,
+      warn_before_hours: 0.5,
+      verify_retention_hours: 24
+    }),
+    maintenanceIntervalMs: 0,
+    maintenanceLeaseTtlMs: 30_000,
+    maintenanceHistoryLimit: 8
+  });
+  const registryB = createSecurityExportSigningRegistry({
+    filePath: storeFile,
+    masterKey: Buffer.alloc(32, 31),
+    maxVerifyKeys: 3,
+    defaultPolicy: buildPolicy({
+      auto_rotate: true,
+      rotate_after_hours: 1 / 3600,
+      expire_after_hours: 1,
+      warn_before_hours: 0.5,
+      verify_retention_hours: 24
+    }),
+    maintenanceIntervalMs: 0,
+    maintenanceLeaseTtlMs: 30_000,
+    maintenanceHistoryLimit: 8
+  });
+
+  const initialKeyId = registryA.getActiveKeySummary().key_id;
+  assert.equal(registryB.getActiveKeySummary().key_id, initialKeyId);
+
+  await sleep(1200);
+  const signature = registryA.signDetachedText(JSON.stringify({ marker: 'shared-maintenance-sync' }));
+  assert.notEqual(signature.key_id, initialKeyId);
+
+  const activeFromB = registryB.getActiveKeySummary();
+  assert.equal(activeFromB.key_id, signature.key_id);
+  assert.equal(registryB.signDetachedText(JSON.stringify({ marker: 'shared-second-sign' })).key_id, signature.key_id);
+
+  const maintenanceState = registryB.getMaintenanceState();
+  assert.equal(maintenanceState.last_run?.changed, true);
+  assert.ok(maintenanceState.last_run?.actions.includes('rotate_due_active_key'));
+  assert.equal(maintenanceState.leader.holder_id, maintenanceState.history[0]?.lease.holder_id ?? maintenanceState.leader.holder_id);
+});
