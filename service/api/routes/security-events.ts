@@ -131,6 +131,10 @@ const SIGNING_POLICY_BODY_SCHEMA = z.object({
   verify_retention_hours: z.number().positive().max(24 * 365 * 5)
 });
 
+const SIGNING_MAINTENANCE_BODY_SCHEMA = z.object({
+  dry_run: z.boolean().optional().default(false)
+});
+
 const DELIVERY_BODY_SCHEMA = z.object({
   destinationUrl: z.string().url().max(2048),
   mode: z.enum(['sync', 'async']).optional().default('sync'),
@@ -339,7 +343,7 @@ function recordSecurityExportDeliveryPolicyAudit(params: {
 function recordSecurityExportSigningAudit(params: {
   tenantId: string;
   req: { ip: string; url: string; requestContext?: { requestId?: string } };
-  type: 'security_export_signing_rotated' | 'security_export_signing_policy_updated';
+  type: 'security_export_signing_rotated' | 'security_export_signing_policy_updated' | 'security_export_signing_maintenance_run';
   details?: Record<string, string | number | boolean | null | undefined>;
 }) {
   securityAuditLog.record({
@@ -435,6 +439,7 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
         active_key_id: lifecycle.active_key_id,
         policy: lifecycle.policy,
         lifecycle,
+        maintenance: securityExportSigningRegistry.getMaintenanceState(),
         data: securityExportSigningRegistry.listKeySummaries()
       };
     } catch (error) {
@@ -458,7 +463,8 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
       tenant_id: tenantId,
       jwks_path: getSecurityExportJwksPath(),
       data: lifecycle.policy,
-      lifecycle
+      lifecycle,
+      maintenance: securityExportSigningRegistry.getMaintenanceState()
     };
   });
 
@@ -495,7 +501,8 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
         jwks_path: getSecurityExportJwksPath(),
         updated: true,
         data: policy,
-        lifecycle
+        lifecycle,
+        maintenance: securityExportSigningRegistry.getMaintenanceState()
       };
     } catch (error) {
       const handled = replyForSecurityExportSigningError(reply, error);
@@ -535,7 +542,69 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
         rotated: true,
         policy: lifecycle.policy,
         lifecycle,
+        maintenance: securityExportSigningRegistry.getMaintenanceState(),
         data: securityExportSigningRegistry.listKeySummaries()
+      };
+    } catch (error) {
+      const handled = replyForSecurityExportSigningError(reply, error);
+      if (handled) {
+        return handled;
+      }
+      throw error;
+    }
+  });
+
+  app.get('/v1/security/export/signing-maintenance', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    return {
+      object: 'security_export_signing_maintenance',
+      tenant_id: tenantId,
+      data: securityExportSigningRegistry.getMaintenanceState()
+    };
+  });
+
+  app.post('/v1/security/export/signing-maintenance/run', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    const parsed = SIGNING_MAINTENANCE_BODY_SCHEMA.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return reply.status(400).send(invalidRequest('Invalid payload for signing maintenance run.', parsed.error.flatten()));
+    }
+
+    try {
+      const run = securityExportSigningRegistry.runMaintenanceNow({ dryRun: parsed.data.dry_run });
+      if (!parsed.data.dry_run) {
+        recordSecurityExportSigningAudit({
+          tenantId,
+          req,
+          type: 'security_export_signing_maintenance_run',
+          details: {
+            changed: run.changed,
+            skipped_reason: run.skipped_reason,
+            actions: run.actions.join(','),
+            rotation_performed: run.rotation_performed,
+            pruned_verify_only_keys: run.pruned_verify_only_keys,
+            active_key_id_before: run.active_key_id_before,
+            active_key_id_after: run.active_key_id_after,
+            lease_holder_id: run.lease.holder_id,
+            lease_acquired: run.lease.acquired
+          }
+        });
+      }
+
+      return {
+        object: 'security_export_signing_maintenance',
+        tenant_id: tenantId,
+        data: run,
+        lifecycle: securityExportSigningRegistry.getLifecycleState(),
+        maintenance: securityExportSigningRegistry.getMaintenanceState()
       };
     } catch (error) {
       const handled = replyForSecurityExportSigningError(reply, error);

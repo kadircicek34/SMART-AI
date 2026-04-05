@@ -43,7 +43,8 @@ export const SECURITY_AUDIT_EVENT_TYPES = [
   'security_export_delivery_policy_updated',
   'security_export_delivery_policy_reset',
   'security_export_signing_rotated',
-  'security_export_signing_policy_updated'
+  'security_export_signing_policy_updated',
+  'security_export_signing_maintenance_run'
 ] as const;
 
 export type SecurityAuditEventType = (typeof SECURITY_AUDIT_EVENT_TYPES)[number];
