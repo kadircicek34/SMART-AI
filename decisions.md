@@ -1,5 +1,42 @@
 # DECISIONS — OpenRouter Agentic Intelligence API
 
+## 2026-04-05 — Signing maintenance control plane + shared-store coordination kararı
+### Problem
+Dünkü signing lifecycle policy teslimi active key hijyenini fail-closed hale getirdi; ancak production operasyonunda üç kritik boşluk kaldı:
+1. Signing maintenance yalnızca process-local timer/request-path tetikleme ile çalışıyordu; aynı signing store'u paylaşan çoklu instance'larda duplicate rotate/prune veya stale active key riski vardı.
+2. Operatör dashboard/API üzerinden leader lease, son maintenance koşumu ve history görünürlüğünü alamıyor; manuel maintenance çalıştırmadan önce güvenli dry-run yapamıyordu.
+3. Auto-rotation request-path üzerinde memory'de gerçekleşip persistence gecikirse, crash/pod restart anında yeni active key state'inin diskle drift etme riski oluşuyordu.
+
+### Seçenekler
+- A: Process-local timer modelini koruyup sadece runbook notu eklemek
+- B: Shared backend gelene kadar maintenance visibility eklemeden beklemek
+- C: Shared-store refresh + lease tabanlı leader coordination + manual maintenance control plane + dashboard history paketini tek koşumda teslim etmek
+
+### Karar
+**C seçildi:**
+1. **Yeni özellik:** `GET /v1/security/export/signing-maintenance` ve `POST /v1/security/export/signing-maintenance/run` ile leader lease, revision, history ve admin dry-run/execute akışı açıldı.
+2. **Ciddi güvenlik iyileştirmesi #1:** Signing store her kritik operasyon öncesi diskten rehydrate ediliyor; aynı store'u paylaşan instance'lar stale active key ile imzalama yapmıyor.
+3. **Ciddi güvenlik iyileştirmesi #2:** Lease tabanlı maintenance koordinasyonu ile auto-rotate/prune mutasyonlarını tek lider instance yazıyor; follower instance'lar store refresh ile güncel active key'e hizalanıyor.
+4. **Ciddi güvenlik iyileştirmesi #3:** Rotation/policy-maintenance state'i sync atomic persistence ile diske yazılıyor; memory-only drift ve crash-window riski daraltılıyor.
+5. **Ops / UX iyileştirmesi:** Dashboard signing paneli maintenance summary, history tablosu ve dry-run/execute aksiyonları kazandı; manual maintenance koşumları audit feed'e yazılıyor.
+
+### Gerekçe
+- Çoklu instance'a hazırlık yalnızca roadmap maddesi olarak bırakılamazdı; signing key hygiene yüzeyi artık shared store davranışıyla uyumlu olmalıydı.
+- Operatör görünürlüğü olmadan auto-rotation güvenliği artsa bile bakım akışı kara kutu olarak kalıyordu.
+- Sync persistence ve leader lease, shared backend gelene kadar local-file modelinin en yüksek etkili riskini daraltıyor.
+
+### Etki
+- Shared signing store kullanan instance'lar rotate sonrası aynı active key'e hizalanıyor.
+- Manual maintenance artık güvenli dry-run + auditlenebilir execute akışıyla yönetilebiliyor.
+- Dashboard/API signing control plane'i key listesi seviyesinden gerçek maintenance operasyon yüzeyine yükseldi.
+
+### Bilinçli Olarak Ertelenenler
+- Delivery queue/audit/policy/session store’larını gerçek shared backend’e taşıma
+- Delivery policy için rollout analytics, trend kartları ve operatör playbook akışı
+- Export delivery için merkezi egress proxy / VPC-level outbound enforcement
+
+---
+
 ## 2026-04-04 — Signing lifecycle policy + auto-rotation guard kararı
 ### Problem
 Security export signing registry artık Ed25519 + JWKS ile dış doğrulamayı destekliyordu; ancak production güvenlik modelinde üç kritik boşluk kalmıştı:

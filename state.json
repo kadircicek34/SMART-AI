@@ -1,20 +1,25 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "Signing lifecycle policy + auto-rotation guard production-grade olarak teslim edildi",
+  "current_task": "Signing maintenance control plane + shared-store coordination production-grade olarak teslim edildi",
   "next_actions": [
-    "Delivery queue, security audit, UI session ve policy store'larını shared backend'e taşı",
+    "Delivery queue, security audit, UI session, policy ve signing store'larını gerçek shared backend'e taşı",
     "Delivery policy için rollout analytics, trend kartları ve operatör playbook akışı ekle",
     "Export delivery için merkezi egress proxy / VPC-level outbound enforcement tasarla",
-    "Signing lifecycle policy için multi-instance leader election / distributed scheduler desteği değerlendir"
+    "Signing maintenance lease modelini merkezi coordination backend + conflict-aware revision guard ile bir üst seviyeye çıkar"
   ],
   "risks": [
-    "Delivery queue/audit/policy/session persistence hâlâ local file tabanlı; multi-instance shared backend gerekecek",
-    "Signing lifecycle maintenance şu an process-local timer + request-path tetikleme ile çalışıyor; multi-instance ortamda distributed coordination yok",
+    "Delivery queue/audit/policy/session/signing persistence hâlâ local file tabanlı; multi-instance HA için gerçek shared backend gerekecek",
+    "Signing maintenance lease shared-file senaryosunu sertleştirir fakat tam distributed lock/consensus çözümü değildir; network-partition tolerant merkezi koordinasyon hâlâ yok",
     "Deployment default delivery policy backward-compatible migration için inherit_remote_policy kalabilir; explicit allowlist_only konfigürasyonu yapılmazsa sınır daha geniş kalabilir",
     "Export delivery için merkezi egress proxy / VPC-level outbound control henüz yok"
   ],
   "decisions": [
+    {
+      "date": "2026-04-05",
+      "decision": "Signing maintenance control plane, shared-store refresh ve leader-lease koordinasyonunu canlıya al",
+      "reason": "Çoklu instance aynı signing store'u paylaştığında stale active key ve duplicate maintenance write riskini azaltmak; operatöre dry-run/history görünürlüğü vermek"
+    },
     {
       "date": "2026-04-04",
       "decision": "Security export signing hattını lifecycle policy + auto-rotation guard + retention prune ile sertleştir",
@@ -55,12 +60,11 @@
     "service/api/routes/security-events.ts",
     "service/security/audit-log.ts",
     "service/security/export-signing.ts",
-    "service/web/assets/app.css",
     "service/web/assets/dashboard.js",
     "service/web/dashboard.html",
     "service/tests/contract/security-events.test.ts",
     "service/tests/contract/security-export-signing-policy.test.ts",
     "service/tests/security/export-signing.test.ts"
   ],
-  "updated_at": "2026-04-04T07:25:00+03:00"
+  "updated_at": "2026-04-05T07:30:00+03:00"
 }
