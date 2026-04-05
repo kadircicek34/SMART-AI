@@ -627,22 +627,14 @@ function withFileMutexSync<T>(
 
   while (Date.now() <= deadline) {
     let fd: number | null = null;
+    let acquired = false;
+
     try {
       fd = fs.openSync(lockPath, 'wx');
+      acquired = true;
       fs.writeFileSync(fd, JSON.stringify({ pid: process.pid, created_at: new Date().toISOString() }), 'utf8');
-      const result = operation();
-      fs.closeSync(fd);
-      fs.rmSync(lockPath, { force: true });
-      return result;
+      return operation();
     } catch (error) {
-      if (fd !== null) {
-        try {
-          fs.closeSync(fd);
-        } catch {
-          // noop
-        }
-      }
-
       const code = error && typeof error === 'object' ? (error as NodeJS.ErrnoException).code : undefined;
       if (code !== 'EEXIST') {
         throw error;
@@ -659,6 +651,22 @@ function withFileMutexSync<T>(
       }
 
       sleepSync(pollMs);
+    } finally {
+      if (fd !== null) {
+        try {
+          fs.closeSync(fd);
+        } catch {
+          // noop
+        }
+      }
+
+      if (acquired) {
+        try {
+          fs.rmSync(lockPath, { force: true });
+        } catch {
+          // noop
+        }
+      }
     }
   }
 
