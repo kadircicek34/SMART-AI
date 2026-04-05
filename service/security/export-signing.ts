@@ -1,20 +1,36 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import { config } from '../config.js';
-import { readJsonFileSync, writeJsonFileAtomic } from '../persistence/json-file.js';
+import { readJsonFileSync, writeJsonFileAtomicSync } from '../persistence/json-file.js';
 import type { SecurityAuditExportBundle } from './audit-log.js';
 
-const SIGNING_STORE_VERSION = 2;
+const SIGNING_STORE_VERSION = 3;
 const SECURITY_EXPORT_JWKS_PATH = '/.well-known/smart-ai/security-export-keys.json';
 const SUPPORTED_EXPORT_SIGNATURE_ALGORITHM = 'Ed25519' as const;
 const SUPPORTED_EXPORT_SIGNATURE_ALG_HEADER = 'EdDSA' as const;
 const MIN_POLICY_HOURS = 1 / 3600;
 const MAX_POLICY_HOURS = 24 * 365 * 5;
+const DEFAULT_MUTEX_WAIT_MS = 750;
+const DEFAULT_MUTEX_POLL_MS = 20;
+
+const SLEEP_BUFFER = new SharedArrayBuffer(4);
+const SLEEP_VIEW = new Int32Array(SLEEP_BUFFER);
 
 type SecurityExportSigningLifecycleAlert =
   | 'active_key_rotation_due'
   | 'active_key_expiring_soon'
   | 'active_key_expired'
   | 'verify_only_key_retention_due';
+
+type SecurityExportSigningMaintenanceTrigger = 'startup' | 'timer' | 'request' | 'admin';
+
+type SecurityExportSigningMaintenanceAction =
+  | 'bootstrap_active_key'
+  | 'normalize_active_key'
+  | 'rotate_due_active_key'
+  | 'rotate_expired_active_key'
+  | 'prune_verify_only_keys';
 
 export type SecurityExportSignatureAlgorithm = typeof SUPPORTED_EXPORT_SIGNATURE_ALGORITHM;
 export type SecurityExportSignatureAlgHeader = typeof SUPPORTED_EXPORT_SIGNATURE_ALG_HEADER;
@@ -51,10 +67,21 @@ type SecurityExportSigningKeyRecord = {
   private_jwk: EncryptedValue;
 };
 
+type SecurityExportSigningLeaseState = {
+  holder_id: string;
+  token: string;
+  acquired_at: string;
+  updated_at: string;
+  expires_at: string;
+};
+
 type SecurityExportSigningStoreSnapshot = {
   version: number;
   updatedAt: string;
+  revision?: unknown;
   policy?: unknown;
+  lease?: unknown;
+  maintenance?: unknown;
   keys: unknown[];
 };
 
@@ -114,6 +141,47 @@ export type SecurityExportPublicJwks = {
   keys: SecurityExportOkpJwk[];
 };
 
+export type SecurityExportSigningMaintenanceRunSummary = {
+  run_id: string;
+  trigger: SecurityExportSigningMaintenanceTrigger;
+  dry_run: boolean;
+  started_at: string;
+  completed_at: string;
+  changed: boolean;
+  actions: SecurityExportSigningMaintenanceAction[];
+  rotation_performed: boolean;
+  pruned_verify_only_keys: number;
+  active_key_id_before: string | null;
+  active_key_id_after: string | null;
+  key_count_before: number;
+  key_count_after: number;
+  lease: {
+    holder_id: string | null;
+    expires_at: string | null;
+    is_holder: boolean;
+    acquired: boolean;
+  };
+  skipped_reason?: 'no_changes_required' | 'lease_held_by_other' | 'dry_run' | 'mutex_unavailable';
+};
+
+export type SecurityExportSigningMaintenanceState = {
+  object: 'security_export_signing_maintenance';
+  generated_at: string;
+  instance_id: string;
+  revision: number;
+  updated_at: string | null;
+  maintenance_interval_minutes: number | null;
+  lease_ttl_seconds: number;
+  leader: {
+    holder_id: string | null;
+    expires_at: string | null;
+    is_holder: boolean;
+    active: boolean;
+  };
+  last_run: SecurityExportSigningMaintenanceRunSummary | null;
+  history: SecurityExportSigningMaintenanceRunSummary[];
+};
+
 export type SecurityExportSigningLifecycleState = {
   object: 'security_export_signing_lifecycle';
   generated_at: string;
@@ -145,16 +213,31 @@ type SecurityExportSigningRegistryOptions = {
   maxVerifyKeys?: number;
   defaultPolicy?: SecurityExportSigningLifecyclePolicy;
   maintenanceIntervalMs?: number;
+  maintenanceLeaseTtlMs?: number;
+  maintenanceHistoryLimit?: number;
+};
+
+type SecurityExportSigningMaintenancePreview = {
+  nextKeys: SecurityExportSigningKeyRecord[];
+  changed: boolean;
+  actions: SecurityExportSigningMaintenanceAction[];
+  rotationPerformed: boolean;
+  prunedVerifyOnlyKeys: number;
+  activeKeyIdBefore: string | null;
+  activeKeyIdAfter: string | null;
+  keyCountBefore: number;
+  keyCountAfter: number;
 };
 
 export class SecurityExportSigningError extends Error {
-  readonly code: 'active_key_unavailable' | 'active_key_expired';
-  readonly statusCode = 503;
+  readonly code: 'active_key_unavailable' | 'active_key_expired' | 'store_busy';
+  readonly statusCode: number;
 
-  constructor(message: string, code: 'active_key_unavailable' | 'active_key_expired') {
+  constructor(message: string, code: 'active_key_unavailable' | 'active_key_expired' | 'store_busy') {
     super(message);
     this.name = 'SecurityExportSigningError';
     this.code = code;
+    this.statusCode = code === 'store_busy' ? 409 : 503;
   }
 }
 
@@ -391,41 +474,256 @@ function buildSignatureMetadata(signing: SecurityExportSigningResult, canonicalP
   };
 }
 
+function safeDateMs(value: unknown): number {
+  const parsed = Date.parse(String(value ?? ''));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function sleepSync(ms: number): void {
+  if (ms <= 0) {
+    return;
+  }
+
+  Atomics.wait(SLEEP_VIEW, 0, 0, ms);
+}
+
+function statMtimeMs(filePath: string): number {
+  try {
+    return fs.statSync(filePath).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+function sanitizePositiveInteger(value: unknown, fallback: number, min = 1): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < min) {
+    return fallback;
+  }
+
+  return Math.max(min, Math.trunc(parsed));
+}
+
+function sanitizeLeaseState(value: unknown): SecurityExportSigningLeaseState | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const candidate = value as Partial<SecurityExportSigningLeaseState>;
+  const holderId = String(candidate.holder_id ?? '').trim();
+  const token = String(candidate.token ?? '').trim();
+  if (!holderId || !token) {
+    return null;
+  }
+
+  return {
+    holder_id: holderId,
+    token,
+    acquired_at: sanitizeIsoTimestamp(candidate.acquired_at),
+    updated_at: sanitizeIsoTimestamp(candidate.updated_at),
+    expires_at: sanitizeIsoTimestamp(candidate.expires_at)
+  };
+}
+
+function sanitizeMaintenanceRunSummary(value: unknown): SecurityExportSigningMaintenanceRunSummary | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const candidate = value as Partial<SecurityExportSigningMaintenanceRunSummary>;
+  const trigger = String(candidate.trigger ?? '').trim() as SecurityExportSigningMaintenanceTrigger;
+  if (!['startup', 'timer', 'request', 'admin'].includes(trigger)) {
+    return null;
+  }
+
+  const actions = Array.isArray(candidate.actions)
+    ? candidate.actions.filter((entry): entry is SecurityExportSigningMaintenanceAction =>
+        [
+          'bootstrap_active_key',
+          'normalize_active_key',
+          'rotate_due_active_key',
+          'rotate_expired_active_key',
+          'prune_verify_only_keys'
+        ].includes(String(entry))
+      )
+    : [];
+
+  const leaseCandidate = candidate.lease && typeof candidate.lease === 'object' ? candidate.lease : {};
+  const skippedReason = String(candidate.skipped_reason ?? '').trim();
+  const allowedSkippedReasons = ['no_changes_required', 'lease_held_by_other', 'dry_run', 'mutex_unavailable'];
+
+  return {
+    run_id: String(candidate.run_id ?? '').trim() || `sexpm_${crypto.randomUUID()}`,
+    trigger,
+    dry_run: candidate.dry_run === true,
+    started_at: sanitizeIsoTimestamp(candidate.started_at),
+    completed_at: sanitizeIsoTimestamp(candidate.completed_at),
+    changed: candidate.changed === true,
+    actions,
+    rotation_performed: candidate.rotation_performed === true,
+    pruned_verify_only_keys: sanitizePositiveInteger(candidate.pruned_verify_only_keys, 0, 0),
+    active_key_id_before: candidate.active_key_id_before ? String(candidate.active_key_id_before) : null,
+    active_key_id_after: candidate.active_key_id_after ? String(candidate.active_key_id_after) : null,
+    key_count_before: sanitizePositiveInteger(candidate.key_count_before, 0, 0),
+    key_count_after: sanitizePositiveInteger(candidate.key_count_after, 0, 0),
+    lease: {
+      holder_id: leaseCandidate && typeof leaseCandidate === 'object' ? String((leaseCandidate as any).holder_id ?? '') || null : null,
+      expires_at:
+        leaseCandidate && typeof leaseCandidate === 'object'
+          ? ((leaseCandidate as any).expires_at ? sanitizeIsoTimestamp((leaseCandidate as any).expires_at) : null)
+          : null,
+      is_holder: Boolean((leaseCandidate as any)?.is_holder),
+      acquired: Boolean((leaseCandidate as any)?.acquired)
+    },
+    ...(allowedSkippedReasons.includes(skippedReason)
+      ? { skipped_reason: skippedReason as SecurityExportSigningMaintenanceRunSummary['skipped_reason'] }
+      : {})
+  };
+}
+
+function sanitizeMaintenanceEnvelope(value: unknown): {
+  lastRun: SecurityExportSigningMaintenanceRunSummary | null;
+  history: SecurityExportSigningMaintenanceRunSummary[];
+} {
+  if (!value || typeof value !== 'object') {
+    return {
+      lastRun: null,
+      history: []
+    };
+  }
+
+  const candidate = value as {
+    lastRun?: unknown;
+    history?: unknown[];
+  };
+
+  const history = Array.isArray(candidate.history)
+    ? candidate.history
+        .map((entry) => sanitizeMaintenanceRunSummary(entry))
+        .filter((entry): entry is SecurityExportSigningMaintenanceRunSummary => Boolean(entry))
+    : [];
+
+  return {
+    lastRun: sanitizeMaintenanceRunSummary(candidate.lastRun) ?? history[0] ?? null,
+    history
+  };
+}
+
+function withFileMutexSync<T>(
+  lockPath: string,
+  options: {
+    waitMs?: number;
+    pollMs?: number;
+    staleMs?: number;
+  },
+  operation: () => T
+): T | null {
+  const waitMs = Math.max(1, Math.round(options.waitMs ?? DEFAULT_MUTEX_WAIT_MS));
+  const pollMs = Math.max(1, Math.round(options.pollMs ?? DEFAULT_MUTEX_POLL_MS));
+  const staleMs = Math.max(waitMs * 2, Math.round(options.staleMs ?? waitMs * 2));
+  const deadline = Date.now() + waitMs;
+
+  fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+
+  while (Date.now() <= deadline) {
+    let fd: number | null = null;
+    try {
+      fd = fs.openSync(lockPath, 'wx');
+      fs.writeFileSync(fd, JSON.stringify({ pid: process.pid, created_at: new Date().toISOString() }), 'utf8');
+      const result = operation();
+      fs.closeSync(fd);
+      fs.rmSync(lockPath, { force: true });
+      return result;
+    } catch (error) {
+      if (fd !== null) {
+        try {
+          fs.closeSync(fd);
+        } catch {
+          // noop
+        }
+      }
+
+      const code = error && typeof error === 'object' ? (error as NodeJS.ErrnoException).code : undefined;
+      if (code !== 'EEXIST') {
+        throw error;
+      }
+
+      try {
+        const stat = fs.statSync(lockPath);
+        if (Date.now() - stat.mtimeMs > staleMs) {
+          fs.rmSync(lockPath, { force: true });
+          continue;
+        }
+      } catch {
+        // lock disappeared between stat attempts
+      }
+
+      sleepSync(pollMs);
+    }
+  }
+
+  return null;
+}
+
 class SecurityExportSigningRegistry {
   private readonly filePath: string;
+  private readonly storeMutexPath: string;
   private readonly masterKey: Buffer;
   private readonly maxVerifyKeys: number;
   private readonly defaultPolicy: SecurityExportSigningLifecyclePolicy;
   private readonly maintenanceIntervalMs: number | null;
   private readonly maintenanceIntervalMinutes: number | null;
+  private readonly maintenanceLeaseTtlMs: number;
+  private readonly maintenanceLeaseTtlSeconds: number;
+  private readonly maintenanceHistoryLimit: number;
+  private readonly instanceId: string;
   private keys: SecurityExportSigningKeyRecord[] = [];
   private policy: SecurityExportSigningLifecyclePolicy;
-  private persistChain: Promise<void> = Promise.resolve();
+  private revision = 0;
+  private updatedAt: string | null = null;
+  private lease: SecurityExportSigningLeaseState | null = null;
+  private lastMaintenanceRun: SecurityExportSigningMaintenanceRunSummary | null = null;
+  private maintenanceHistory: SecurityExportSigningMaintenanceRunSummary[] = [];
   private maintenanceTimer: NodeJS.Timeout | null = null;
+  private lastLoadedMtimeMs = 0;
 
   constructor(options: SecurityExportSigningRegistryOptions) {
     this.filePath = options.filePath;
+    this.storeMutexPath = `${options.filePath}.lock`;
     this.masterKey = options.masterKey;
     this.maxVerifyKeys = Math.max(1, options.maxVerifyKeys ?? 4);
-    this.defaultPolicy = normalizeLifecyclePolicy(options.defaultPolicy ?? DEFAULT_SECURITY_EXPORT_SIGNING_LIFECYCLE_POLICY, DEFAULT_SECURITY_EXPORT_SIGNING_LIFECYCLE_POLICY);
+    this.defaultPolicy = normalizeLifecyclePolicy(
+      options.defaultPolicy ?? DEFAULT_SECURITY_EXPORT_SIGNING_LIFECYCLE_POLICY,
+      DEFAULT_SECURITY_EXPORT_SIGNING_LIFECYCLE_POLICY
+    );
     this.policy = this.defaultPolicy;
     const rawIntervalMs = Number(options.maintenanceIntervalMs ?? 0);
     this.maintenanceIntervalMs = Number.isFinite(rawIntervalMs) && rawIntervalMs > 0 ? Math.max(1000, Math.round(rawIntervalMs)) : null;
     this.maintenanceIntervalMinutes = this.maintenanceIntervalMs ? Number((this.maintenanceIntervalMs / 60000).toFixed(3)) : null;
-    this.hydrate();
+    const defaultLeaseTtlMs = this.maintenanceIntervalMs ? this.maintenanceIntervalMs * 2 : 600_000;
+    const configuredLeaseTtlMs = Number(options.maintenanceLeaseTtlMs ?? defaultLeaseTtlMs);
+    this.maintenanceLeaseTtlMs = Number.isFinite(configuredLeaseTtlMs) && configuredLeaseTtlMs > 0
+      ? Math.max(1_000, Math.round(configuredLeaseTtlMs))
+      : Math.max(1_000, Math.round(defaultLeaseTtlMs));
+    this.maintenanceLeaseTtlSeconds = Math.max(1, Math.round(this.maintenanceLeaseTtlMs / 1000));
+    this.maintenanceHistoryLimit = Math.max(1, options.maintenanceHistoryLimit ?? 25);
+    this.instanceId = `sexpi_${crypto.randomUUID()}`;
+    this.syncFromDisk(true);
     this.ensureActiveKeySync();
     this.startMaintenanceTimer();
   }
 
   listKeySummaries(): SecurityExportSigningKeySummary[] {
     const now = Date.now();
-    this.runMaintenance({ now, allowAutoRotate: false });
+    this.syncFromDisk();
+    this.runMaintenance({ now, allowAutoRotate: false, trigger: 'request' });
     return this.keys.map((record) => this.toKeySummary(record, now));
   }
 
   getPublicJwks(): SecurityExportPublicJwks {
     const now = Date.now();
-    this.runMaintenance({ now, allowAutoRotate: false });
+    this.syncFromDisk();
+    this.runMaintenance({ now, allowAutoRotate: false, trigger: 'request' });
     const activeKey = this.getActiveKey();
     return {
       object: 'jwks',
@@ -436,19 +734,38 @@ class SecurityExportSigningRegistry {
   }
 
   getLifecyclePolicy(): SecurityExportSigningLifecyclePolicy {
+    this.syncFromDisk();
     return { ...this.policy };
   }
 
   async updateLifecyclePolicy(nextPolicy: SecurityExportSigningLifecyclePolicy): Promise<SecurityExportSigningLifecyclePolicy> {
-    this.policy = normalizeLifecyclePolicy(nextPolicy, this.defaultPolicy);
-    this.runMaintenance({ now: Date.now(), allowAutoRotate: true });
-    await this.persist();
+    const normalizedPolicy = normalizeLifecyclePolicy(nextPolicy, this.defaultPolicy);
+    this.withRequiredStoreMutation(() => {
+      this.syncFromDisk(true);
+      this.policy = normalizedPolicy;
+      const preview = this.computeMaintenancePreview(Date.now(), true);
+      if (preview.changed) {
+        this.applyMaintenancePreview(preview);
+        this.recordMaintenanceRun(this.buildMaintenanceSummary({
+          trigger: 'admin',
+          now: Date.now(),
+          preview,
+          lease: this.getLeaseForResponse(Date.now(), false),
+          acquiredLease: false,
+          dryRun: false
+        }));
+      }
+      this.bumpRevision();
+      this.persistSync();
+    });
+
     return this.getLifecyclePolicy();
   }
 
   getLifecycleState(): SecurityExportSigningLifecycleState {
     const now = Date.now();
-    this.runMaintenance({ now, allowAutoRotate: false });
+    this.syncFromDisk();
+    this.runMaintenance({ now, allowAutoRotate: false, trigger: 'request' });
     const activeKey = this.getActiveKey();
     const activeSummary = this.toKeySummary(activeKey, now);
     const verifyOnlySummaries = this.keys.filter((entry) => entry.status === 'verify_only').map((entry) => this.toKeySummary(entry, now));
@@ -504,22 +821,71 @@ class SecurityExportSigningRegistry {
     };
   }
 
+  getMaintenanceState(): SecurityExportSigningMaintenanceState {
+    const now = Date.now();
+    this.syncFromDisk();
+    const lease = this.getLeaseForResponse(now, false);
+    return {
+      object: 'security_export_signing_maintenance',
+      generated_at: new Date(now).toISOString(),
+      instance_id: this.instanceId,
+      revision: this.revision,
+      updated_at: this.updatedAt,
+      maintenance_interval_minutes: this.maintenanceIntervalMinutes,
+      lease_ttl_seconds: this.maintenanceLeaseTtlSeconds,
+      leader: {
+        holder_id: lease.holder_id,
+        expires_at: lease.expires_at,
+        is_holder: lease.is_holder,
+        active: Boolean(lease.expires_at)
+      },
+      last_run: this.lastMaintenanceRun,
+      history: this.maintenanceHistory.slice(0, this.maintenanceHistoryLimit)
+    };
+  }
+
   getActiveKeySummary(): SecurityExportSigningKeySummary {
     const now = Date.now();
-    this.runMaintenance({ now, allowAutoRotate: false });
+    this.syncFromDisk();
+    this.runMaintenance({ now, allowAutoRotate: false, trigger: 'request' });
     return this.toKeySummary(this.getActiveKey(), now);
   }
 
   async rotate(): Promise<SecurityExportSigningKeySummary> {
-    const rotatedAt = new Date().toISOString();
-    this.rotateInMemory(rotatedAt);
-    await this.persist();
+    this.withRequiredStoreMutation(() => {
+      this.syncFromDisk(true);
+      this.rotateKeysInPlace(new Date().toISOString());
+      this.bumpRevision();
+      this.persistSync();
+    });
+
     return this.getActiveKeySummary();
+  }
+
+  runMaintenanceNow(options: { dryRun?: boolean } = {}): SecurityExportSigningMaintenanceRunSummary {
+    const now = Date.now();
+    this.syncFromDisk();
+    const preview = this.computeMaintenancePreview(now, true);
+
+    if (options.dryRun) {
+      return this.buildMaintenanceSummary({
+        trigger: 'admin',
+        now,
+        preview,
+        lease: this.getLeaseForResponse(now, false),
+        acquiredLease: false,
+        dryRun: true,
+        skippedReason: preview.changed ? 'dry_run' : 'no_changes_required'
+      });
+    }
+
+    return this.runMaintenance({ now, allowAutoRotate: true, trigger: 'admin', persistNoop: true });
   }
 
   signDetachedText(input: string): SecurityExportSigningResult {
     const now = Date.now();
-    this.runMaintenance({ now, allowAutoRotate: true });
+    this.syncFromDisk();
+    this.runMaintenance({ now, allowAutoRotate: true, trigger: 'request' });
     const activeKey = this.getActiveKey();
     const lifecycle = this.buildKeyLifecycle(activeKey, now);
     if (lifecycle.expired) {
@@ -543,7 +909,8 @@ class SecurityExportSigningRegistry {
   }
 
   verifyDetachedText(input: string, signature: SecurityExportSignature | null | undefined): SecurityExportSignatureVerification {
-    this.runMaintenance({ now: Date.now(), allowAutoRotate: false });
+    this.syncFromDisk();
+    this.runMaintenance({ now: Date.now(), allowAutoRotate: false, trigger: 'request' });
 
     if (!signature) {
       return {
@@ -604,13 +971,179 @@ class SecurityExportSigningRegistry {
     };
   }
 
+  private syncFromDisk(force = false): boolean {
+    const nextMtimeMs = statMtimeMs(this.filePath);
+    if (!force && nextMtimeMs > 0 && nextMtimeMs === this.lastLoadedMtimeMs) {
+      return false;
+    }
+
+    const snapshot = readJsonFileSync<SecurityExportSigningStoreSnapshot>(this.filePath);
+    this.lastLoadedMtimeMs = nextMtimeMs;
+    if (!snapshot) {
+      return false;
+    }
+
+    this.policy = normalizeLifecyclePolicy(snapshot.policy, this.defaultPolicy);
+    this.revision = sanitizePositiveInteger(snapshot.revision, this.revision, 0);
+    this.updatedAt = sanitizeIsoTimestamp(snapshot.updatedAt);
+    this.lease = sanitizeLeaseState(snapshot.lease);
+    const maintenance = sanitizeMaintenanceEnvelope(snapshot.maintenance);
+    this.lastMaintenanceRun = maintenance.lastRun;
+    this.maintenanceHistory = maintenance.history.slice(0, this.maintenanceHistoryLimit);
+    if (!Array.isArray(snapshot.keys)) {
+      this.keys = [];
+      return true;
+    }
+
+    this.keys = snapshot.keys
+      .map((entry) => sanitizeStoredKey(entry))
+      .filter((entry): entry is SecurityExportSigningKeyRecord => Boolean(entry));
+
+    return true;
+  }
+
+  private ensureActiveKeySync(): void {
+    this.runMaintenance({ now: Date.now(), allowAutoRotate: true, trigger: 'startup', persistNoop: false });
+  }
+
+  private runMaintenance(params: {
+    now: number;
+    allowAutoRotate: boolean;
+    trigger: SecurityExportSigningMaintenanceTrigger;
+    persistNoop?: boolean;
+  }): SecurityExportSigningMaintenanceRunSummary {
+    this.syncFromDisk();
+    const preview = this.computeMaintenancePreview(params.now, params.allowAutoRotate);
+    const leaseBefore = this.getLeaseForResponse(params.now, false);
+
+    if (!preview.changed) {
+      const summary = this.buildMaintenanceSummary({
+        trigger: params.trigger,
+        now: params.now,
+        preview,
+        lease: leaseBefore,
+        acquiredLease: false,
+        dryRun: false,
+        skippedReason: 'no_changes_required'
+      });
+
+      if (params.trigger === 'admin' && params.persistNoop) {
+        this.withRequiredStoreMutation(() => {
+          this.syncFromDisk(true);
+          this.recordMaintenanceRun(summary);
+          this.bumpRevision();
+          this.persistSync();
+        });
+      }
+
+      return summary;
+    }
+
+    const result = this.withStoreMutation(params.trigger === 'admin' ? 'required' : 'best_effort', () => {
+      this.syncFromDisk(true);
+      const activeLease = this.getActiveLease(params.now);
+      if (activeLease && activeLease.holder_id !== this.instanceId) {
+        return this.buildMaintenanceSummary({
+          trigger: params.trigger,
+          now: params.now,
+          preview: this.computeMaintenancePreview(params.now, params.allowAutoRotate),
+          lease: this.getLeaseForResponse(params.now, false),
+          acquiredLease: false,
+          dryRun: false,
+          skippedReason: 'lease_held_by_other'
+        });
+      }
+
+      this.acquireLease(params.now);
+      const lockedPreview = this.computeMaintenancePreview(params.now, params.allowAutoRotate);
+      if (!lockedPreview.changed) {
+        const summary = this.buildMaintenanceSummary({
+          trigger: params.trigger,
+          now: params.now,
+          preview: lockedPreview,
+          lease: this.getLeaseForResponse(params.now, true),
+          acquiredLease: true,
+          dryRun: false,
+          skippedReason: 'no_changes_required'
+        });
+
+        if (params.trigger === 'admin' && params.persistNoop) {
+          this.recordMaintenanceRun(summary);
+          this.bumpRevision();
+          this.persistSync();
+        }
+
+        return summary;
+      }
+
+      this.applyMaintenancePreview(lockedPreview);
+      const summary = this.buildMaintenanceSummary({
+        trigger: params.trigger,
+        now: params.now,
+        preview: lockedPreview,
+        lease: this.getLeaseForResponse(params.now, true),
+        acquiredLease: true,
+        dryRun: false
+      });
+      this.recordMaintenanceRun(summary);
+      this.bumpRevision();
+      this.persistSync();
+      return summary;
+    });
+
+    if (!result) {
+      return this.buildMaintenanceSummary({
+        trigger: params.trigger,
+        now: params.now,
+        preview,
+        lease: leaseBefore,
+        acquiredLease: false,
+        dryRun: false,
+        skippedReason: 'mutex_unavailable'
+      });
+    }
+
+    return result;
+  }
+
+  private withRequiredStoreMutation<T>(operation: () => T): T {
+    const result = this.withStoreMutation('required', operation);
+    if (result === null) {
+      throw new SecurityExportSigningError('Security export signing store is busy. Retry the operation.', 'store_busy');
+    }
+
+    return result;
+  }
+
+  private withStoreMutation<T>(mode: 'required' | 'best_effort', operation: () => T): T | null {
+    const result = withFileMutexSync(
+      this.storeMutexPath,
+      {
+        waitMs: mode === 'required' ? DEFAULT_MUTEX_WAIT_MS : 100,
+        pollMs: DEFAULT_MUTEX_POLL_MS,
+        staleMs: Math.max(DEFAULT_MUTEX_WAIT_MS * 4, this.maintenanceLeaseTtlMs)
+      },
+      operation
+    );
+
+    if (result === null && mode === 'required') {
+      throw new SecurityExportSigningError('Security export signing store is busy. Retry the operation.', 'store_busy');
+    }
+
+    return result;
+  }
+
   private startMaintenanceTimer(): void {
     if (!this.maintenanceIntervalMs || this.maintenanceTimer) {
       return;
     }
 
     this.maintenanceTimer = setInterval(() => {
-      this.runMaintenance({ now: Date.now(), allowAutoRotate: true });
+      try {
+        this.runMaintenance({ now: Date.now(), allowAutoRotate: true, trigger: 'timer' });
+      } catch {
+        // fail-closed for timer path; request/manual paths will surface errors when needed.
+      }
     }, this.maintenanceIntervalMs);
 
     this.maintenanceTimer.unref?.();
@@ -693,59 +1226,16 @@ class SecurityExportSigningRegistry {
     };
   }
 
-  private hydrate(): void {
-    const snapshot = readJsonFileSync<SecurityExportSigningStoreSnapshot>(this.filePath);
-    if (!snapshot) {
-      return;
+  private normalizeKeysInPlace(keys: SecurityExportSigningKeyRecord[], now: number): { changed: boolean; bootstrapped: boolean } {
+    if (keys.length === 0) {
+      keys.push(this.createKeyRecord('active', new Date(now).toISOString()));
+      return {
+        changed: true,
+        bootstrapped: true
+      };
     }
 
-    this.policy = normalizeLifecyclePolicy(snapshot.policy, this.defaultPolicy);
-    if (!Array.isArray(snapshot.keys)) {
-      return;
-    }
-
-    this.keys = snapshot.keys
-      .map((entry) => sanitizeStoredKey(entry))
-      .filter((entry): entry is SecurityExportSigningKeyRecord => Boolean(entry));
-  }
-
-  private ensureActiveKeySync(): void {
-    const now = Date.now();
-    const changed = this.ensureSingleActiveKey(now) || this.pruneVerifyOnlyKeys(now);
-    if (changed) {
-      void this.persist();
-    }
-  }
-
-  private runMaintenance(params: { now: number; allowAutoRotate: boolean }): void {
-    let changed = this.ensureSingleActiveKey(params.now);
-    if (params.allowAutoRotate && this.policy.auto_rotate) {
-      const activeKey = this.keys.find((entry) => entry.status === 'active');
-      if (activeKey) {
-        const lifecycle = this.buildKeyLifecycle(activeKey, params.now);
-        if (lifecycle.rotation_due || lifecycle.expired) {
-          this.rotateInMemory(new Date(params.now).toISOString());
-          changed = true;
-        }
-      }
-    }
-
-    if (this.pruneVerifyOnlyKeys(params.now)) {
-      changed = true;
-    }
-
-    if (changed) {
-      void this.persist();
-    }
-  }
-
-  private ensureSingleActiveKey(now: number): boolean {
-    if (this.keys.length === 0) {
-      this.keys = [this.createKeyRecord('active', new Date(now).toISOString())];
-      return true;
-    }
-
-    const ordered = [...this.keys].sort((left, right) => Date.parse(right.activated_at) - Date.parse(left.activated_at));
+    const ordered = [...keys].sort((left, right) => Date.parse(right.activated_at) - Date.parse(left.activated_at));
     let activeAssigned = false;
     let changed = false;
     const normalized: SecurityExportSigningKeyRecord[] = [];
@@ -778,11 +1268,14 @@ class SecurityExportSigningRegistry {
       normalized.push(key);
     }
 
-    this.keys = normalized;
-    return changed;
+    keys.splice(0, keys.length, ...normalized);
+    return {
+      changed,
+      bootstrapped: false
+    };
   }
 
-  private rotateInMemory(rotatedAt: string): void {
+  private rotateKeysInPlace(rotatedAt: string): void {
     for (const key of this.keys) {
       if (key.status === 'active') {
         key.status = 'verify_only';
@@ -791,12 +1284,25 @@ class SecurityExportSigningRegistry {
     }
 
     this.keys.unshift(this.createKeyRecord('active', rotatedAt));
-    this.pruneVerifyOnlyKeys(Date.parse(rotatedAt));
+    this.pruneVerifyOnlyKeysInPlace(this.keys, Date.parse(rotatedAt));
   }
 
-  private pruneVerifyOnlyKeys(now: number): boolean {
-    const activeKeys = this.keys.filter((entry) => entry.status === 'active');
-    const retainedVerifyOnlyKeys = this.keys
+  private rotateKeysOnCopy(keys: SecurityExportSigningKeyRecord[], rotatedAt: string): SecurityExportSigningKeyRecord[] {
+    for (const key of keys) {
+      if (key.status === 'active') {
+        key.status = 'verify_only';
+        key.deactivated_at = rotatedAt;
+      }
+    }
+
+    keys.unshift(this.createKeyRecord('active', rotatedAt));
+    this.pruneVerifyOnlyKeysInPlace(keys, Date.parse(rotatedAt));
+    return keys;
+  }
+
+  private pruneVerifyOnlyKeysInPlace(keys: SecurityExportSigningKeyRecord[], now: number): { changed: boolean; prunedCount: number } {
+    const activeKeys = keys.filter((entry) => entry.status === 'active');
+    const retainedVerifyOnlyKeys = keys
       .filter((entry) => entry.status === 'verify_only')
       .filter((entry) => {
         const baseTimestamp = Date.parse(entry.deactivated_at ?? entry.created_at);
@@ -814,27 +1320,160 @@ class SecurityExportSigningRegistry {
     );
 
     const changed =
-      nextKeys.length !== this.keys.length ||
+      nextKeys.length !== keys.length ||
       nextKeys.some((entry, index) => {
-        const current = this.keys[index];
+        const current = keys[index];
         return !current || current.key_id !== entry.key_id || current.status !== entry.status;
       });
 
-    this.keys = nextKeys;
-    return changed;
+    const prunedCount = Math.max(0, keys.length - nextKeys.length);
+    keys.splice(0, keys.length, ...nextKeys);
+    return {
+      changed,
+      prunedCount
+    };
   }
 
-  private async persist(): Promise<void> {
-    this.persistChain = this.persistChain.catch(() => undefined).then(async () => {
-      await writeJsonFileAtomic(this.filePath, {
-        version: SIGNING_STORE_VERSION,
-        updatedAt: new Date().toISOString(),
-        policy: this.policy,
-        keys: this.keys
-      });
-    });
+  private computeMaintenancePreview(now: number, allowAutoRotate: boolean): SecurityExportSigningMaintenancePreview {
+    const workingKeys = structuredClone(this.keys) as SecurityExportSigningKeyRecord[];
+    const actions: SecurityExportSigningMaintenanceAction[] = [];
+    const beforeActive = workingKeys.find((entry) => entry.status === 'active')?.key_id ?? null;
+    const keyCountBefore = workingKeys.length;
 
-    await this.persistChain;
+    const normalized = this.normalizeKeysInPlace(workingKeys, now);
+    if (normalized.bootstrapped) {
+      actions.push('bootstrap_active_key');
+    } else if (normalized.changed) {
+      actions.push('normalize_active_key');
+    }
+
+    let rotationPerformed = false;
+    if (allowAutoRotate && this.policy.auto_rotate) {
+      const activeKey = workingKeys.find((entry) => entry.status === 'active');
+      if (activeKey) {
+        const lifecycle = this.buildKeyLifecycle(activeKey, now);
+        if (lifecycle.rotation_due || lifecycle.expired) {
+          this.rotateKeysOnCopy(workingKeys, new Date(now).toISOString());
+          rotationPerformed = true;
+          actions.push(lifecycle.expired ? 'rotate_expired_active_key' : 'rotate_due_active_key');
+        }
+      }
+    }
+
+    const prune = this.pruneVerifyOnlyKeysInPlace(workingKeys, now);
+    if (prune.prunedCount > 0) {
+      actions.push('prune_verify_only_keys');
+    }
+
+    const afterActive = workingKeys.find((entry) => entry.status === 'active')?.key_id ?? null;
+    return {
+      nextKeys: workingKeys,
+      changed: normalized.changed || rotationPerformed || prune.changed,
+      actions,
+      rotationPerformed,
+      prunedVerifyOnlyKeys: prune.prunedCount,
+      activeKeyIdBefore: beforeActive,
+      activeKeyIdAfter: afterActive,
+      keyCountBefore,
+      keyCountAfter: workingKeys.length
+    };
+  }
+
+  private applyMaintenancePreview(preview: SecurityExportSigningMaintenancePreview): void {
+    this.keys = preview.nextKeys;
+  }
+
+  private getActiveLease(now: number): SecurityExportSigningLeaseState | null {
+    if (!this.lease) {
+      return null;
+    }
+
+    return safeDateMs(this.lease.expires_at) > now ? this.lease : null;
+  }
+
+  private acquireLease(now: number): void {
+    const current = this.getActiveLease(now);
+    const acquiredAt = current?.holder_id === this.instanceId ? current.acquired_at : new Date(now).toISOString();
+    const token = current?.holder_id === this.instanceId ? current.token : crypto.randomUUID();
+    this.lease = {
+      holder_id: this.instanceId,
+      token,
+      acquired_at: acquiredAt,
+      updated_at: new Date(now).toISOString(),
+      expires_at: new Date(now + this.maintenanceLeaseTtlMs).toISOString()
+    };
+  }
+
+  private getLeaseForResponse(now: number, acquired: boolean): SecurityExportSigningMaintenanceRunSummary['lease'] {
+    const activeLease = this.getActiveLease(now);
+    return {
+      holder_id: activeLease?.holder_id ?? null,
+      expires_at: activeLease?.expires_at ?? null,
+      is_holder: activeLease?.holder_id === this.instanceId,
+      acquired
+    };
+  }
+
+  private buildMaintenanceSummary(params: {
+    trigger: SecurityExportSigningMaintenanceTrigger;
+    now: number;
+    preview: SecurityExportSigningMaintenancePreview;
+    lease: SecurityExportSigningMaintenanceRunSummary['lease'];
+    acquiredLease: boolean;
+    dryRun: boolean;
+    skippedReason?: SecurityExportSigningMaintenanceRunSummary['skipped_reason'];
+  }): SecurityExportSigningMaintenanceRunSummary {
+    const skippedReason = params.skippedReason;
+    const changed = !params.dryRun && !skippedReason && params.preview.changed;
+    return {
+      run_id: `sexpm_${crypto.randomUUID()}`,
+      trigger: params.trigger,
+      dry_run: params.dryRun,
+      started_at: new Date(params.now).toISOString(),
+      completed_at: new Date().toISOString(),
+      changed,
+      actions: params.preview.actions,
+      rotation_performed: changed ? params.preview.rotationPerformed : false,
+      pruned_verify_only_keys: changed ? params.preview.prunedVerifyOnlyKeys : 0,
+      active_key_id_before: params.preview.activeKeyIdBefore,
+      active_key_id_after:
+        changed
+          ? params.preview.activeKeyIdAfter
+          : params.preview.activeKeyIdBefore ?? params.preview.activeKeyIdAfter,
+      key_count_before: params.preview.keyCountBefore,
+      key_count_after: changed ? params.preview.keyCountAfter : params.preview.keyCountBefore,
+      lease: {
+        ...params.lease,
+        acquired: params.acquiredLease
+      },
+      ...(skippedReason ? { skipped_reason: skippedReason } : {})
+    };
+  }
+
+  private recordMaintenanceRun(summary: SecurityExportSigningMaintenanceRunSummary): void {
+    this.lastMaintenanceRun = summary;
+    this.maintenanceHistory = [summary, ...this.maintenanceHistory].slice(0, this.maintenanceHistoryLimit);
+  }
+
+  private bumpRevision(): void {
+    this.revision += 1;
+  }
+
+  private persistSync(): void {
+    this.updatedAt = new Date().toISOString();
+    writeJsonFileAtomicSync(this.filePath, {
+      version: SIGNING_STORE_VERSION,
+      updatedAt: this.updatedAt,
+      revision: this.revision,
+      policy: this.policy,
+      lease: this.lease,
+      maintenance: {
+        lastRun: this.lastMaintenanceRun,
+        history: this.maintenanceHistory.slice(0, this.maintenanceHistoryLimit)
+      },
+      keys: this.keys
+    });
+    this.lastLoadedMtimeMs = statMtimeMs(this.filePath);
   }
 }
 
@@ -887,5 +1526,7 @@ export const securityExportSigningRegistry = createSecurityExportSigningRegistry
   masterKey: config.security.masterKey,
   maxVerifyKeys: config.security.exportSigningMaxVerifyKeys,
   defaultPolicy: DEFAULT_SECURITY_EXPORT_SIGNING_LIFECYCLE_POLICY,
-  maintenanceIntervalMs: config.security.exportSigningMaintenanceIntervalMs
+  maintenanceIntervalMs: config.security.exportSigningMaintenanceIntervalMs,
+  maintenanceLeaseTtlMs: config.security.exportSigningMaintenanceLeaseTtlMs,
+  maintenanceHistoryLimit: config.security.exportSigningMaintenanceHistoryLimit
 });

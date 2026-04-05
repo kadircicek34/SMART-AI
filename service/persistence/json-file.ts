@@ -19,6 +19,14 @@ export function readJsonFileSync<T>(filePath: string | undefined): T | null {
   }
 }
 
+export function writeJsonFileAtomicSync(filePath: string, payload: unknown): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+
+  const tmpPath = `${filePath}.tmp`;
+  fs.writeFileSync(tmpPath, JSON.stringify(payload, null, 2), 'utf-8');
+  fs.renameSync(tmpPath, filePath);
+}
+
 export async function writeJsonFileAtomic(filePath: string, payload: unknown): Promise<void> {
   await fsp.mkdir(path.dirname(filePath), { recursive: true });
 

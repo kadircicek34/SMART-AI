@@ -288,6 +288,16 @@ export const config = {
     exportSigningWarnBeforeHours: Number(process.env.SECURITY_EXPORT_SIGNING_WARN_BEFORE_HOURS ?? 168),
     exportSigningVerifyRetentionHours: Number(process.env.SECURITY_EXPORT_SIGNING_VERIFY_RETENTION_HOURS ?? 2160),
     exportSigningMaintenanceIntervalMs: Number(process.env.SECURITY_EXPORT_SIGNING_MAINTENANCE_INTERVAL_MS ?? 300000),
+    exportSigningMaintenanceLeaseTtlMs: (() => {
+      const configured = Number(process.env.SECURITY_EXPORT_SIGNING_MAINTENANCE_LEASE_TTL_MS ?? 0);
+      if (Number.isFinite(configured) && configured > 0) {
+        return Math.max(1000, Math.round(configured));
+      }
+
+      const interval = Number(process.env.SECURITY_EXPORT_SIGNING_MAINTENANCE_INTERVAL_MS ?? 300000);
+      return Math.max(60_000, Math.round(interval * 2));
+    })(),
+    exportSigningMaintenanceHistoryLimit: Number(process.env.SECURITY_EXPORT_SIGNING_MAINTENANCE_HISTORY_LIMIT ?? 25),
     exportDeliveryAllowedPorts: (() => {
       const parsed = parseNumberCsv(process.env.SECURITY_EXPORT_DELIVERY_ALLOWED_PORTS);
       return parsed.length > 0 ? parsed : [443];
