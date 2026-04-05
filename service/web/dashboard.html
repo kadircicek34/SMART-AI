@@ -235,8 +235,11 @@
         <div class="actions">
           <button id="saveSecuritySigningPolicy">Signing Policy Kaydet</button>
           <button id="rotateSecuritySigningKey" class="secondary">Signing Key Rotate</button>
+          <button id="previewSecuritySigningMaintenance" class="secondary">Maintenance Dry-Run</button>
+          <button id="runSecuritySigningMaintenance" class="secondary">Maintenance Çalıştır</button>
         </div>
         <p id="securitySigningSummary" class="muted">Ed25519 signing key registry, lifecycle policy ve public JWKS burada görünür.</p>
+        <p id="securitySigningMaintenanceSummary" class="muted">Leader lease, son maintenance koşumu ve history burada görünür.</p>
         <table>
           <thead>
             <tr>
@@ -249,6 +252,20 @@
             </tr>
           </thead>
           <tbody id="securitySigningTableBody"></tbody>
+        </table>
+        <table>
+          <thead>
+            <tr>
+              <th>Trigger</th>
+              <th>Lease</th>
+              <th>Aksiyonlar</th>
+              <th>Rotation</th>
+              <th>Prune</th>
+              <th>Durum</th>
+              <th>Zaman</th>
+            </tr>
+          </thead>
+          <tbody id="securitySigningMaintenanceTableBody"></tbody>
         </table>
       </section>
 

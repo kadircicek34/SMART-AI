@@ -107,7 +107,10 @@ function setAdminControlsEnabled(enabled) {
     'securityDeliveryLimit',
     'previewSecurityDelivery',
     'deliverSecurityExport',
+    'saveSecuritySigningPolicy',
     'rotateSecuritySigningKey',
+    'previewSecuritySigningMaintenance',
+    'runSecuritySigningMaintenance',
     'revokeOtherSessions'
   ]) {
     const node = document.getElementById(id);
@@ -277,6 +280,51 @@ function renderSecuritySigningTable(keys = []) {
     `;
     tbody.appendChild(tr);
   }
+}
+
+function renderSecuritySigningMaintenanceTable(history = []) {
+  const tbody = document.getElementById('securitySigningMaintenanceTableBody');
+  tbody.innerHTML = '';
+
+  if (!history.length) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="7">Henüz maintenance history yok</td>';
+    tbody.appendChild(tr);
+    return;
+  }
+
+  for (const run of history) {
+    const tr = document.createElement('tr');
+    const actions = Array.isArray(run.actions) && run.actions.length ? run.actions.join(', ') : '—';
+    const status = run.skipped_reason ? `skip:${run.skipped_reason}` : run.changed ? 'uygulandı' : 'noop';
+    tr.innerHTML = `
+      <td>${escapeHtml(run.trigger ?? 'unknown')}</td>
+      <td>${escapeHtml(run?.lease?.holder_id ? String(run.lease.holder_id).slice(0, 16) : '—')}<br /><span class="muted">${escapeHtml(
+        run?.lease?.expires_at ? new Date(run.lease.expires_at).toLocaleString('tr-TR') : 'lease yok'
+      )}</span></td>
+      <td>${escapeHtml(actions)}</td>
+      <td>${escapeHtml(run.rotation_performed ? 'evet' : 'hayır')}</td>
+      <td>${escapeHtml(run.pruned_verify_only_keys ?? 0)}</td>
+      <td>${escapeHtml(status)}</td>
+      <td>${escapeHtml(new Date(run.completed_at ?? run.started_at ?? Date.now()).toLocaleString('tr-TR'))}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+function applySecuritySigningMaintenance(maintenance) {
+  const leader = maintenance?.leader ?? {};
+  const lastRun = maintenance?.last_run ?? null;
+  const history = Array.isArray(maintenance?.history) ? maintenance.history : [];
+  const summaryParts = [
+    `leader=${leader.holder_id ? String(leader.holder_id).slice(0, 16) : 'yok'}`,
+    `lease=${leader.expires_at ? new Date(leader.expires_at).toLocaleString('tr-TR') : 'inactive'}`,
+    `revision=${maintenance?.revision ?? 0}`,
+    `last=${lastRun ? `${lastRun.trigger}/${lastRun.skipped_reason ?? (lastRun.changed ? 'changed' : 'noop')}` : 'henüz yok'}`
+  ];
+
+  document.getElementById('securitySigningMaintenanceSummary').textContent = summaryParts.join(', ');
+  renderSecuritySigningMaintenanceTable(history);
 }
 
 function renderSecurityDeliveriesTable(deliveries = []) {
@@ -466,10 +514,12 @@ function applyAuthContext(context) {
     document.getElementById('securityDeliverySummary').textContent = 'admin gerekli';
     document.getElementById('securityDeliveryPreviewSummary').textContent = 'admin gerekli';
     document.getElementById('securitySigningSummary').textContent = 'admin gerekli';
+    document.getElementById('securitySigningMaintenanceSummary').textContent = 'admin gerekli';
     document.getElementById('securitySigningMetric').textContent = 'admin gerekli';
     renderUiSessionsTable([]);
     renderSecurityDeliveriesTable([]);
     renderSecuritySigningTable([]);
+    renderSecuritySigningMaintenanceTable([]);
     log('Bu oturum admin yetkisine sahip değil; model policy, remote policy, delivery policy, security export signing, security delivery, session control ve MCP flush kontrolleri salt okunur moda alındı.');
   }
 }
@@ -727,6 +777,7 @@ async function loadSecuritySigningKeys(settings) {
     active
       ? `active=${active.key_id}, verify_only=${Math.max(0, keys.length - 1)}, status=${lifecycle.status ?? 'healthy'}, alerts=${alerts}, jwks=${response?.jwks_path ?? '/.well-known/smart-ai/security-export-keys.json'}`
       : 'Ed25519 signing key registry henüz bootstrap edilmedi.';
+  applySecuritySigningMaintenance(response?.maintenance ?? null);
   renderSecuritySigningTable(keys);
   return response;
 }
@@ -771,6 +822,32 @@ async function rotateSecuritySigningKey(settings) {
 
   log(`Security export signing key rotate edildi. active=${response?.active_key_id ?? 'unknown'}`);
   await loadSecuritySigningKeys(settings);
+  return response;
+}
+
+async function runSecuritySigningMaintenance(settings, dryRun = false) {
+  await maybeRefreshSession(settings);
+
+  const response = await safeFetchJson(`${settings.baseUrl}/v1/security/export/signing-maintenance/run`, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(settings),
+      origin: window.location.origin
+    },
+    body: JSON.stringify(dryRun ? { dry_run: true } : {})
+  });
+
+  const run = response?.data ?? {};
+  applySecuritySigningMaintenance(response?.maintenance ?? null);
+  if (!dryRun) {
+    await loadSecuritySigningKeys(settings);
+  }
+
+  log(
+    dryRun
+      ? `Security signing maintenance dry-run hazır. actions=${Array.isArray(run.actions) ? run.actions.join(',') : 'none'}, skip=${run.skipped_reason ?? 'preview'}`
+      : `Security signing maintenance çalıştı. changed=${run.changed ? 'evet' : 'hayır'}, actions=${Array.isArray(run.actions) ? run.actions.join(',') : 'none'}, skip=${run.skipped_reason ?? '—'}`
+  );
   return response;
 }
 
@@ -976,10 +1053,12 @@ async function signOut(settings) {
     document.getElementById('securityDeliveryPreviewSummary').textContent = 'Önizleme yapılmadı.';
     document.getElementById('securityDeliverySummary').textContent = '—';
     document.getElementById('securitySigningSummary').textContent = '—';
+    document.getElementById('securitySigningMaintenanceSummary').textContent = '—';
     document.getElementById('securitySigningMetric').textContent = '—';
     renderUiSessionsTable([]);
     renderSecurityDeliveriesTable([]);
     renderSecuritySigningTable([]);
+    renderSecuritySigningMaintenanceTable([]);
   }
 
   log('Dashboard oturumu kapatıldı.');
@@ -1002,10 +1081,12 @@ async function init() {
   document.getElementById('securityDeliveryPreviewSummary').textContent = 'Önizleme yapılmadı.';
   document.getElementById('securityDeliverySummary').textContent = '—';
   document.getElementById('securitySigningSummary').textContent = '—';
+  document.getElementById('securitySigningMaintenanceSummary').textContent = '—';
   document.getElementById('securitySigningMetric').textContent = '—';
   renderUiSessionsTable([]);
   renderSecurityDeliveriesTable([]);
   renderSecuritySigningTable([]);
+  renderSecuritySigningMaintenanceTable([]);
 
   document.getElementById('saveSettings').addEventListener('click', () => {
     const next = readSettingsForm();
@@ -1159,6 +1240,36 @@ async function init() {
     try {
       await rotateSecuritySigningKey(next);
       setStatus('Security export signing key rotate edildi.');
+    } catch (error) {
+      setStatus(String(error), true);
+      log(`Hata: ${String(error)}`);
+    }
+  });
+
+  document.getElementById('previewSecuritySigningMaintenance').addEventListener('click', async () => {
+    const next = readSettingsForm();
+    setSettings(next);
+
+    try {
+      await runSecuritySigningMaintenance(next, true);
+      setStatus('Security signing maintenance dry-run hazır.');
+    } catch (error) {
+      setStatus(String(error), true);
+      log(`Hata: ${String(error)}`);
+    }
+  });
+
+  document.getElementById('runSecuritySigningMaintenance').addEventListener('click', async () => {
+    const next = readSettingsForm();
+    setSettings(next);
+
+    if (!window.confirm('Security signing maintenance şimdi çalıştırılsın mı? Gerekirse due key rotate edilir ve verify-only key prune edilir.')) {
+      return;
+    }
+
+    try {
+      await runSecuritySigningMaintenance(next, false);
+      setStatus('Security signing maintenance tamamlandı.');
     } catch (error) {
       setStatus(String(error), true);
       log(`Hata: ${String(error)}`);
