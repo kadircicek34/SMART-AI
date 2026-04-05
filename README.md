@@ -263,6 +263,24 @@ curl -X POST 'http://127.0.0.1:8080/v1/security/export/keys/rotate' \
   -H 'content-type: application/json' \
   -d '{}'
 
+# signing maintenance leader/lease/history durumunu gör
+curl 'http://127.0.0.1:8080/v1/security/export/signing-maintenance' \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a'
+
+# manual maintenance dry-run / execute
+curl -X POST 'http://127.0.0.1:8080/v1/security/export/signing-maintenance/run' \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a' \
+  -H 'content-type: application/json' \
+  -d '{"dry_run":true}'
+
+curl -X POST 'http://127.0.0.1:8080/v1/security/export/signing-maintenance/run' \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a' \
+  -H 'content-type: application/json' \
+  -d '{}'
+
 # dedicated delivery-egress policy'yi host+path seviyesinde tanımla
 curl -X PUT 'http://127.0.0.1:8080/v1/security/export/delivery-policy' \
   -H 'Authorization: Bearer dev-admin-key' \
@@ -301,6 +319,8 @@ curl 'http://127.0.0.1:8080/v1/security/export/deliveries?status=dead_letter&lim
 Export bundle'ı artık sıralı `sequence`, `prev_chain_hash`, `chain_hash` alanlarıyla birlikte **Ed25519 signature metadata** taşır. Böylece SIEM/forensics hattı, payload transfer sonrası bile bundle üzerinde hem server-side hash-chain bütünlüğü hem de detached signature doğrulaması yapabilir. Public verification için `/.well-known/smart-ai/security-export-keys.json` JWKS endpointi yayınlanır ve signing key rotation geçmişi verify-only anahtarlarla korunur.
 
 Export signing hattı artık lifecycle-aware çalışır: admin kullanıcı `/v1/security/export/signing-policy` ile auto-rotate, expiry, warn window ve verify-only retention eşiklerini yönetebilir. Active key rotate süresi dolduğunda yeni export imzalanmadan önce otomatik anahtar üretilebilir; auto-rotation kapalıysa expired key ile export/delivery istekleri fail-closed reddedilir. Verify-only anahtarlar retention süresi dolunca JWKS yüzeyinden prune edilir ve `/v1/security/summary` ile dashboard signing health/alert görünürlüğü sağlar.
+
+Yeni maintenance control plane ile `/v1/security/export/signing-maintenance` ve `/v1/security/export/signing-maintenance/run` endpointleri leader lease, son maintenance history ve admin dry-run/execute akışını expose eder. Shared store refresh + lease tabanlı maintenance sayesinde aynı signing store'u paylaşan çoklu instance'lar stale active key ile devam etmez; yalnızca leader instance auto-rotate/prune mutasyonlarını yazar, diğer instance'lar ise store'u rehydrate ederek güncel active key'i kullanır.
 
 Security export delivery hattı production-grade operasyon için dört ek güvenlik/direnç katmanı sağlar:
 - delivery egress allowlist artık remote source policy’den ayrıdır; dedicated `delivery-policy` control plane ile **host + path-prefix** seviyesinde yönetilir,

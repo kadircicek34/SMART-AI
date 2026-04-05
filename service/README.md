@@ -110,6 +110,8 @@
 - `SECURITY_EXPORT_SIGNING_WARN_BEFORE_HOURS` (varsayılan: `168`)
 - `SECURITY_EXPORT_SIGNING_VERIFY_RETENTION_HOURS` (varsayılan: `2160`)
 - `SECURITY_EXPORT_SIGNING_MAINTENANCE_INTERVAL_MS` (varsayılan: `300000`)
+- `SECURITY_EXPORT_SIGNING_MAINTENANCE_LEASE_TTL_MS` (varsayılan: maintenance interval x2, tipik `600000`)
+- `SECURITY_EXPORT_SIGNING_MAINTENANCE_HISTORY_LIMIT` (varsayılan: `25`)
 - `SECURITY_EXPORT_DELIVERY_ALLOWED_PORTS` (varsayılan: `443`)
 - `SECURITY_EXPORT_DELIVERY_ALLOW_IP_LITERALS` (varsayılan: `false`, önerilen: kapalı)
 - `SECURITY_EXPORT_DELIVERY_USER_AGENT` (varsayılan: `SMART-AI-Security-Delivery/1.0`)
@@ -139,6 +141,8 @@
 - `GET /v1/security/export/signing-policy` → export signing lifecycle policy + health görünümü
 - `PUT /v1/security/export/signing-policy` → auto-rotate / expire / warn / verify-retention eşiklerini güncelle
 - `POST /v1/security/export/keys/rotate` → yeni active Ed25519 key üret, önceki active key’i verify-only durumuna taşı
+- `GET /v1/security/export/signing-maintenance` → signing maintenance leader lease + revision + last_run/history görünümü
+- `POST /v1/security/export/signing-maintenance/run` → manual maintenance dry-run/execute (rotate/prune preview + apply)
 - `GET /.well-known/smart-ai/security-export-keys.json` → public JWKS discovery endpoint
 - `GET /v1/security/export/delivery-policy` → effective delivery-egress policy (deployment/tenant source + mode + allowed target rules)
 - `PUT /v1/security/export/delivery-policy` → tenant delivery-egress policy güncelle (`inherit_remote_policy|allowlist_only|disabled`)
@@ -175,6 +179,8 @@
 - Export signing hattı artık lifecycle-aware çalışır: active key için **auto-rotate**, expiry guardrail, warn window ve verify-only retention policy uygulanır.
 - `GET/PUT /v1/security/export/signing-policy` ile aktif imzalama anahtarının rotate/expire/warn/retention eşikleri yönetilir; `/v1/security/export/keys` ve `/v1/security/summary` lifecycle health/alert durumunu döner.
 - Expired active signing key, auto-rotation kapalıysa export/delivery isteklerini fail-closed reddeder; verify-only anahtarlar retention süresi dolunca JWKS yüzeyinden prune edilir.
+- Yeni `GET /v1/security/export/signing-maintenance` ve `POST /v1/security/export/signing-maintenance/run` control plane'i leader lease, revision, history ve manual dry-run/execute akışını expose eder.
+- Signing store her kritik operasyon öncesi diskten rehydrate edilir; shared-file çoklu instance kurulumlarında stale active key kullanımı minimize edilir ve lease tabanlı maintenance ile auto-rotate/prune mutasyonları tek lider tarafından uygulanır.
 - Security export artık dashboard’dan veya API üzerinden dedicated **delivery-egress policy plane** ile yönetilen allowlisted HTTPS webhook/SIEM hedeflerine push edilebilir.
 - `GET/PUT/DELETE /v1/security/export/delivery-policy` ile remote source policy’den bağımsız tenant delivery policy yönetilir; production için önerilen mod `allowlist_only`’dir.
 - Delivery allowlist artık sadece host değil **host + path-prefix** kuralı seviyesinde tutulur. Örnek: `siem.example.com/hooks/smart-ai`, `https://logs.example.com/v1/tenants/tenant-a`, `*.ops.example.com/audit`.
