@@ -1,8 +1,9 @@
-import { after, before, test } from 'node:test';
+import { after, before, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { FastifyInstance } from 'fastify';
 
 let app: FastifyInstance;
+let signingPrivate: { resetForTests: () => void };
 
 before(async () => {
   process.env.APP_API_KEYS = '';
@@ -23,12 +24,19 @@ before(async () => {
   process.env.MASTER_KEY_BASE64 = Buffer.alloc(32, 2).toString('base64');
   process.env.UI_ALLOWED_ORIGINS = 'https://dashboard.example.com';
 
+  const signingModule = await import('../../security/export-signing.js');
+  signingPrivate = signingModule.__private__;
+
   const mod = await import('../../api/app.js');
   app = mod.buildApp();
 });
 
 after(async () => {
   await app.close();
+});
+
+beforeEach(() => {
+  signingPrivate.resetForTests();
 });
 
 test('GET /v1/security/events returns tenant-scoped event feed', async () => {

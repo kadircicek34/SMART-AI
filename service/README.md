@@ -103,6 +103,10 @@
 - `SECURITY_EXPORT_DELIVERY_RETRY_MAX_DELAY_MS` (varsayılan: 60000)
 - `SECURITY_EXPORT_DELIVERY_MAX_ATTEMPTS` (varsayılan: 4)
 - `SECURITY_EXPORT_DELIVERY_MAX_MANUAL_REDRIVES` (varsayılan: 2)
+- `SECURITY_EXPORT_DELIVERY_INCIDENT_WINDOW_HOURS` (delivery analytics/quarantine penceresi, varsayılan: 24)
+- `SECURITY_EXPORT_DELIVERY_QUARANTINE_FAILURE_THRESHOLD` (aynı hedefte quarantine tetikleyen terminal failure eşiği, varsayılan: 3)
+- `SECURITY_EXPORT_DELIVERY_QUARANTINE_DEAD_LETTER_THRESHOLD` (aynı hedefte quarantine tetikleyen dead-letter eşiği, varsayılan: 2)
+- `SECURITY_EXPORT_DELIVERY_QUARANTINE_DURATION_MINUTES` (quarantine süresi, varsayılan: 60)
 - `SECURITY_EXPORT_SIGNING_MAX_VERIFY_KEYS` (varsayılan: 4)
 - `SECURITY_EXPORT_SIGNING_AUTO_ROTATE_ENABLED` (varsayılan: `true`)
 - `SECURITY_EXPORT_SIGNING_ROTATE_AFTER_HOURS` (varsayılan: `720`)
@@ -148,6 +152,7 @@
 - `PUT /v1/security/export/delivery-policy` → tenant delivery-egress policy güncelle (`inherit_remote_policy|allowlist_only|disabled`)
 - `DELETE /v1/security/export/delivery-policy` → delivery-egress policy reset → deployment defaults
 - `GET /v1/security/export/deliveries` → son export delivery receipt’lerini listele (`status=queued|retrying|succeeded|failed|blocked|dead_letter` filtreli)
+- `GET /v1/security/export/delivery-analytics` → delivery status breakdown + success rate + destination health/quarantine + timeline bucket’ları
 - `POST /v1/security/export/deliveries/preview` → delivery hedefini gerçek gönderim yapmadan preview et (`allowed`, `reason`, `matched_rule`, `pinned_address`)
 - `POST /v1/security/export/deliveries` → allowlisted HTTPS webhook/SIEM hedefine Ed25519-imzalı export gönder (`mode=sync|async`; async mod encrypted retry queue + backoff + dead-letter lifecycle + Idempotency-Key dedupe)
 - `POST /v1/security/export/deliveries/:deliveryId/redrive` → dead-letter delivery için aynı payload + aynı hedef ile manual redrive başlat
@@ -189,6 +194,8 @@
 - Async queue payload’ı delivery store içinde düz JSON tutulmaz; AES-256-GCM ile encrypted-at-rest saklanır.
 - Dead-letter receipt’leri dashboard veya API üzerinden manual redrive ile aynı hedef + aynı signed payload kullanılarak tekrar kuyruğa alınabilir.
 - `Idempotency-Key` aynı export isteğinin duplicate/replay flood’unu bastırır; tenant başına aktif async delivery sayısı ayrıca üst sınırla korunur.
+- `GET /v1/security/export/delivery-analytics` son pencere için success-rate, status dağılımı, incident timeline ve destination health verdict’lerini (`healthy|degraded|quarantined`) döndürür.
+- Aynı tenant içindeki aynı destination tekrar tekrar terminal failure/dead-letter üretirse hedef otomatik quarantine durumuna girer; preview, sync delivery, async enqueue ve manual redrive akışları fail-closed bloke edilir.
 - Delivery target’ı `allowlist_only` modunda host+path eşleşmezse fail-closed bloke edilir; backward-compatible migration için `inherit_remote_policy` modu desteklenir.
 - Hedef hostname public DNS ile resolve edilir ve pinned address üzerinden bağlanılır; private/local/reserved ağlara egress fail-closed reddedilir.
 - Retry/redrive materyali hedef fingerprint’i (`origin`, `host`, `path_hash`, `matched_host_rule`) ile saklanır; mismatch veya redrive-limit aşımı fail-closed reddedilir.

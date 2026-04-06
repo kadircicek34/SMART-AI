@@ -1,20 +1,25 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "Signing maintenance control plane + shared-store coordination production-grade olarak teslim edildi",
+  "current_task": "Delivery analytics + automatic destination quarantine production-grade olarak teslim edildi",
   "next_actions": [
-    "Delivery queue, security audit, UI session, policy ve signing store'larını gerçek shared backend'e taşı",
-    "Delivery policy için rollout analytics, trend kartları ve operatör playbook akışı ekle",
+    "Delivery queue, security audit, UI session, policy ve signing storelarını gerçek shared backend/incident store katmanına taşı",
+    "Delivery analytics için acknowledgement/clear workflow ve operator playbook akışı ekle",
     "Export delivery için merkezi egress proxy / VPC-level outbound enforcement tasarla",
     "Signing maintenance lease modelini merkezi coordination backend + conflict-aware revision guard ile bir üst seviyeye çıkar"
   ],
   "risks": [
-    "Delivery queue/audit/policy/session/signing persistence hâlâ local file tabanlı; multi-instance HA için gerçek shared backend gerekecek",
-    "Signing maintenance lease shared-file senaryosunu sertleştirir fakat tam distributed lock/consensus çözümü değildir; network-partition tolerant merkezi koordinasyon hâlâ yok",
-    "Deployment default delivery policy backward-compatible migration için inherit_remote_policy kalabilir; explicit allowlist_only konfigürasyonu yapılmazsa sınır daha geniş kalabilir",
+    "Delivery incident/quarantine state hâlâ local delivery kayıtlarından türetiliyor; multi-instance HA için gerçek shared backend veya merkezi incident store gerekecek",
+    "Quarantine clear/ack için ayrı operatör onay workflowu henüz yok; mevcut model süre tabanlı soğuma penceresiyle çalışıyor",
+    "Delivery queue/audit/policy/session/signing persistence hâlâ local file tabanlı; multi-instance HA için shared backend gerekecek",
     "Export delivery için merkezi egress proxy / VPC-level outbound control henüz yok"
   ],
   "decisions": [
+    {
+      "date": "2026-04-06",
+      "decision": "Security export delivery hattına analytics control plane ve automatic destination quarantine ekle",
+      "reason": "Problemli destinationları görünür kılmak, repeated failure/dead-letter üreten hedefleri preview/sync/async/redrive zincirinde fail-closed bloke etmek ve delivery operasyonunu incident odaklı yönetilebilir hale getirmek"
+    },
     {
       "date": "2026-04-05",
       "decision": "Signing maintenance control plane, shared-store refresh ve leader-lease koordinasyonunu canlıya al",
@@ -58,13 +63,12 @@
     "service/.env.example",
     "service/config.ts",
     "service/api/routes/security-events.ts",
-    "service/security/audit-log.ts",
+    "service/security/export-delivery.ts",
     "service/security/export-signing.ts",
     "service/web/assets/dashboard.js",
     "service/web/dashboard.html",
     "service/tests/contract/security-events.test.ts",
-    "service/tests/contract/security-export-signing-policy.test.ts",
-    "service/tests/security/export-signing.test.ts"
+    "service/tests/contract/security-export-deliveries.test.ts"
   ],
-  "updated_at": "2026-04-05T07:30:00+03:00"
+  "updated_at": "2026-04-06T07:00:00+03:00"
 }

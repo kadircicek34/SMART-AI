@@ -87,12 +87,72 @@ type PreparedDelivery = {
 
 export type SecurityExportDeliveryTargetPreview = {
   allowed: boolean;
-  reason: SecurityExportDeliveryTargetPolicyReason;
+  reason: SecurityExportDeliveryTargetPreviewReason;
   policy: EffectiveSecurityExportDeliveryPolicy;
   destination: DeliveryDestination;
   matched_rule: string | null;
   pinned_address: string;
   pinned_address_family: number;
+  health: SecurityExportDeliveryDestinationHealth;
+};
+
+export type SecurityExportDeliveryTargetPreviewReason = SecurityExportDeliveryTargetPolicyReason | 'destination_quarantined';
+
+export type SecurityExportDeliveryHealthVerdict = 'healthy' | 'degraded' | 'quarantined';
+
+export type SecurityExportDeliveryDestinationHealth = {
+  verdict: SecurityExportDeliveryHealthVerdict;
+  total: number;
+  counts: Record<SecurityExportDeliveryStatus, number>;
+  terminal_failures: number;
+  dead_letters: number;
+  last_status: SecurityExportDeliveryStatus | null;
+  last_attempt_at: string | null;
+  last_http_status: number | null;
+  last_failure_code: string | null;
+  last_failure_reason: string | null;
+  quarantined_until: string | null;
+  incident_window_hours: number;
+  quarantine_duration_minutes: number;
+  quarantine_failure_threshold: number;
+  quarantine_dead_letter_threshold: number;
+};
+
+export type SecurityExportDeliveryDestinationAnalytics = {
+  destination: DeliveryDestination;
+  matched_rule: string | null;
+  health: SecurityExportDeliveryDestinationHealth;
+  latest_delivery_id: string | null;
+  latest_mode: SecurityExportDeliveryMode | null;
+  latest_completed_at: string | null;
+  redrive_count: number;
+};
+
+export type SecurityExportDeliveryAnalytics = {
+  generated_at: string;
+  window: {
+    hours: number;
+    bucket_hours: number;
+    started_at: string;
+    ended_at: string;
+  };
+  summary: {
+    total_records: number;
+    active_queue_count: number;
+    active_destinations: number;
+    quarantined_destinations: number;
+    degraded_destinations: number;
+    success_rate: number;
+    counts: Record<SecurityExportDeliveryStatus, number>;
+  };
+  incidents: SecurityExportDeliveryDestinationAnalytics[];
+  destinations: SecurityExportDeliveryDestinationAnalytics[];
+  timeline: Array<{
+    started_at: string;
+    ended_at: string;
+    total: number;
+    counts: Record<SecurityExportDeliveryStatus, number>;
+  }>;
 };
 
 type DeliveryTransportResult = {
@@ -186,6 +246,10 @@ class SecurityExportDeliveryStore {
     const records = this.deliveries.get(tenantId) ?? [];
     const filtered = opts.status ? records.filter((record) => record.status === opts.status) : records;
     return filtered.slice(0, Math.max(0, opts.limit ?? 20));
+  }
+
+  listAll(tenantId: string): SecurityExportDeliveryRecord[] {
+    return [...(this.deliveries.get(tenantId) ?? [])];
   }
 
   get(tenantId: string, deliveryId: string): SecurityExportDeliveryRecord | null {
@@ -482,6 +546,178 @@ function buildDeliveryDestination(url: URL, matchedHostRule: string | null): Del
     path_hint: pathMaterial === '/' ? '/' : '/…',
     path_hash: pathHash
   };
+}
+
+function buildStatusCounts(): Record<SecurityExportDeliveryStatus, number> {
+  return {
+    queued: 0,
+    retrying: 0,
+    succeeded: 0,
+    failed: 0,
+    blocked: 0,
+    dead_letter: 0
+  };
+}
+
+function destinationAnalyticsKey(destination: DeliveryDestination): string {
+  return `${destination.origin}|${destination.path_hash}`;
+}
+
+function recordTimelineTimestamp(record: SecurityExportDeliveryRecord): number {
+  return Date.parse(record.completed_at ?? record.updated_at ?? record.last_attempt_at ?? record.requested_at);
+}
+
+function isDerivedBlockFailureCode(failureCode?: string): boolean {
+  return failureCode === 'policy_blocked' || failureCode === 'destination_quarantined';
+}
+
+function isTerminalIncidentRecord(record: SecurityExportDeliveryRecord): boolean {
+  return (record.status === 'failed' || record.status === 'dead_letter') && !isDerivedBlockFailureCode(record.failure_code);
+}
+
+function isQuarantineTriggered(options: {
+  deadLetters: number;
+  terminalFailures: number;
+  lastIncidentAtMs: number | null;
+  now: number;
+}): { active: boolean; quarantinedUntil: string | null } {
+  const durationMs = Math.max(1, config.security.exportDeliveryQuarantineDurationMinutes) * 60 * 1000;
+  const deadLetterThreshold = Math.max(1, config.security.exportDeliveryQuarantineDeadLetterThreshold);
+  const failureThreshold = Math.max(1, config.security.exportDeliveryQuarantineFailureThreshold);
+  const thresholdBreached =
+    options.deadLetters >= deadLetterThreshold || options.terminalFailures >= failureThreshold;
+
+  if (!thresholdBreached || !options.lastIncidentAtMs || !Number.isFinite(options.lastIncidentAtMs)) {
+    return {
+      active: false,
+      quarantinedUntil: null
+    };
+  }
+
+  const quarantineEndsAtMs = options.lastIncidentAtMs + durationMs;
+  if (quarantineEndsAtMs <= options.now) {
+    return {
+      active: false,
+      quarantinedUntil: null
+    };
+  }
+
+  return {
+    active: true,
+    quarantinedUntil: new Date(quarantineEndsAtMs).toISOString()
+  };
+}
+
+function buildDestinationHealth(records: SecurityExportDeliveryRecord[], now: number): SecurityExportDeliveryDestinationHealth {
+  const counts = buildStatusCounts();
+  let terminalFailures = 0;
+  let deadLetters = 0;
+  let lastRecord: SecurityExportDeliveryRecord | null = null;
+  let lastIncidentAtMs: number | null = null;
+
+  for (const record of records) {
+    counts[record.status] += 1;
+    if (!lastRecord) {
+      lastRecord = record;
+    }
+    if (record.status === 'dead_letter') {
+      deadLetters += 1;
+    }
+    if (isTerminalIncidentRecord(record)) {
+      terminalFailures += 1;
+      const timestamp = recordTimelineTimestamp(record);
+      if (Number.isFinite(timestamp) && (!lastIncidentAtMs || timestamp > lastIncidentAtMs)) {
+        lastIncidentAtMs = timestamp;
+      }
+    }
+  }
+
+  const quarantine = isQuarantineTriggered({
+    deadLetters,
+    terminalFailures,
+    lastIncidentAtMs,
+    now
+  });
+
+  const degraded = !quarantine.active && (terminalFailures > 0 || counts.blocked > 0 || counts.retrying > 0 || counts.queued > 0);
+
+  return {
+    verdict: quarantine.active ? 'quarantined' : degraded ? 'degraded' : 'healthy',
+    total: records.length,
+    counts,
+    terminal_failures: terminalFailures,
+    dead_letters: deadLetters,
+    last_status: lastRecord?.status ?? null,
+    last_attempt_at: lastRecord?.last_attempt_at ?? lastRecord?.updated_at ?? lastRecord?.requested_at ?? null,
+    last_http_status: lastRecord?.http_status ?? null,
+    last_failure_code: lastRecord?.failure_code ?? null,
+    last_failure_reason: lastRecord?.failure_reason ?? null,
+    quarantined_until: quarantine.quarantinedUntil,
+    incident_window_hours: Math.max(1, config.security.exportDeliveryIncidentWindowHours),
+    quarantine_duration_minutes: Math.max(1, config.security.exportDeliveryQuarantineDurationMinutes),
+    quarantine_failure_threshold: Math.max(1, config.security.exportDeliveryQuarantineFailureThreshold),
+    quarantine_dead_letter_threshold: Math.max(1, config.security.exportDeliveryQuarantineDeadLetterThreshold)
+  };
+}
+
+function buildDestinationAnalytics(records: SecurityExportDeliveryRecord[], now: number): SecurityExportDeliveryDestinationAnalytics | null {
+  if (records.length === 0) {
+    return null;
+  }
+
+  const latest = records[0];
+  return {
+    destination: latest.destination,
+    matched_rule: latest.destination.matched_host_rule,
+    health: buildDestinationHealth(records, now),
+    latest_delivery_id: latest.delivery_id,
+    latest_mode: latest.mode,
+    latest_completed_at: latest.completed_at ?? latest.updated_at ?? latest.requested_at,
+    redrive_count: records.reduce((max, record) => Math.max(max, record.redrive_count ?? 0), 0)
+  };
+}
+
+function getDestinationAnalyticsForTenant(
+  tenantId: string,
+  options: {
+    windowHours?: number;
+    now?: number;
+  } = {}
+): SecurityExportDeliveryDestinationAnalytics[] {
+  const now = options.now ?? Date.now();
+  const windowHours = Math.max(1, Math.trunc(options.windowHours ?? config.security.exportDeliveryIncidentWindowHours));
+  const windowStartMs = now - windowHours * 60 * 60 * 1000;
+  const grouped = new Map<string, SecurityExportDeliveryRecord[]>();
+
+  for (const record of deliveryStore.listAll(tenantId)) {
+    const timestamp = recordTimelineTimestamp(record);
+    if (!Number.isFinite(timestamp) || timestamp < windowStartMs) {
+      continue;
+    }
+
+    const key = destinationAnalyticsKey(record.destination);
+    const records = grouped.get(key) ?? [];
+    records.push(record);
+    grouped.set(key, records);
+  }
+
+  return [...grouped.values()]
+    .map((records) => buildDestinationAnalytics(records, now))
+    .filter((entry): entry is SecurityExportDeliveryDestinationAnalytics => Boolean(entry))
+    .sort((left, right) => {
+      const severity = (entry: SecurityExportDeliveryDestinationAnalytics) => {
+        if (entry.health.verdict === 'quarantined') return 3;
+        if (entry.health.verdict === 'degraded') return 2;
+        return 1;
+      };
+
+      return (
+        severity(right) - severity(left) ||
+        right.health.dead_letters - left.health.dead_letters ||
+        right.health.terminal_failures - left.health.terminal_failures ||
+        Date.parse(right.latest_completed_at ?? '') - Date.parse(left.latest_completed_at ?? '')
+      );
+    });
 }
 
 function buildRetryMaterial(options: {
@@ -1024,11 +1260,44 @@ function describeDeliveryTargetPolicyError(reason: SecurityExportDeliveryTargetP
   }
 }
 
+function describeQuarantinedDestinationError(health: SecurityExportDeliveryDestinationHealth): string {
+  const until = health.quarantined_until ? new Date(health.quarantined_until).toISOString() : 'unknown';
+  return `Destination is temporarily quarantined due to recent failed or dead-letter security export deliveries until ${until}.`;
+}
+
+function getDeliveryDestinationHealth(tenantId: string, destination: DeliveryDestination, now = Date.now()): SecurityExportDeliveryDestinationHealth {
+  const analytics = getDestinationAnalyticsForTenant(tenantId, {
+    windowHours: config.security.exportDeliveryIncidentWindowHours,
+    now
+  }).find((entry) => destinationAnalyticsKey(entry.destination) === destinationAnalyticsKey(destination));
+
+  return (
+    analytics?.health ?? {
+      verdict: 'healthy',
+      total: 0,
+      counts: buildStatusCounts(),
+      terminal_failures: 0,
+      dead_letters: 0,
+      last_status: null,
+      last_attempt_at: null,
+      last_http_status: null,
+      last_failure_code: null,
+      last_failure_reason: null,
+      quarantined_until: null,
+      incident_window_hours: Math.max(1, config.security.exportDeliveryIncidentWindowHours),
+      quarantine_duration_minutes: Math.max(1, config.security.exportDeliveryQuarantineDurationMinutes),
+      quarantine_failure_threshold: Math.max(1, config.security.exportDeliveryQuarantineFailureThreshold),
+      quarantine_dead_letter_threshold: Math.max(1, config.security.exportDeliveryQuarantineDeadLetterThreshold)
+    }
+  );
+}
+
 async function resolveDeliveryTarget(tenantId: string, destinationUrl: string): Promise<{
   url: URL;
   hostname: string;
   matchedHostRule: string;
   descriptor: DeliveryDestination;
+  health: SecurityExportDeliveryDestinationHealth;
 }> {
   const normalized = normalizeDeliveryTargetDestination(destinationUrl);
   const policyDecision = await evaluateSecurityExportDeliveryTargetPolicy({
@@ -1042,11 +1311,18 @@ async function resolveDeliveryTarget(tenantId: string, destinationUrl: string): 
     throw new Error(describeDeliveryTargetPolicyError(policyDecision.reason));
   }
 
+  const descriptor = buildDeliveryDestination(normalized.url, policyDecision.matchedRule);
+  const health = getDeliveryDestinationHealth(tenantId, descriptor);
+  if (health.verdict === 'quarantined') {
+    throw new Error(describeQuarantinedDestinationError(health));
+  }
+
   return {
     url: normalized.url,
     hostname: normalized.hostname,
     matchedHostRule: policyDecision.matchedRule,
-    descriptor: buildDeliveryDestination(normalized.url, policyDecision.matchedRule)
+    descriptor,
+    health
   };
 }
 
@@ -1076,16 +1352,20 @@ export async function previewSecurityExportDeliveryTarget(options: {
     port: normalized.port,
     path: normalized.path
   });
+  const destination = buildDeliveryDestination(normalized.url, policyDecision.matchedRule);
+  const health = getDeliveryDestinationHealth(options.tenantId, destination);
   const pinnedAddress = await resolvePinnedAddress(normalized.hostname);
+  const quarantined = policyDecision.allowed && Boolean(policyDecision.matchedRule) && health.verdict === 'quarantined';
 
   return {
-    allowed: policyDecision.allowed,
-    reason: policyDecision.reason,
+    allowed: policyDecision.allowed && !quarantined,
+    reason: quarantined ? 'destination_quarantined' : policyDecision.reason,
     policy: policyDecision.policy,
-    destination: buildDeliveryDestination(normalized.url, policyDecision.matchedRule),
+    destination,
     matched_rule: policyDecision.matchedRule,
     pinned_address: pinnedAddress.address,
-    pinned_address_family: pinnedAddress.family
+    pinned_address_family: pinnedAddress.family,
+    health
   };
 }
 
@@ -1224,7 +1504,15 @@ function isRetryableError(error: unknown): boolean {
 }
 
 function isBlockedMessage(message: string): boolean {
-  return /allowlist|https|credential|invalid|disabled|hostname|port|public hostname|IP-literal/i.test(message);
+  return /allowlist|https|credential|invalid|disabled|hostname|port|public hostname|IP-literal|quarantined/i.test(message);
+}
+
+function inferFailureCode(message: string, blocked: boolean): 'policy_blocked' | 'destination_quarantined' | 'delivery_failed' {
+  if (!blocked) {
+    return 'delivery_failed';
+  }
+
+  return /quarantined/i.test(message) ? 'destination_quarantined' : 'policy_blocked';
 }
 
 function calculateRetryDelayMs(attemptCount: number): number {
@@ -1369,6 +1657,7 @@ export async function deliverSecurityAuditExport(options: {
 
     const message = error instanceof Error ? error.message : 'Security export delivery failed.';
     const blocked = isBlockedMessage(message);
+    const failureCode = inferFailureCode(message, blocked);
     const deliveryId = prepared?.deliveryId ?? crypto.randomUUID();
     const signature = prepared?.signature ?? createFallbackSignature(options.bundle);
     const destination = prepared?.target.descriptor ?? buildFallbackDestination(options.destinationUrl);
@@ -1387,7 +1676,7 @@ export async function deliverSecurityAuditExport(options: {
       attemptCount: 1,
       maxAttempts: 1,
       lastAttemptAt: requestedAt,
-      failureCode: blocked ? 'policy_blocked' : 'delivery_failed',
+      failureCode,
       failureReason: message,
       pinnedAddress: prepared?.pinnedAddress.address,
       pinnedAddressFamily: prepared?.pinnedAddress.family
@@ -1396,7 +1685,7 @@ export async function deliverSecurityAuditExport(options: {
     await deliveryStore.upsert(record);
     recordSecurityEvent(blocked ? 'security_export_delivery_blocked' : 'security_export_delivery_failed', record);
     throw new SecurityExportDeliveryError(message, {
-      code: blocked ? 'policy_blocked' : 'delivery_failed',
+      code: failureCode,
       statusCode: blocked ? 403 : 502,
       record
     });
@@ -1439,7 +1728,40 @@ export async function enqueueSecurityAuditExportDelivery(options: {
     };
   }
 
-  const target = await resolveDeliveryTarget(options.tenantId, options.destinationUrl);
+  let target: Awaited<ReturnType<typeof resolveDeliveryTarget>>;
+  try {
+    target = await resolveDeliveryTarget(options.tenantId, options.destinationUrl);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Security export delivery failed.';
+    const blocked = isBlockedMessage(message);
+    const failureCode = inferFailureCode(message, blocked);
+    const record = buildErrorRecord({
+      tenantId: options.tenantId,
+      requestId: options.requestId,
+      deliveryId: crypto.randomUUID(),
+      mode: 'async',
+      requestedAt,
+      completedAt: new Date().toISOString(),
+      status: blocked ? 'blocked' : 'failed',
+      destination: buildFallbackDestination(options.destinationUrl),
+      bundle: options.bundle,
+      signature: createFallbackSignature(options.bundle),
+      attemptCount: 0,
+      maxAttempts: Math.max(1, config.security.exportDeliveryMaxAttempts),
+      redriveCount: 0,
+      failureCode,
+      failureReason: message
+    });
+
+    await deliveryStore.upsert(record);
+    recordSecurityEvent(blocked ? 'security_export_delivery_blocked' : 'security_export_delivery_failed', record);
+    throw new SecurityExportDeliveryError(message, {
+      code: failureCode,
+      statusCode: blocked ? 403 : 400,
+      record
+    });
+  }
+
   const deliveryId = crypto.randomUUID();
   const record = buildQueuedRecord({
     tenantId: options.tenantId,
@@ -1647,6 +1969,25 @@ export async function redriveSecurityAuditExportDelivery(options: {
     throw new SecurityExportDeliveryError(error instanceof Error ? error.message : 'Retry material cannot be decrypted.', {
       code: 'retry_material_corrupted',
       statusCode: 409,
+      record: existingRecord
+    });
+  }
+
+  try {
+    await resolveDeliveryTarget(options.tenantId, retryMaterial.destination_url);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Security export delivery failed.';
+    const blocked = isBlockedMessage(message);
+    const failureCode = inferFailureCode(message, blocked);
+    if (blocked) {
+      recordSecurityEvent('security_export_delivery_blocked', existingRecord, {
+        failure_code: failureCode,
+        redrive_blocked: true
+      });
+    }
+    throw new SecurityExportDeliveryError(message, {
+      code: failureCode,
+      statusCode: blocked ? 403 : 400,
       record: existingRecord
     });
   }
@@ -1979,6 +2320,7 @@ async function processSingleRetryRecord(record: SecurityExportDeliveryRecord): P
     const message = error instanceof Error ? error.message : 'Security export delivery failed.';
     const blocked = isBlockedMessage(message);
     const retryable = !blocked && isRetryableError(error);
+    const failureCode = inferFailureCode(message, blocked);
     const destination = prepared?.target.descriptor ?? record.destination;
     const signature = prepared?.signature ?? record.signature;
     const pinnedAddress = prepared?.pinnedAddress.address;
@@ -2036,7 +2378,7 @@ async function processSingleRetryRecord(record: SecurityExportDeliveryRecord): P
       redriveCount: record.redrive_count,
       lastAttemptAt,
       deadLetteredAt: terminalStatus === 'dead_letter' ? completedAt : undefined,
-      failureCode: blocked ? 'policy_blocked' : retryable ? 'delivery_failed' : 'delivery_failed',
+      failureCode: blocked ? failureCode : retryable ? 'delivery_failed' : 'delivery_failed',
       failureReason: message,
       pinnedAddress,
       pinnedAddressFamily
@@ -2099,6 +2441,87 @@ export function listSecurityExportDeliveries(
   } = {}
 ): SecurityExportDeliveryRecord[] {
   return deliveryStore.list(tenantId, opts);
+}
+
+export function getSecurityExportDeliveryAnalytics(
+  tenantId: string,
+  options: {
+    windowHours?: number;
+    bucketHours?: number;
+    destinationLimit?: number;
+  } = {}
+): SecurityExportDeliveryAnalytics {
+  const now = Date.now();
+  const windowHours = Math.max(1, Math.trunc(options.windowHours ?? config.security.exportDeliveryIncidentWindowHours));
+  const bucketHours = Math.max(1, Math.min(windowHours, Math.trunc(options.bucketHours ?? 6)));
+  const destinationLimit = Math.max(1, Math.trunc(options.destinationLimit ?? 10));
+  const allRecords = deliveryStore.listAll(tenantId);
+  const windowStartMs = now - windowHours * 60 * 60 * 1000;
+  const records = allRecords.filter((record) => {
+    const timestamp = recordTimelineTimestamp(record);
+    return Number.isFinite(timestamp) && timestamp >= windowStartMs;
+  });
+
+  const counts = buildStatusCounts();
+  for (const record of records) {
+    counts[record.status] += 1;
+  }
+
+  const terminalCount = counts.succeeded + counts.failed + counts.blocked + counts.dead_letter;
+  const successRate = terminalCount > 0 ? Number((counts.succeeded / terminalCount).toFixed(4)) : 1;
+  const destinations = getDestinationAnalyticsForTenant(tenantId, { windowHours, now });
+
+  const bucketMs = bucketHours * 60 * 60 * 1000;
+  const bucketStartMs = now - windowHours * 60 * 60 * 1000;
+  const bucketCount = Math.max(1, Math.ceil((now - bucketStartMs) / bucketMs));
+  const timeline = Array.from({ length: bucketCount }, (_, index) => {
+    const startedAtMs = bucketStartMs + index * bucketMs;
+    const endedAtMs = Math.min(now, startedAtMs + bucketMs);
+    return {
+      started_at: new Date(startedAtMs).toISOString(),
+      ended_at: new Date(endedAtMs).toISOString(),
+      total: 0,
+      counts: buildStatusCounts()
+    };
+  });
+
+  for (const record of records) {
+    const timestamp = recordTimelineTimestamp(record);
+    if (!Number.isFinite(timestamp) || timestamp < bucketStartMs) {
+      continue;
+    }
+
+    const bucketIndex = Math.min(timeline.length - 1, Math.floor((timestamp - bucketStartMs) / bucketMs));
+    const bucket = timeline[bucketIndex];
+    if (!bucket) {
+      continue;
+    }
+
+    bucket.total += 1;
+    bucket.counts[record.status] += 1;
+  }
+
+  return {
+    generated_at: new Date(now).toISOString(),
+    window: {
+      hours: windowHours,
+      bucket_hours: bucketHours,
+      started_at: new Date(bucketStartMs).toISOString(),
+      ended_at: new Date(now).toISOString()
+    },
+    summary: {
+      total_records: records.length,
+      active_queue_count: allRecords.filter((record) => record.status === 'queued' || record.status === 'retrying').length,
+      active_destinations: destinations.length,
+      quarantined_destinations: destinations.filter((entry) => entry.health.verdict === 'quarantined').length,
+      degraded_destinations: destinations.filter((entry) => entry.health.verdict === 'degraded').length,
+      success_rate: successRate,
+      counts
+    },
+    incidents: destinations.filter((entry) => entry.health.verdict !== 'healthy').slice(0, destinationLimit),
+    destinations: destinations.slice(0, destinationLimit),
+    timeline
+  };
 }
 
 export const __private__ = {

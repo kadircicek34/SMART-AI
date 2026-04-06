@@ -1,4 +1,28 @@
-# SECURITY REPORT — SMART-AI v1.17
+# SECURITY REPORT — SMART-AI v1.18
+
+## 2026-04-06 Güvenlik sertleştirmesi — delivery analytics + automatic destination quarantine
+- **Delivery analytics control plane**
+  - Yeni endpoint: `GET /v1/security/export/delivery-analytics`
+  - Son pencere için success-rate, status dağılımı, quarantined/degraded destination sayısı ve timeline bucket’ları dönülüyor.
+  - Dashboard delivery paneli analytics summary + incident tablosu ile riskli destination’ları görünür kılıyor.
+- **Automatic destination quarantine**
+  - Aynı tenant içindeki aynı destination son pencere içinde tekrarlayan terminal failure veya dead-letter üretirse otomatik quarantine durumuna alınıyor.
+  - Preview, sync delivery, async enqueue ve manual redrive akışları quarantine durumunda fail-closed bloke ediyor.
+  - Bloklanan receipt’lerde açık `destination_quarantined` failure code saklanıyor; query/path secret’ları yine redacted kalıyor.
+- **Async enqueue/redrive hardening**
+  - Async enqueue path’i target resolution/quarantine hatalarını artık kontrollü `blocked` receipt + `403` ile döndürüyor; belirsiz 500 sınıfı hata penceresi kapatıldı.
+  - Manual redrive da aynı health/quarantine guard’ını gördüğü için bozuk hedefe tekrar tekrar replay yapılamıyor.
+- **Signing contract isolation fix**
+  - Signing registry için test reset helper eklendi; security-events contract suite içindeki global singleton state leakage temizlendi.
+  - Bu sayede signing lifecycle + delivery güvenlik regresyonları tekrar deterministik hale geldi.
+- **Dependency posture**
+  - `npm audit --omit=dev` tekrar temiz geçti (0 vulnerability).
+
+Kalan risk:
+- Delivery incident/quarantine state hâlâ local delivery kayıtlarından türetiliyor; shared backend veya merkezi incident store henüz yok.
+- Quarantine clear/ack için ayrı operatör onay workflow’u henüz yok; soğuma penceresi süre tabanlı.
+- Export delivery için merkezi egress proxy / VPC-level outbound enforcement hâlâ backlog’da.
+
 
 ## Kapsam
 Bu iterasyonda kontrol edilen güvenlik/dayanıklılık yüzeyleri:

@@ -19,6 +19,7 @@ import {
 import {
   SecurityExportDeliveryError,
   deliverSecurityAuditExport,
+  getSecurityExportDeliveryAnalytics,
   enqueueSecurityAuditExportDelivery,
   listSecurityExportDeliveries,
   previewSecurityExportDeliveryTarget,
@@ -108,6 +109,39 @@ const DELIVERY_LIST_QUERY_SCHEMA = z.object({
     })
     .refine((value) => value >= 1 && value <= 100, { message: 'limit must be between 1 and 100' }),
   status: z.enum(['queued', 'retrying', 'succeeded', 'failed', 'blocked', 'dead_letter']).optional()
+});
+
+const DELIVERY_ANALYTICS_QUERY_SCHEMA = z.object({
+  window_hours: z
+    .union([z.string(), z.number()])
+    .optional()
+    .transform((value) => {
+      if (value === undefined) return config.security.exportDeliveryIncidentWindowHours;
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return config.security.exportDeliveryIncidentWindowHours;
+      return parsed;
+    })
+    .refine((value) => value >= 1 && value <= 24 * 30, { message: 'window_hours must be between 1 and 720' }),
+  bucket_hours: z
+    .union([z.string(), z.number()])
+    .optional()
+    .transform((value) => {
+      if (value === undefined) return 6;
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return 6;
+      return parsed;
+    })
+    .refine((value) => value >= 1 && value <= 24 * 30, { message: 'bucket_hours must be between 1 and 720' }),
+  destination_limit: z
+    .union([z.string(), z.number()])
+    .optional()
+    .transform((value) => {
+      if (value === undefined) return 10;
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return 10;
+      return parsed;
+    })
+    .refine((value) => value >= 1 && value <= 50, { message: 'destination_limit must be between 1 and 50' })
 });
 
 const DELIVERY_REDIVE_PARAMS_SCHEMA = z.object({
@@ -742,7 +776,9 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
           path_hash: preview.destination.path_hash,
           matched_rule: preview.matched_rule,
           pinned_address_family: preview.pinned_address_family,
-          reason: preview.reason
+          reason: preview.reason,
+          health_verdict: preview.health.verdict,
+          quarantined_until: preview.health.quarantined_until
         }
       });
 
@@ -755,6 +791,7 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
         destination: preview.destination,
         pinned_address: preview.pinned_address,
         pinned_address_family: preview.pinned_address_family,
+        health: preview.health,
         policy: toSecurityExportDeliveryPolicyPayload(preview.policy)
       };
     } catch (error) {
@@ -778,6 +815,28 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
       data: listSecurityExportDeliveries(tenantId, {
         limit: parsed.data.limit,
         status: parsed.data.status
+      })
+    };
+  });
+
+  app.get('/v1/security/export/delivery-analytics', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    const parsed = DELIVERY_ANALYTICS_QUERY_SCHEMA.safeParse(req.query);
+    if (!parsed.success) {
+      return reply.status(400).send(invalidRequest('Invalid query for security export delivery analytics.', parsed.error.flatten()));
+    }
+
+    return {
+      object: 'security_export_delivery_analytics',
+      tenant_id: tenantId,
+      data: getSecurityExportDeliveryAnalytics(tenantId, {
+        windowHours: parsed.data.window_hours,
+        bucketHours: parsed.data.bucket_hours,
+        destinationLimit: parsed.data.destination_limit
       })
     };
   });

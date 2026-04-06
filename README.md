@@ -42,6 +42,7 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - **Security Export Signing Registry** (`GET/POST /v1/security/export/keys*` + `/.well-known/smart-ai/security-export-keys.json`) + active/verify-only key rotation + public JWKS discovery
 - **Dedicated Security Export Delivery Egress Policy** (`GET/PUT/DELETE /v1/security/export/delivery-policy` + `POST /v1/security/export/deliveries/preview`) + separate delivery control plane + host/path-prefix allowlist + target preview + pinned-address visibility
 - **Resilient Security Export Delivery Queue** (`POST /v1/security/export/deliveries` with `mode=async`) + encrypted retry payload store + backoff/dead-letter lifecycle + Idempotency-Key dedupe + Ed25519 delivery headers
+- **Security Export Delivery Analytics + Auto-Quarantine** (`GET /v1/security/export/delivery-analytics`) + destination health verdictleri + repeated-failure quarantine + fail-closed preview/enqueue/redrive guard
 - **Header abuse guard** (Authorization / tenant header boyut limitleri + UI oversized key koruması)
 - **UI session lifecycle hardening** (`/ui/session` introspection + `/ui/session/refresh` token rotation + idle-timeout + session cap eviction + unsafe `/v1/*` writes için Origin binding)
 - **Persistent security control plane** (hashed UI session restore + kalıcı security audit evidence + tenant admin session inventory/revoke-all)
@@ -314,6 +315,11 @@ curl -X POST 'http://127.0.0.1:8080/v1/security/export/deliveries' \
 curl 'http://127.0.0.1:8080/v1/security/export/deliveries?status=dead_letter&limit=20' \
   -H 'Authorization: Bearer dev-admin-key' \
   -H 'x-tenant-id: tenant-a'
+
+# delivery analytics + quarantine görünürlüğü
+curl 'http://127.0.0.1:8080/v1/security/export/delivery-analytics?window_hours=24&bucket_hours=6&destination_limit=8' \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a'
 ```
 
 Export bundle'ı artık sıralı `sequence`, `prev_chain_hash`, `chain_hash` alanlarıyla birlikte **Ed25519 signature metadata** taşır. Böylece SIEM/forensics hattı, payload transfer sonrası bile bundle üzerinde hem server-side hash-chain bütünlüğü hem de detached signature doğrulaması yapabilir. Public verification için `/.well-known/smart-ai/security-export-keys.json` JWKS endpointi yayınlanır ve signing key rotation geçmişi verify-only anahtarlarla korunur.
@@ -327,6 +333,8 @@ Security export delivery hattı production-grade operasyon için dört ek güven
 - `preview` endpoint’i gerçek gönderim yapmadan `allowed/reason/matched_rule/pinned_address` verdict’i döndürür,
 - retry queue payload'ı düz JSON değil, AES-256-GCM ile encrypted-at-rest saklanır,
 - `Idempotency-Key` ile aynı export isteğinin duplicate/replay flood'u bastırılır; retryable ağ/5xx/429 hataları backoff ile tekrar denenir, limit aşılırsa receipt `dead_letter` olur ve `/v1/security/events` içinde kanıt bırakır.
+- `GET /v1/security/export/delivery-analytics` son pencere için success-rate, status dağılımı, incident timeline ve destination health verdict’lerini (`healthy|degraded|quarantined`) expose eder.
+- aynı tenant içindeki aynı destination tekrar tekrar terminal failure/dead-letter üretirse hedef otomatik quarantine durumuna girer; preview, sync delivery, async enqueue ve manual redrive akışları fail-closed bloke edilir.
 
 ## Auth Context Introspection
 ```bash

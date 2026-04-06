@@ -859,6 +859,37 @@ class SecurityExportSigningRegistry {
     return this.toKeySummary(this.getActiveKey(), now);
   }
 
+  resetForTests(): void {
+    if (this.maintenanceTimer) {
+      clearInterval(this.maintenanceTimer);
+      this.maintenanceTimer = null;
+    }
+
+    this.keys = [];
+    this.policy = this.defaultPolicy;
+    this.revision = 0;
+    this.updatedAt = null;
+    this.lease = null;
+    this.lastMaintenanceRun = null;
+    this.maintenanceHistory = [];
+    this.lastLoadedMtimeMs = 0;
+
+    try {
+      fs.unlinkSync(this.filePath);
+    } catch {
+      // ignore missing test store
+    }
+
+    try {
+      fs.unlinkSync(this.storeMutexPath);
+    } catch {
+      // ignore missing test lock file
+    }
+
+    this.ensureActiveKeySync();
+    this.startMaintenanceTimer();
+  }
+
   async rotate(): Promise<SecurityExportSigningKeySummary> {
     this.withRequiredStoreMutation(() => {
       this.syncFromDisk(true);
@@ -1538,3 +1569,9 @@ export const securityExportSigningRegistry = createSecurityExportSigningRegistry
   maintenanceLeaseTtlMs: config.security.exportSigningMaintenanceLeaseTtlMs,
   maintenanceHistoryLimit: config.security.exportSigningMaintenanceHistoryLimit
 });
+
+export const __private__ = {
+  resetForTests() {
+    securityExportSigningRegistry.resetForTests();
+  }
+};

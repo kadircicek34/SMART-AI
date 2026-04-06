@@ -372,6 +372,35 @@ function renderSecurityDeliveriesTable(deliveries = []) {
   }
 }
 
+function renderSecurityDeliveryIncidentsTable(destinations = []) {
+  const tbody = document.getElementById('securityDeliveryIncidentsTableBody');
+  tbody.innerHTML = '';
+
+  if (!destinations.length) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="5">Aktif incident yok</td>';
+    tbody.appendChild(tr);
+    return;
+  }
+
+  for (const entry of destinations) {
+    const tr = document.createElement('tr');
+    const health = entry?.health ?? {};
+    const counts = health?.counts ?? {};
+    const quarantine = health?.quarantined_until
+      ? new Date(health.quarantined_until).toLocaleString('tr-TR')
+      : '—';
+    tr.innerHTML = `
+      <td>${escapeHtml(entry?.destination?.origin ?? '—')}<br /><span class="muted">${escapeHtml(entry?.destination?.path_hash ?? '—')}</span></td>
+      <td>${escapeHtml(health?.verdict ?? 'healthy')}<br /><span class="muted">matched=${escapeHtml(entry?.matched_rule ?? '—')}</span></td>
+      <td>${escapeHtml(`ok=${counts.succeeded ?? 0}, fail=${health?.terminal_failures ?? 0}, dead=${health?.dead_letters ?? 0}, blocked=${counts.blocked ?? 0}`)}</td>
+      <td>${escapeHtml(quarantine)}</td>
+      <td>${escapeHtml(entry?.latest_completed_at ? new Date(entry.latest_completed_at).toLocaleString('tr-TR') : '—')}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
 function renderUiSessionsTable(sessions = []) {
   const tbody = document.getElementById('uiSessionsTableBody');
   tbody.innerHTML = '';
@@ -513,11 +542,13 @@ function applyAuthContext(context) {
     document.getElementById('deliveryPolicySummary').textContent = 'admin gerekli';
     document.getElementById('securityDeliverySummary').textContent = 'admin gerekli';
     document.getElementById('securityDeliveryPreviewSummary').textContent = 'admin gerekli';
+    document.getElementById('securityDeliveryAnalyticsSummary').textContent = 'admin gerekli';
     document.getElementById('securitySigningSummary').textContent = 'admin gerekli';
     document.getElementById('securitySigningMaintenanceSummary').textContent = 'admin gerekli';
     document.getElementById('securitySigningMetric').textContent = 'admin gerekli';
     renderUiSessionsTable([]);
     renderSecurityDeliveriesTable([]);
+    renderSecurityDeliveryIncidentsTable([]);
     renderSecuritySigningTable([]);
     renderSecuritySigningMaintenanceTable([]);
     log('Bu oturum admin yetkisine sahip değil; model policy, remote policy, delivery policy, security export signing, security delivery, session control ve MCP flush kontrolleri salt okunur moda alındı.');
@@ -673,13 +704,14 @@ async function previewSecurityDeliveryTarget(settings) {
   });
 
   const policy = preview?.policy ?? {};
+  const health = preview?.health ?? {};
   document.getElementById('securityDeliveryPreviewSummary').textContent = preview?.allowed
-    ? `ALLOWED • mode=${policy.mode ?? 'unknown'} • matched=${preview?.matched_rule ?? '—'} • pinned=${preview?.pinned_address ?? '—'} • pathHash=${preview?.destination?.path_hash ?? '—'}`
-    : `BLOCKED • mode=${policy.mode ?? 'unknown'} • reason=${preview?.reason ?? 'unknown'} • matched=${preview?.matched_rule ?? '—'} • pinned=${preview?.pinned_address ?? '—'}`;
+    ? `ALLOWED • mode=${policy.mode ?? 'unknown'} • matched=${preview?.matched_rule ?? '—'} • pinned=${preview?.pinned_address ?? '—'} • pathHash=${preview?.destination?.path_hash ?? '—'} • health=${health?.verdict ?? 'healthy'}`
+    : `BLOCKED • mode=${policy.mode ?? 'unknown'} • reason=${preview?.reason ?? 'unknown'} • matched=${preview?.matched_rule ?? '—'} • pinned=${preview?.pinned_address ?? '—'} • health=${health?.verdict ?? 'unknown'}${health?.quarantined_until ? ` • until=${new Date(health.quarantined_until).toLocaleString('tr-TR')}` : ''}`;
   log(
     preview?.allowed
-      ? `Delivery target preview ALLOWED. matched=${preview?.matched_rule ?? '—'}, pinned=${preview?.pinned_address ?? '—'}`
-      : `Delivery target preview BLOCKED. reason=${preview?.reason ?? 'unknown'}, matched=${preview?.matched_rule ?? '—'}`
+      ? `Delivery target preview ALLOWED. matched=${preview?.matched_rule ?? '—'}, pinned=${preview?.pinned_address ?? '—'}, health=${health?.verdict ?? 'healthy'}`
+      : `Delivery target preview BLOCKED. reason=${preview?.reason ?? 'unknown'}, matched=${preview?.matched_rule ?? '—'}, health=${health?.verdict ?? 'unknown'}`
   );
   return preview;
 }
@@ -870,6 +902,24 @@ async function loadSecurityDeliveries(settings) {
   return deliveries;
 }
 
+async function loadSecurityDeliveryAnalytics(settings) {
+  await maybeRefreshSession(settings);
+
+  const response = await safeFetchJson(`${settings.baseUrl}/v1/security/export/delivery-analytics?window_hours=24&bucket_hours=6&destination_limit=8`, {
+    headers: authHeaders(settings)
+  });
+
+  const analytics = response?.data ?? {};
+  const summary = analytics?.summary ?? {};
+  document.getElementById('securityDeliveryAnalyticsSummary').textContent =
+    `window=${analytics?.window?.hours ?? 24}h, successRate=${Math.round(Number(summary?.success_rate ?? 0) * 100)}%, ` +
+    `quarantined=${summary?.quarantined_destinations ?? 0}, degraded=${summary?.degraded_destinations ?? 0}, ` +
+    `activeQueue=${summary?.active_queue_count ?? 0}, records=${summary?.total_records ?? 0}`;
+
+  renderSecurityDeliveryIncidentsTable(Array.isArray(analytics?.incidents) ? analytics.incidents : []);
+  return analytics;
+}
+
 async function redriveSecurityDelivery(settings, deliveryId) {
   await maybeRefreshSession(settings);
 
@@ -887,6 +937,7 @@ async function redriveSecurityDelivery(settings, deliveryId) {
     `Security export dead-letter redrive kuyruğa alındı. source=${String(delivery.source_delivery_id ?? deliveryId).slice(0, 8)}…, status=${delivery.status ?? 'queued'}, redrive=${delivery.redrive_count ?? 0}, next=${delivery.next_attempt_at ?? 'hemen'}`
   );
   await loadSecurityDeliveries(settings);
+  await loadSecurityDeliveryAnalytics(settings);
   return delivery;
 }
 
@@ -931,6 +982,7 @@ async function deliverSecurityExport(settings) {
       : `Security export delivery tamamlandı. status=${delivery.status ?? 'unknown'}, http=${delivery.http_status ?? '—'}, events=${delivery.event_count ?? 0}`
   );
   await loadSecurityDeliveries(settings);
+  await loadSecurityDeliveryAnalytics(settings);
   return delivery;
 }
 
@@ -981,6 +1033,7 @@ async function loadDashboard(settings) {
     await loadDeliveryPolicy(settings);
     await loadSecuritySigningKeys(settings);
     await loadSecurityDeliveries(settings);
+    await loadSecurityDeliveryAnalytics(settings);
     await loadUiSessions(settings);
   }
   log('Dashboard güncellendi.');
@@ -1052,11 +1105,13 @@ async function signOut(settings) {
     document.getElementById('deliveryPolicySummary').textContent = '—';
     document.getElementById('securityDeliveryPreviewSummary').textContent = 'Önizleme yapılmadı.';
     document.getElementById('securityDeliverySummary').textContent = '—';
+    document.getElementById('securityDeliveryAnalyticsSummary').textContent = '—';
     document.getElementById('securitySigningSummary').textContent = '—';
     document.getElementById('securitySigningMaintenanceSummary').textContent = '—';
     document.getElementById('securitySigningMetric').textContent = '—';
     renderUiSessionsTable([]);
     renderSecurityDeliveriesTable([]);
+    renderSecurityDeliveryIncidentsTable([]);
     renderSecuritySigningTable([]);
     renderSecuritySigningMaintenanceTable([]);
   }
@@ -1080,11 +1135,13 @@ async function init() {
   document.getElementById('deliveryPolicySummary').textContent = '—';
   document.getElementById('securityDeliveryPreviewSummary').textContent = 'Önizleme yapılmadı.';
   document.getElementById('securityDeliverySummary').textContent = '—';
+  document.getElementById('securityDeliveryAnalyticsSummary').textContent = '—';
   document.getElementById('securitySigningSummary').textContent = '—';
   document.getElementById('securitySigningMaintenanceSummary').textContent = '—';
   document.getElementById('securitySigningMetric').textContent = '—';
   renderUiSessionsTable([]);
   renderSecurityDeliveriesTable([]);
+  renderSecurityDeliveryIncidentsTable([]);
   renderSecuritySigningTable([]);
   renderSecuritySigningMaintenanceTable([]);
 
@@ -1416,8 +1473,12 @@ async function init() {
     setSessionCapabilities('Yetki bilgisi: aktif oturum yok.', false);
     document.getElementById('deliveryPolicySummary').textContent = '—';
     document.getElementById('securityDeliveryPreviewSummary').textContent = 'Önizleme yapılmadı.';
+    document.getElementById('securityDeliverySummary').textContent = '—';
+    document.getElementById('securityDeliveryAnalyticsSummary').textContent = '—';
     document.getElementById('securitySigningSummary').textContent = '—';
     document.getElementById('securitySigningMetric').textContent = '—';
+    renderSecurityDeliveriesTable([]);
+    renderSecurityDeliveryIncidentsTable([]);
     renderSecuritySigningTable([]);
   }
 }

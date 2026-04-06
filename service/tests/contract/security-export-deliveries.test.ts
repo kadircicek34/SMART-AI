@@ -60,6 +60,10 @@ before(async () => {
   process.env.SECURITY_EXPORT_DELIVERY_IDEMPOTENCY_TTL_SECONDS = '3600';
   process.env.SECURITY_EXPORT_DELIVERY_IDEMPOTENCY_KEY_MAX_LENGTH = '64';
   process.env.SECURITY_EXPORT_DELIVERY_MAX_MANUAL_REDRIVES = '1';
+  process.env.SECURITY_EXPORT_DELIVERY_INCIDENT_WINDOW_HOURS = '24';
+  process.env.SECURITY_EXPORT_DELIVERY_QUARANTINE_FAILURE_THRESHOLD = '2';
+  process.env.SECURITY_EXPORT_DELIVERY_QUARANTINE_DEAD_LETTER_THRESHOLD = '2';
+  process.env.SECURITY_EXPORT_DELIVERY_QUARANTINE_DURATION_MINUTES = '60';
 
   deliveryStoreFile = process.env.SECURITY_EXPORT_DELIVERY_STORE_FILE;
 
@@ -706,6 +710,225 @@ test('dead-letter deliveries can be manually redriven once and emit a dedicated 
   const secondRedriveBody = secondRedriveRes.json();
   assert.equal(secondRedriveBody.error.type, 'rate_limit_error');
   assert.match(secondRedriveBody.error.message, /redrive limit/i);
+});
+
+test('delivery analytics surfaces quarantined destinations and preview blocks repeated failing targets', async () => {
+  const tenantId = 'tenant-security-delivery-analytics';
+  const session = await createAdminSession(tenantId);
+  await allowDeliveryTarget(tenantId);
+
+  deliveryPrivate.setTransportForTests(async () => ({
+    statusCode: 503,
+    bodyText: 'upstream unavailable',
+    bodyTruncated: false,
+    durationMs: 18,
+    contentType: 'text/plain'
+  }));
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/security/export/deliveries',
+      headers: {
+        authorization: `Bearer ${session.token}`,
+        'x-tenant-id': tenantId,
+        'content-type': 'application/json',
+        origin: 'https://dashboard.example.com'
+      },
+      payload: {
+        destinationUrl: 'https://siem.example.com/hooks/analytics',
+        mode: 'sync',
+        windowHours: 24,
+        limit: 50
+      }
+    });
+
+    assert.equal(res.statusCode, 502);
+  }
+
+  const previewRes = await app.inject({
+    method: 'POST',
+    url: '/v1/security/export/deliveries/preview',
+    headers: {
+      authorization: `Bearer ${session.token}`,
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      destinationUrl: 'https://siem.example.com/hooks/analytics'
+    }
+  });
+
+  assert.equal(previewRes.statusCode, 200);
+  const preview = previewRes.json();
+  assert.equal(preview.allowed, false);
+  assert.equal(preview.reason, 'destination_quarantined');
+  assert.equal(preview.health.verdict, 'quarantined');
+  assert.ok(preview.health.quarantined_until);
+
+  const analyticsRes = await app.inject({
+    method: 'GET',
+    url: '/v1/security/export/delivery-analytics?window_hours=24&bucket_hours=6&destination_limit=5',
+    headers: {
+      authorization: `Bearer ${session.token}`,
+      'x-tenant-id': tenantId
+    }
+  });
+
+  assert.equal(analyticsRes.statusCode, 200);
+  const analytics = analyticsRes.json();
+  assert.equal(analytics.object, 'security_export_delivery_analytics');
+  assert.equal(analytics.data.summary.quarantined_destinations, 1);
+  assert.equal(analytics.data.summary.counts.failed, 2);
+  assert.ok(Array.isArray(analytics.data.incidents));
+  assert.equal(analytics.data.incidents[0].health.verdict, 'quarantined');
+  assert.ok(analytics.data.timeline.some((bucket: any) => bucket.total >= 1));
+});
+
+test('async delivery creation is fail-closed when destination is quarantined', async () => {
+  const tenantId = 'tenant-security-delivery-async-quarantine';
+  const session = await createAdminSession(tenantId);
+  await allowDeliveryTarget(tenantId);
+
+  deliveryPrivate.setTransportForTests(async () => ({
+    statusCode: 503,
+    bodyText: 'upstream unavailable',
+    bodyTruncated: false,
+    durationMs: 11,
+    contentType: 'text/plain'
+  }));
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/security/export/deliveries',
+      headers: {
+        authorization: `Bearer ${session.token}`,
+        'x-tenant-id': tenantId,
+        'content-type': 'application/json',
+        origin: 'https://dashboard.example.com'
+      },
+      payload: {
+        destinationUrl: 'https://siem.example.com/hooks/quarantine-async',
+        mode: 'sync',
+        windowHours: 24,
+        limit: 50
+      }
+    });
+
+    assert.equal(res.statusCode, 502);
+  }
+
+  const queuedRes = await app.inject({
+    method: 'POST',
+    url: '/v1/security/export/deliveries',
+    headers: {
+      authorization: `Bearer ${session.token}`,
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      destinationUrl: 'https://siem.example.com/hooks/quarantine-async',
+      mode: 'async',
+      windowHours: 24,
+      limit: 50
+    }
+  });
+
+  assert.equal(queuedRes.statusCode, 403);
+  const queuedBody = queuedRes.json();
+  assert.equal(queuedBody.error.type, 'permission_error');
+  assert.equal(queuedBody.delivery.status, 'blocked');
+  assert.equal(queuedBody.delivery.failure_code, 'destination_quarantined');
+});
+
+test('manual redrive is blocked while the destination remains quarantined', async () => {
+  const tenantId = 'tenant-security-delivery-redrive-quarantine';
+  const session = await createAdminSession(tenantId);
+  await allowDeliveryTarget(tenantId);
+
+  deliveryPrivate.setTransportForTests(async () => ({
+    statusCode: 503,
+    bodyText: 'upstream unavailable',
+    bodyTruncated: false,
+    durationMs: 13,
+    contentType: 'text/plain'
+  }));
+
+  const seedFailureRes = await app.inject({
+    method: 'POST',
+    url: '/v1/security/export/deliveries',
+    headers: {
+      authorization: `Bearer ${session.token}`,
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      destinationUrl: 'https://siem.example.com/hooks/redrive-quarantine',
+      mode: 'sync',
+      windowHours: 24,
+      limit: 50
+    }
+  });
+
+  assert.equal(seedFailureRes.statusCode, 502);
+
+  const createRes = await app.inject({
+    method: 'POST',
+    url: '/v1/security/export/deliveries',
+    headers: {
+      authorization: `Bearer ${session.token}`,
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      destinationUrl: 'https://siem.example.com/hooks/redrive-quarantine',
+      mode: 'async',
+      windowHours: 24,
+      limit: 50
+    }
+  });
+
+  assert.equal(createRes.statusCode, 202);
+  const originalDeliveryId = createRes.json().data.delivery_id;
+
+  await deliveryPrivate.processRetryQueueForTests({ force: true });
+  await deliveryPrivate.processRetryQueueForTests({ force: true });
+  await deliveryPrivate.processRetryQueueForTests({ force: true });
+
+  const deliveriesRes = await app.inject({
+    method: 'GET',
+    url: '/v1/security/export/deliveries?limit=5',
+    headers: {
+      authorization: `Bearer ${session.token}`,
+      'x-tenant-id': tenantId
+    }
+  });
+
+  assert.equal(deliveriesRes.statusCode, 200);
+  const deliveries = deliveriesRes.json();
+  assert.equal(deliveries.data[0].delivery_id, originalDeliveryId);
+  assert.equal(deliveries.data[0].status, 'dead_letter');
+
+  const redriveRes = await app.inject({
+    method: 'POST',
+    url: `/v1/security/export/deliveries/${originalDeliveryId}/redrive`,
+    headers: {
+      authorization: `Bearer ${session.token}`,
+      'x-tenant-id': tenantId,
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {}
+  });
+
+  assert.equal(redriveRes.statusCode, 403);
+  const redriveBody = redriveRes.json();
+  assert.equal(redriveBody.error.type, 'permission_error');
+  assert.match(redriveBody.error.message, /quarantined/i);
 });
 
 test('read-only credential cannot list or create security export deliveries', async () => {

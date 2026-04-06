@@ -272,6 +272,10 @@ export const config = {
     exportDeliveryRetryMaxDelayMs: Number(process.env.SECURITY_EXPORT_DELIVERY_RETRY_MAX_DELAY_MS ?? 60_000),
     exportDeliveryMaxAttempts: Number(process.env.SECURITY_EXPORT_DELIVERY_MAX_ATTEMPTS ?? 4),
     exportDeliveryMaxManualRedrives: Number(process.env.SECURITY_EXPORT_DELIVERY_MAX_MANUAL_REDRIVES ?? 2),
+    exportDeliveryIncidentWindowHours: Number(process.env.SECURITY_EXPORT_DELIVERY_INCIDENT_WINDOW_HOURS ?? 24),
+    exportDeliveryQuarantineFailureThreshold: Number(process.env.SECURITY_EXPORT_DELIVERY_QUARANTINE_FAILURE_THRESHOLD ?? 3),
+    exportDeliveryQuarantineDeadLetterThreshold: Number(process.env.SECURITY_EXPORT_DELIVERY_QUARANTINE_DEAD_LETTER_THRESHOLD ?? 2),
+    exportDeliveryQuarantineDurationMinutes: Number(process.env.SECURITY_EXPORT_DELIVERY_QUARANTINE_DURATION_MINUTES ?? 60),
     exportDeliveryUserAgent:
       process.env.SECURITY_EXPORT_DELIVERY_USER_AGENT?.trim() || 'SMART-AI-Security-Delivery/1.0',
     exportDeliveryPolicyDefaultMode: ((process.env.SECURITY_EXPORT_DELIVERY_POLICY_DEFAULT_MODE ?? '').trim().toLowerCase() ||

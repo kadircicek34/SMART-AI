@@ -1,4 +1,48 @@
-# DELIVERY — SMART-AI v1.17 (Signing Maintenance Control Plane + Shared-Store Coordination)
+# DELIVERY — SMART-AI v1.18 (Delivery Analytics + Automatic Destination Quarantine)
+
+## Özet
+Bu koşumda en yüksek etkili günlük iyileştirme olarak **delivery analytics + automatic destination quarantine paketi** teslim edildi.
+
+Teslimin odağı:
+- security export delivery health görünürlüğünü summary/timeline/incident düzeyine çıkarmak,
+- tekrar tekrar bozulan destination’lar için fail-closed quarantine guard eklemek,
+- preview/sync/async/redrive zincirinin tamamını aynı health guard ile hizalamak,
+- signing lifecycle contract suite state leakage’ını temizleyip test güvenini tekrar kilitlemek.
+
+## 2026-04-06 Teslim paketi (Delivery analytics + automatic destination quarantine)
+### Yapılanlar
+1. **Yeni özellik — delivery analytics control plane**
+   - `GET /v1/security/export/delivery-analytics` eklendi.
+   - Status dağılımı, success-rate, active queue sayısı, quarantined/degraded destination sayısı, incident listesi ve timeline bucket’ları dönülüyor.
+   - Dashboard delivery paneli analytics summary ve incidents tablosu kazanarak operatöre riskli hedefleri görünür kılıyor.
+2. **Ciddi güvenlik iyileştirmesi — automatic destination quarantine**
+   - Aynı tenant içindeki aynı destination son pencere içinde tekrarlayan terminal failure/dead-letter ürettiğinde otomatik quarantine durumuna alınıyor.
+   - `preview`, sync delivery, async enqueue ve manual redrive akışları quarantine durumunda fail-closed bloke ediyor.
+3. **Ciddi güvenlik iyileştirmesi — explicit failure code + async fail-closed path**
+   - Quarantine kaynaklı bloklarda `destination_quarantined` failure code üretiliyor.
+   - Async enqueue artık target resolution/quarantine hatalarını kontrollü `blocked` receipt + `403` ile döndürüyor; belirsiz 500 penceresi kapandı.
+4. **Kalite / güvenlik iyileştirmesi — signing state leakage root-cause fix**
+   - Signing registry için test reset helper eklendi.
+   - Security-events contract suite içindeki global singleton state sızıntısı giderildi; signing + delivery regresyon paketi tekrar deterministik oldu.
+5. **UX / DX iyileştirmesi**
+   - Delivery preview summary health verdict/quarantine bilgisini gösteriyor.
+   - `README.md`, `service/README.md`, `service/.env.example` yeni analytics/quarantine yüzeyiyle güncellendi.
+6. **Test / kalite iyileştirmesi**
+   - Delivery analytics, preview quarantine block, async quarantine block ve redrive quarantine block senaryoları contract testlerle kapsandı.
+   - Tam regresyon paketi 178/178 yeşil ve dependency audit temiz.
+
+### Verification
+- `npm run typecheck` ✅
+- `npm test` ✅ (**178/178**)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `PORT=18082 APP_API_KEYS=dev-admin-key npm run start` + `curl /health` + `curl /v1/security/export/delivery-analytics` + `curl /v1/security/export/deliveries/preview` smoke ✅ (`object=security_export_delivery_analytics`, `preview.allowed=true`, `preview.health.verdict=healthy`)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+
+### Kalan riskler
+- Delivery incident/quarantine state hâlâ local delivery kayıtlarından türetiliyor; shared backend/central incident store henüz yok.
+- Quarantine clear/ack için ayrı operatör onay workflow’u yok; mevcut model süre tabanlı soğuma penceresiyle çalışıyor.
+- Export delivery için merkezi egress proxy / VPC-level outbound enforcement hâlâ yok.
+
 
 ## Özet
 Bu koşumda en yüksek etkili günlük iyileştirme olarak **signing maintenance control plane + shared-store coordination paketi** teslim edildi.

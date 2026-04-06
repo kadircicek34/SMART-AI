@@ -300,6 +300,7 @@
         </div>
         <p id="securityDeliveryPreviewSummary" class="muted">Önizleme yapılmadı.</p>
         <p id="securityDeliverySummary" class="muted">Delivery egress artık dedicated policy plane ile yönetilir. Sync mod tek deneme yapar; async mod encrypted retry queue + backoff + dead-letter + manual redrive ile çalışır.</p>
+        <p id="securityDeliveryAnalyticsSummary" class="muted">Analytics yüklenmedi.</p>
         <table>
           <thead>
             <tr>
@@ -313,6 +314,18 @@
             </tr>
           </thead>
           <tbody id="securityDeliveryTableBody"></tbody>
+        </table>
+        <table>
+          <thead>
+            <tr>
+              <th>Destination</th>
+              <th>Health</th>
+              <th>Counts</th>
+              <th>Quarantine</th>
+              <th>Son</th>
+            </tr>
+          </thead>
+          <tbody id="securityDeliveryIncidentsTableBody"></tbody>
         </table>
       </section>
 

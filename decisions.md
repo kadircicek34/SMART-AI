@@ -1,5 +1,42 @@
 # DECISIONS — OpenRouter Agentic Intelligence API
 
+## 2026-04-06 — Delivery analytics + automatic destination quarantine kararı
+### Problem
+Security export delivery hattı artık dedicated policy plane, encrypted retry queue ve manual redrive yüzeyine sahipti; ancak production operasyonunda üç kritik boşluk kalmıştı:
+1. Operatör hangi destination’ın bozulduğunu, success-rate trendini ve dead-letter yoğunlaşmasını tek ekranda göremiyordu; delivery health hâlâ receipt listesi seviyesindeydi.
+2. Aynı tenant içinde tekrar tekrar başarısız olan veya dead-letter üreten bir webhook/SIEM hedefi için otomatik fail-closed guard yoktu; yanlış/bozuk hedefe teslim denemeleri sync, async ve redrive akışlarında tekrarlanabiliyordu.
+3. Signing lifecycle contract suite içindeki global singleton state sızıntısı, delivery/signing güvenlik yüzeyinde test izolasyonunu zayıflatıyor ve regresyon güvenini düşürüyordu.
+
+### Seçenekler
+- A: Sadece receipt tablosuna birkaç ek kolon ekleyip operasyonu manuel yorumlamaya bırakmak
+- B: Dashboard analytics ekleyip enforcement’i sonraya bırakmak
+- C: Delivery analytics control plane + otomatik destination quarantine + async/redrive fail-closed guard + signing test isolation düzeltmesini tek koşumda teslim etmek
+
+### Karar
+**C seçildi:**
+1. **Yeni özellik:** `GET /v1/security/export/delivery-analytics` endpointi ve dashboard analytics/incident tablosu eklendi; status dağılımı, success-rate, timeline bucket’ları ve destination health verdict’leri görünür oldu.
+2. **Ciddi güvenlik iyileştirmesi #1:** Aynı destination son pencere içinde tekrar tekrar terminal failure/dead-letter üretirse otomatik quarantine durumuna giriyor; preview, sync delivery, async enqueue ve manual redrive akışları fail-closed bloke ediyor.
+3. **Ciddi güvenlik iyileştirmesi #2:** Async enqueue path’i artık target resolution/quarantine hatalarını `blocked` receipt + `destination_quarantined` failure code ile güvenli biçimde yüzeye çıkarıyor; 500’e düşen belirsiz hata penceresi kapandı.
+4. **Ciddi güvenlik iyileştirmesi #3:** Signing registry için test reset helper eklendi; contract suite içindeki global signing lifecycle state leakage kökten temizlenerek güvenlik regresyon paketi tekrar deterministik hale getirildi.
+5. **Ops / UX iyileştirmesi:** Dashboard delivery paneli preview verdict’inde health/quarantine bilgisini, ayrı incidents tablosunda ise riskli destination’ları gösteriyor.
+
+### Gerekçe
+- Delivery control plane artık yalnızca “gönderildi/gönderilemedi” görünürlüğünde kalmamalı; incident yoğunlaşmasını ve kötü hedefleri operatöre doğrudan göstermeliydi.
+- Repeated failure üreten destination’a fail-open devam etmek gereksiz gürültü, egress maliyeti ve yanlış operasyon riski oluşturuyordu.
+- Güvenlik yüzeyindeki büyük değişiklikler, singleton state leakage düzeltilmeden güvenilir regresyon kanıtı üretemezdi.
+
+### Etki
+- Operatör delivery health, quarantined destination ve success-rate trendini API + dashboard üzerinden anında görebiliyor.
+- Problemli destination’lar aynı tenant içinde otomatik soğutma/quarantine penceresine alınarak sync/async/redrive zincirinde tekrar vurulmuyor.
+- Security export signing ve delivery test paketi tekrar deterministik/yeşil hale geldi.
+
+### Bilinçli Olarak Ertelenenler
+- Delivery incident/quarantine state’ini shared backend veya merkezi incident store’a taşıma
+- Quarantine clear/ack workflow’u için ayrı operatör onay akışı
+- Export delivery için merkezi egress proxy / VPC-level outbound enforcement
+
+---
+
 ## 2026-04-05 — Signing maintenance control plane + shared-store coordination kararı
 ### Problem
 Dünkü signing lifecycle policy teslimi active key hijyenini fail-closed hale getirdi; ancak production operasyonunda üç kritik boşluk kaldı:

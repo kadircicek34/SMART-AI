@@ -1,6 +1,32 @@
-# TEST REPORT — SMART-AI v1.17 (Signing Maintenance Control Plane + Shared-Store Coordination)
+# TEST REPORT — SMART-AI v1.18 (Delivery Analytics + Automatic Destination Quarantine)
 
 ## Test Stratejisi
+- Contract tests: OpenAI-compatible + RAG + Memory + MCP + UI + security export control plane
+- Security tests: signing lifecycle, delivery policy/queue/quarantine, UI session auth akışı
+- Unit tests: orchestrator/verifier, deep_research, financial runtime, qmd, memory, MCP circuit/store
+
+## 2026-04-06 Ek doğrulama (Delivery analytics + automatic destination quarantine)
+- `npm run typecheck` ✅
+- `npm test` ✅ (**178/178**)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `PORT=18082 APP_API_KEYS=dev-admin-key npm run start` + `curl /health` + `curl /v1/security/export/delivery-analytics` + `curl /v1/security/export/deliveries/preview` smoke ✅ (`object=security_export_delivery_analytics`, `success_rate=1`, `preview.allowed=true`, `preview.health.verdict=healthy`)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+- Yeni testler / güncellemeler:
+  - `service/tests/contract/security-export-deliveries.test.ts`
+    - repeated failure sonrası preview quarantine block doğrulaması
+    - async enqueue için `destination_quarantined` fail-closed contract doğrulaması
+    - dead-letter + prior failure sonrası manual redrive quarantine block doğrulaması
+    - delivery analytics endpoint contract doğrulaması
+  - `service/tests/contract/security-events.test.ts`
+    - signing lifecycle contract suite için singleton state leakage reset doğrulaması
+  - Dashboard/API smoke etkisi
+    - delivery preview summary health verdict gösteriyor
+    - incidents tablosu ve analytics summary `/ui/dashboard` üzerinde yeni API kontratıyla hizalandı
+
+
+## Arşiv
+
+### Test Stratejisi
 - Contract tests: OpenAI-compatible + RAG + Memory + MCP + UI endpointleri
 - Security tests: key-store + policy allowlist + UI session token auth akışı
 - Unit tests: orchestrator/verifier, deep_research, financial runtime, qmd, memory, MCP circuit/store
