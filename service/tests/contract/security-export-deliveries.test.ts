@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify';
 
 let app: FastifyInstance;
 let deliveryStoreFile = '';
+const originalDateNow = Date.now;
 let securityAuditLog: any;
 let deliveryPrivate: {
   resetStoreForTests: () => void;
@@ -80,6 +81,7 @@ before(async () => {
 });
 
 after(async () => {
+  Date.now = originalDateNow;
   deliveryPrivate.setTransportForTests();
   deliveryPrivate.setLookupForTests();
   deliveryPrivate.setAutoProcessForTests(true);
@@ -88,6 +90,7 @@ after(async () => {
 });
 
 beforeEach(() => {
+  Date.now = originalDateNow;
   deliveryPrivate.setTransportForTests();
   deliveryPrivate.resetStoreForTests();
   deliveryPrivate.setAutoProcessForTests(false);
@@ -781,9 +784,212 @@ test('delivery analytics surfaces quarantined destinations and preview blocks re
   assert.equal(analytics.object, 'security_export_delivery_analytics');
   assert.equal(analytics.data.summary.quarantined_destinations, 1);
   assert.equal(analytics.data.summary.counts.failed, 2);
+  assert.equal(analytics.data.summary.active_incidents, 1);
+  assert.equal(analytics.data.summary.unacknowledged_incidents, 1);
   assert.ok(Array.isArray(analytics.data.incidents));
   assert.equal(analytics.data.incidents[0].health.verdict, 'quarantined');
+  assert.match(analytics.data.incidents[0].incident.incident_id, /^[a-f0-9-]{36}$/);
   assert.ok(analytics.data.timeline.some((bucket: any) => bucket.total >= 1));
+});
+
+test('delivery incident acknowledgement and manual clear keep quarantine fail-closed until an operator resolves it', async () => {
+  const tenantId = 'tenant-security-delivery-incident-workflow';
+  const session = await createAdminSession(tenantId);
+  await allowDeliveryTarget(tenantId);
+
+  deliveryPrivate.setTransportForTests(async () => ({
+    statusCode: 503,
+    bodyText: 'upstream unavailable',
+    bodyTruncated: false,
+    durationMs: 15,
+    contentType: 'text/plain'
+  }));
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/security/export/deliveries',
+      headers: {
+        authorization: `Bearer ${session.token}`,
+        'x-tenant-id': tenantId,
+        'content-type': 'application/json',
+        origin: 'https://dashboard.example.com'
+      },
+      payload: {
+        destinationUrl: 'https://siem.example.com/hooks/incident-workflow',
+        mode: 'sync',
+        windowHours: 24,
+        limit: 50
+      }
+    });
+
+    assert.equal(res.statusCode, 502);
+  }
+
+  const incidentsRes = await app.inject({
+    method: 'GET',
+    url: '/v1/security/export/delivery-incidents?status=active&limit=5',
+    headers: {
+      authorization: 'Bearer test-admin-key',
+      'x-tenant-id': tenantId
+    }
+  });
+
+  assert.equal(incidentsRes.statusCode, 200);
+  const incidents = incidentsRes.json();
+  assert.equal(incidents.data.length, 1);
+  assert.equal(incidents.data[0].status, 'active');
+  assert.equal(incidents.data[0].acknowledged_at, null);
+  const incidentId = incidents.data[0].incident_id;
+  const initialRevision = incidents.data[0].revision;
+
+  const staleAckRes = await app.inject({
+    method: 'POST',
+    url: `/v1/security/export/delivery-incidents/${incidentId}/acknowledge`,
+    headers: {
+      authorization: 'Bearer test-admin-key',
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      note: 'Investigating target failure and validating webhook endpoint.',
+      revision: initialRevision + 99
+    }
+  });
+
+  assert.equal(staleAckRes.statusCode, 409);
+
+  const ackRes = await app.inject({
+    method: 'POST',
+    url: `/v1/security/export/delivery-incidents/${incidentId}/acknowledge`,
+    headers: {
+      authorization: 'Bearer test-admin-key',
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      note: 'Investigating target failure and validating webhook endpoint.',
+      revision: initialRevision
+    }
+  });
+
+  assert.equal(ackRes.statusCode, 200);
+  const acknowledged = ackRes.json().data;
+  assert.equal(acknowledged.status, 'active');
+  assert.equal(acknowledged.acknowledged_by, 'tenant-admin');
+
+  Date.now = () => originalDateNow() + 61 * 60 * 1000;
+
+  const previewBlockedRes = await app.inject({
+    method: 'POST',
+    url: '/v1/security/export/deliveries/preview',
+    headers: {
+      authorization: 'Bearer test-admin-key',
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      destinationUrl: 'https://siem.example.com/hooks/incident-workflow'
+    }
+  });
+
+  assert.equal(previewBlockedRes.statusCode, 200);
+  const previewBlocked = previewBlockedRes.json();
+  assert.equal(previewBlocked.allowed, false);
+  assert.equal(previewBlocked.reason, 'destination_quarantined');
+  assert.equal(previewBlocked.health.active_incident.incident_id, incidentId);
+
+  const staleClearRes = await app.inject({
+    method: 'POST',
+    url: `/v1/security/export/delivery-incidents/${incidentId}/clear`,
+    headers: {
+      authorization: 'Bearer test-admin-key',
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      note: 'Target verified and safe to re-enable.',
+      revision: initialRevision
+    }
+  });
+
+  assert.equal(staleClearRes.statusCode, 409);
+
+  const clearRes = await app.inject({
+    method: 'POST',
+    url: `/v1/security/export/delivery-incidents/${incidentId}/clear`,
+    headers: {
+      authorization: 'Bearer test-admin-key',
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      note: 'Target verified and safe to re-enable.',
+      revision: acknowledged.revision
+    }
+  });
+
+  assert.equal(clearRes.statusCode, 200);
+  const cleared = clearRes.json().data;
+  assert.equal(cleared.status, 'resolved');
+  assert.equal(cleared.cleared_by, 'tenant-admin');
+
+  deliveryPrivate.setTransportForTests(async () => ({
+    statusCode: 202,
+    bodyText: 'accepted',
+    bodyTruncated: false,
+    durationMs: 10,
+    contentType: 'text/plain'
+  }));
+
+  const previewAllowedRes = await app.inject({
+    method: 'POST',
+    url: '/v1/security/export/deliveries/preview',
+    headers: {
+      authorization: 'Bearer test-admin-key',
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      destinationUrl: 'https://siem.example.com/hooks/incident-workflow'
+    }
+  });
+
+  assert.equal(previewAllowedRes.statusCode, 200);
+  const previewAllowed = previewAllowedRes.json();
+  assert.equal(previewAllowed.allowed, true);
+
+  const resolvedIncidentsRes = await app.inject({
+    method: 'GET',
+    url: '/v1/security/export/delivery-incidents?status=resolved&limit=5',
+    headers: {
+      authorization: 'Bearer test-admin-key',
+      'x-tenant-id': tenantId
+    }
+  });
+
+  assert.equal(resolvedIncidentsRes.statusCode, 200);
+  assert.equal(resolvedIncidentsRes.json().data[0].incident_id, incidentId);
+
+  const ackEventsRes = await app.inject({
+    method: 'GET',
+    url: '/v1/security/events?limit=20',
+    headers: {
+      authorization: 'Bearer test-admin-key',
+      'x-tenant-id': tenantId
+    }
+  });
+
+  assert.equal(ackEventsRes.statusCode, 200);
+  const ackEvents = ackEventsRes.json();
+  assert.ok(ackEvents.data.some((event: any) => event.type === 'security_export_delivery_incident_acknowledged'));
+  assert.ok(ackEvents.data.some((event: any) => event.type === 'security_export_delivery_incident_cleared'));
 });
 
 test('async delivery creation is fail-closed when destination is quarantined', async () => {
