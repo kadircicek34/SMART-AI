@@ -26,6 +26,15 @@ const parseBoolean = (value: string | undefined, fallback = false): boolean => {
   return value.trim().toLowerCase() === 'true';
 };
 
+const parseCitationMode = (value: string | undefined): 'always' | 'on_demand' | 'never' => {
+  const normalized = (value ?? 'on_demand').trim().toLowerCase();
+  if (normalized === 'always' || normalized === 'never') {
+    return normalized;
+  }
+
+  return 'on_demand';
+};
+
 type AppApiKeyDefinition = {
   name: string;
   key: string;
@@ -120,6 +129,10 @@ export const config = {
   verifier: {
     minCitations: Number(process.env.VERIFIER_MIN_CITATIONS ?? 2),
     minSourceDomains: Number(process.env.VERIFIER_MIN_SOURCE_DOMAINS ?? 2)
+  },
+  synthesizer: {
+    citationMode: parseCitationMode(process.env.SYNTHESIS_CITATION_MODE),
+    forceSourcesWhenVerificationLow: parseBoolean(process.env.SYNTHESIS_FORCE_SOURCES_WHEN_VERIFICATION_LOW, false)
   },
   research: {
     maxQueries: Number(process.env.RESEARCH_MAX_QUERIES ?? 3),

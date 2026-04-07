@@ -23,7 +23,8 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - **Remote source policy control plane** (`/v1/rag/remote-policy`, secure-by-default `preview_only`, per-tenant allowlist/open/disabled overrides)
 - **Secure remote RAG URL preview + ingest hardening** (`/v1/rag/url-preview`, SSRF/private-network guardrails, redirect revalidation, MIME/size/timeout limits, audit telemetry)
 - **Brave Search destekli web_search** (fallback: DuckDuckGo)
-- **Verifier kalite kapıları** (minimum citation + source diversity)
+- **Verifier kalite kapıları** (minimum citation + source diversity + failure-signal reliability kontrolü)
+- **Clean LLM answer mode** (kaynak listesi varsayılan olarak kapalı; sadece talep edilince eklenir)
 - **Loop guard** (tekrarlayan tool-pass kırıcı)
 - **Deep research budget/concurrency kontrolleri**
 - **Research job runtime hardening** (Idempotency-Key TTL + tenant active-job cap + AbortSignal destekli gerçek cancel/timeout + cancellation reason telemetry)

@@ -9,8 +9,13 @@ export type VerificationResult = {
   suggestedTool?: ToolName;
 };
 
+function looksFailureSummary(summary: string | undefined): boolean {
+  if (!summary) return true;
+  return /\b(failed?|error|timeout|denied|unavailable|no data|not found|empty result)\b/i.test(summary);
+}
+
 function hasMeaningfulSummary(results: ToolResult[]): boolean {
-  return results.some((r) => r.summary && r.summary.length > 60 && !r.summary.includes('failed'));
+  return results.some((r) => r.summary && r.summary.length > 60 && !looksFailureSummary(r.summary));
 }
 
 function looksLikeKnowledgeBaseQuery(query: string | undefined): boolean {
@@ -159,6 +164,8 @@ export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string
   const citationCount = results.reduce((acc, r) => acc + r.citations.length, 0);
   const distinctSources = countDistinctCitationSources(results);
   const hasSummary = hasMeaningfulSummary(results);
+  const failureCount = results.filter((r) => looksFailureSummary(r.summary)).length;
+  const reliabilityScore = results.length > 0 ? (results.length - failureCount) / results.length : 0;
   const hasRagEvidence = results.some((r) => r.tool === 'rag_search' && r.citations.length > 0);
   const hasMemoryEvidence = results.some((r) => r.tool === 'memory_search' && r.citations.length > 0);
   const hasQmdEvidence = results.some((r) => r.tool === 'qmd_search' && r.citations.length > 0);
@@ -169,6 +176,7 @@ export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string
 
   let confidence = 0;
   if (hasSummary) confidence += 0.35;
+  confidence += reliabilityScore * 0.15;
   if (citationCount >= config.verifier.minCitations) confidence += 0.2;
   if (distinctSources >= config.verifier.minSourceDomains) confidence += 0.2;
   if (results.length >= 2) confidence += 0.15;
@@ -200,7 +208,7 @@ export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string
       hasYargiEvidence ||
       hasBorsaMcpEvidence);
 
-  if (confidence >= 0.65 && qualityFloorMet) {
+  if (confidence >= 0.65 && qualityFloorMet && reliabilityScore >= 0.5) {
     return {
       sufficient: true,
       confidence,
@@ -268,6 +276,15 @@ export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string
       confidence,
       reason: 'Confidence low for internal query, adding rag_search pass.',
       suggestedTool: 'rag_search'
+    };
+  }
+
+  if (reliabilityScore < 0.35 && !plan.tools.includes('web_search')) {
+    return {
+      sufficient: false,
+      confidence,
+      reason: `Tool outputs düşük güvenilirlikte (reliability=${reliabilityScore.toFixed(2)}), web_search ile yeni doğrulama gerekiyor.`,
+      suggestedTool: 'web_search'
     };
   }
 

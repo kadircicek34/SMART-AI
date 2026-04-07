@@ -36,6 +36,19 @@ const OPENBB_KEYWORDS = [
 
 const WIKI_KEYWORDS = ['who is', 'what is', 'history', 'nedir', 'kimdir', 'tarihçe', 'wikipedia'];
 const RESEARCH_KEYWORDS = ['deep', 'research', 'analyze', 'analysis', 'araştır', 'detay', 'karşılaştır'];
+const STRATEGY_KEYWORDS = [
+  'strategy',
+  'strateji',
+  'nasıl',
+  'why',
+  'neden',
+  'trade-off',
+  'tasarım',
+  'architecture',
+  'mimari',
+  'adım adım',
+  'plan'
+];
 const RAG_KEYWORDS = [
   'docs',
   'documentation',
@@ -228,6 +241,15 @@ function shouldUseOpenbb(query: string): boolean {
   return /(ai trading|trading bot|algoritmik|teknik analiz|teknik indikat|market data|haber analizi|volatilite)/i.test(query);
 }
 
+function shouldUseDeepReasoning(query: string): boolean {
+  const normalized = query.toLowerCase();
+  if (hasKeyword(normalized, STRATEGY_KEYWORDS)) return true;
+
+  const sentenceCount = query.split(/[.!?]+/).filter((part) => part.trim().length > 0).length;
+  const asksComparison = /(karşılaştır|compare|trade.?off|artı|eksi|alternatif)/i.test(query);
+  return sentenceCount >= 2 || asksComparison;
+}
+
 export function planForQuery(query: string): Plan {
   const tools: ToolName[] = [];
 
@@ -243,7 +265,7 @@ export function planForQuery(query: string): Plan {
     tools.push('wikipedia');
   }
 
-  if (hasKeyword(query, RESEARCH_KEYWORDS)) {
+  if (hasKeyword(query, RESEARCH_KEYWORDS) || shouldUseDeepReasoning(query)) {
     tools.push('deep_research');
   }
 
@@ -278,12 +300,13 @@ export function planForQuery(query: string): Plan {
     tools.push('web_search');
   }
 
-  const normalizedTools = dedupe(tools).slice(0, 5);
+  const maxTools = shouldUseDeepReasoning(query) ? 6 : 5;
+  const normalizedTools = dedupe(tools).slice(0, maxTools);
 
   return {
     objective: query,
     tools: normalizedTools,
-    reasoning: `Heuristic plan selected tools: ${normalizedTools.join(', ')}`,
+    reasoning: `Poetiq-plan selected tools: ${normalizedTools.join(', ')}`,
     stages: buildStages(normalizedTools)
   };
 }

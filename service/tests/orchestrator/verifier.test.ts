@@ -168,3 +168,29 @@ test('verifier suggests openbb_search for trading data queries without evidence'
   assert.equal(result.sufficient, false);
   assert.equal(result.suggestedTool, 'openbb_search');
 });
+
+test('verifier rejects mostly-failed tool outputs and asks for web_search refresh', () => {
+  const result = verifyEvidence(
+    {
+      objective: 'generic query',
+      tools: ['deep_research'],
+      reasoning: 'test'
+    },
+    [
+      {
+        tool: 'deep_research',
+        summary: 'failed: upstream timeout',
+        citations: []
+      },
+      {
+        tool: 'wikipedia',
+        summary: 'error: no data returned',
+        citations: []
+      }
+    ],
+    'Buna dair güncel özet çıkar'
+  );
+
+  assert.equal(result.sufficient, false);
+  assert.equal(result.suggestedTool, 'web_search');
+});

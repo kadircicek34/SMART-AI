@@ -16,3 +16,11 @@ test('planner routes trading/OpenBB style queries to openbb_search', () => {
   assert.ok(plan.tools.includes('openbb_search'));
   assert.ok(plan.stages?.some((stage) => stage.tools.includes('openbb_search')));
 });
+
+test('planner enables deep reasoning for strategy-heavy prompts', () => {
+  const plan = planForQuery('Bu mimariyi trade-offlarıyla karşılaştır, neden bu yönü seçmeliyiz?');
+
+  assert.ok(plan.tools.includes('deep_research'));
+  assert.ok((plan.tools.length ?? 0) <= 6);
+  assert.match(plan.reasoning, /Poetiq-plan/i);
+});
