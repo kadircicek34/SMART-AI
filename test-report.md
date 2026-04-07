@@ -1,9 +1,25 @@
-# TEST REPORT — SMART-AI v1.18 (Delivery Analytics + Automatic Destination Quarantine)
+# TEST REPORT — SMART-AI v1.19 (Delivery Incident Ack + Manual Clear Control Plane)
 
 ## Test Stratejisi
 - Contract tests: OpenAI-compatible + RAG + Memory + MCP + UI + security export control plane
-- Security tests: signing lifecycle, delivery policy/queue/quarantine, UI session auth akışı
+- Security tests: signing lifecycle, delivery policy/queue/quarantine + incident workflow, UI session auth akışı
 - Unit tests: orchestrator/verifier, deep_research, financial runtime, qmd, memory, MCP circuit/store
+
+## 2026-04-07 Ek doğrulama (Delivery incident ack + manual clear control plane)
+- `npm run typecheck` ✅
+- `npx tsx --test tests/contract/security-export-deliveries.test.ts` ✅ (**11/11**)
+- `npm test` ✅ (**179/179**)
+- `npm audit --omit=dev` ✅ (0 vulnerability)
+- `PORT=18081 APP_API_KEYS=smoke-admin-key MASTER_KEY_BASE64=<generated> npm run dev` + `curl /health` + `curl /v1/security/export/delivery-incidents?status=active&limit=5` smoke ✅ (`ok=true`, `object=list`, `data=[]`)
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` ✅ PASS
+- Yeni testler / güncellemeler:
+  - `service/tests/contract/security-export-deliveries.test.ts`
+    - `delivery-incidents` list/ack/clear lifecycle contract doğrulaması
+    - stale revision ile ack/clear denemelerinde `409` guard doğrulaması
+    - cooldown sonrası bile active incident clear edilene kadar preview’nin fail-closed kalması doğrulaması
+    - resolved incident history + incident audit event (`opened|acknowledged|cleared`) doğrulaması
+  - Dashboard/API smoke etkisi
+    - incident tablosu ack/clear aksiyonları, revision ve clear-after metadata ile `/ui/dashboard` üzerinde çalışır durumda
 
 ## 2026-04-06 Ek doğrulama (Delivery analytics + automatic destination quarantine)
 - `npm run typecheck` ✅

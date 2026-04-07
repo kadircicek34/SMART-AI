@@ -1,5 +1,15 @@
 # TASKS — OpenRouter Agentic Intelligence API
 
+## v1.17 Delta (Delivery Incident Ack + Manual Clear Control Plane) — Tamamlandı
+- [x] Yeni özellik: `GET /v1/security/export/delivery-incidents`, `POST /v1/security/export/delivery-incidents/:incidentId/acknowledge`, `POST /v1/security/export/delivery-incidents/:incidentId/clear` endpointleri eklendi
+- [x] Dashboard incidents tablosuna ack/clear aksiyonları, incident id/revision ve clear-after görünürlüğü eklendi
+- [x] Güvenlik: delivery quarantine artık operator acknowledgement + cooldown sonrası manual clear olmadan fail-open çözülmüyor
+- [x] Güvenlik: incident ack/clear aksiyonları optimistic revision guard + zorunlu note ile korunuyor
+- [x] Güvenlik: ack alındıktan sonra yeni terminal failure gelirse önceki acknowledgement otomatik sıfırlanıyor
+- [x] Telemetry: `security_export_delivery_incident_opened|acknowledged|cleared` audit event tipleri eklendi
+- [x] Contract testleri: incident lifecycle, stale revision reject, post-cooldown fail-closed preview ve resolved-history regresyonları yazıldı
+- [x] Fresh verification: typecheck + focused contract + full test + audit + smoke + delivery-gate tamamlandı
+
 ## v1.16 Delta (Signing Lifecycle Policy + Auto-Rotation Guard) — Tamamlandı
 - [x] Yeni özellik: `GET/PUT /v1/security/export/signing-policy` endpointleri eklendi
 - [x] Güvenlik: active signing key için auto-rotation / expiry guard / warn window policy uygulandı
