@@ -378,7 +378,7 @@ function renderSecurityDeliveryIncidentsTable(destinations = []) {
 
   if (!destinations.length) {
     const tr = document.createElement('tr');
-    tr.innerHTML = '<td colspan="5">Aktif incident yok</td>';
+    tr.innerHTML = '<td colspan="7">Aktif incident yok</td>';
     tbody.appendChild(tr);
     return;
   }
@@ -387,15 +387,34 @@ function renderSecurityDeliveryIncidentsTable(destinations = []) {
     const tr = document.createElement('tr');
     const health = entry?.health ?? {};
     const counts = health?.counts ?? {};
-    const quarantine = health?.quarantined_until
-      ? new Date(health.quarantined_until).toLocaleString('tr-TR')
-      : '—';
+    const incident = entry?.incident ?? health?.active_incident ?? null;
+    const clearAfter = incident?.clear_after
+      ? new Date(incident.clear_after).toLocaleString('tr-TR')
+      : health?.quarantined_until
+        ? new Date(health.quarantined_until).toLocaleString('tr-TR')
+        : '—';
+    const acknowledgement = incident?.acknowledged_at
+      ? `Ack ${new Date(incident.acknowledged_at).toLocaleString('tr-TR')} (${incident.acknowledged_by ?? 'unknown'})`
+      : 'Ack gerekli';
+    const canClear = Boolean(incident?.clear_after) && Date.parse(incident.clear_after) <= Date.now();
+    const actions = incident
+      ? `
+          <button class="secondary compact acknowledge-delivery-incident-btn" data-incident-id="${escapeHtml(incident.incident_id)}" data-incident-revision="${escapeHtml(String(incident.revision ?? 1))}" ${incident.acknowledged_at ? 'disabled' : ''}>
+            Ack
+          </button>
+          <button class="secondary compact clear-delivery-incident-btn" data-incident-id="${escapeHtml(incident.incident_id)}" data-incident-revision="${escapeHtml(String(incident.revision ?? 1))}" ${canClear ? '' : 'disabled'}>
+            Clear
+          </button>
+        `
+      : '<span class="muted">—</span>';
     tr.innerHTML = `
       <td>${escapeHtml(entry?.destination?.origin ?? '—')}<br /><span class="muted">${escapeHtml(entry?.destination?.path_hash ?? '—')}</span></td>
+      <td>${escapeHtml(incident?.incident_id ? `${incident.incident_id.slice(0, 8)}…` : '—')}<br /><span class="muted">${escapeHtml(acknowledgement)}</span></td>
       <td>${escapeHtml(health?.verdict ?? 'healthy')}<br /><span class="muted">matched=${escapeHtml(entry?.matched_rule ?? '—')}</span></td>
       <td>${escapeHtml(`ok=${counts.succeeded ?? 0}, fail=${health?.terminal_failures ?? 0}, dead=${health?.dead_letters ?? 0}, blocked=${counts.blocked ?? 0}`)}</td>
-      <td>${escapeHtml(quarantine)}</td>
+      <td>${escapeHtml(clearAfter)}</td>
       <td>${escapeHtml(entry?.latest_completed_at ? new Date(entry.latest_completed_at).toLocaleString('tr-TR') : '—')}</td>
+      <td>${actions}</td>
     `;
     tbody.appendChild(tr);
   }
@@ -707,7 +726,7 @@ async function previewSecurityDeliveryTarget(settings) {
   const health = preview?.health ?? {};
   document.getElementById('securityDeliveryPreviewSummary').textContent = preview?.allowed
     ? `ALLOWED • mode=${policy.mode ?? 'unknown'} • matched=${preview?.matched_rule ?? '—'} • pinned=${preview?.pinned_address ?? '—'} • pathHash=${preview?.destination?.path_hash ?? '—'} • health=${health?.verdict ?? 'healthy'}`
-    : `BLOCKED • mode=${policy.mode ?? 'unknown'} • reason=${preview?.reason ?? 'unknown'} • matched=${preview?.matched_rule ?? '—'} • pinned=${preview?.pinned_address ?? '—'} • health=${health?.verdict ?? 'unknown'}${health?.quarantined_until ? ` • until=${new Date(health.quarantined_until).toLocaleString('tr-TR')}` : ''}`;
+    : `BLOCKED • mode=${policy.mode ?? 'unknown'} • reason=${preview?.reason ?? 'unknown'} • matched=${preview?.matched_rule ?? '—'} • pinned=${preview?.pinned_address ?? '—'} • health=${health?.verdict ?? 'unknown'}${health?.quarantined_until ? ` • clearAfter=${new Date(health.quarantined_until).toLocaleString('tr-TR')}` : ''}${health?.active_incident?.incident_id ? ` • incident=${health.active_incident.incident_id.slice(0, 8)}…` : ''}`;
   log(
     preview?.allowed
       ? `Delivery target preview ALLOWED. matched=${preview?.matched_rule ?? '—'}, pinned=${preview?.pinned_address ?? '—'}, health=${health?.verdict ?? 'healthy'}`
@@ -914,6 +933,7 @@ async function loadSecurityDeliveryAnalytics(settings) {
   document.getElementById('securityDeliveryAnalyticsSummary').textContent =
     `window=${analytics?.window?.hours ?? 24}h, successRate=${Math.round(Number(summary?.success_rate ?? 0) * 100)}%, ` +
     `quarantined=${summary?.quarantined_destinations ?? 0}, degraded=${summary?.degraded_destinations ?? 0}, ` +
+    `incidents=${summary?.active_incidents ?? 0}, unacked=${summary?.unacknowledged_incidents ?? 0}, clearable=${summary?.clearable_incidents ?? 0}, ` +
     `activeQueue=${summary?.active_queue_count ?? 0}, records=${summary?.total_records ?? 0}`;
 
   renderSecurityDeliveryIncidentsTable(Array.isArray(analytics?.incidents) ? analytics.incidents : []);
@@ -939,6 +959,58 @@ async function redriveSecurityDelivery(settings, deliveryId) {
   await loadSecurityDeliveries(settings);
   await loadSecurityDeliveryAnalytics(settings);
   return delivery;
+}
+
+async function acknowledgeSecurityDeliveryIncident(settings, incidentId, revision) {
+  await maybeRefreshSession(settings);
+
+  const note = window.prompt('Incident acknowledgement notu girin (en az 8 karakter):', 'İnceliyorum, hedef sahibi ile doğrulama başlatıldı.');
+  if (!note) {
+    return null;
+  }
+
+  const response = await safeFetchJson(`${settings.baseUrl}/v1/security/export/delivery-incidents/${encodeURIComponent(incidentId)}/acknowledge`, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(settings),
+      origin: window.location.origin
+    },
+    body: JSON.stringify({
+      note,
+      revision: Number(revision)
+    })
+  });
+
+  const incident = response?.data ?? {};
+  log(`Delivery incident ack alındı. incident=${String(incident.incident_id ?? incidentId).slice(0, 8)}…, actor=${incident.acknowledged_by ?? 'unknown'}`);
+  await loadSecurityDeliveryAnalytics(settings);
+  return incident;
+}
+
+async function clearSecurityDeliveryIncident(settings, incidentId, revision) {
+  await maybeRefreshSession(settings);
+
+  const note = window.prompt('Incident clear notu girin (en az 8 karakter):', 'Hedef doğrulandı, teslim tekrar açılıyor.');
+  if (!note) {
+    return null;
+  }
+
+  const response = await safeFetchJson(`${settings.baseUrl}/v1/security/export/delivery-incidents/${encodeURIComponent(incidentId)}/clear`, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(settings),
+      origin: window.location.origin
+    },
+    body: JSON.stringify({
+      note,
+      revision: Number(revision)
+    })
+  });
+
+  const incident = response?.data ?? {};
+  log(`Delivery incident clear tamamlandı. incident=${String(incident.incident_id ?? incidentId).slice(0, 8)}…, actor=${incident.cleared_by ?? 'unknown'}`);
+  await loadSecurityDeliveryAnalytics(settings);
+  return incident;
 }
 
 async function deliverSecurityExport(settings) {
@@ -1265,6 +1337,39 @@ async function init() {
     try {
       await redriveSecurityDelivery(next, deliveryId);
       setStatus('Security export dead-letter redrive kuyruğa alındı.');
+    } catch (error) {
+      setStatus(String(error), true);
+      log(`Hata: ${String(error)}`);
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  document.getElementById('securityDeliveryIncidentsTableBody').addEventListener('click', async (event) => {
+    const acknowledgeButton = event.target?.closest?.('.acknowledge-delivery-incident-btn');
+    const clearButton = event.target?.closest?.('.clear-delivery-incident-btn');
+    const button = acknowledgeButton ?? clearButton;
+    if (!button) {
+      return;
+    }
+
+    const next = readSettingsForm();
+    setSettings(next);
+    const incidentId = button.dataset.incidentId;
+    const revision = Number(button.dataset.incidentRevision ?? '0');
+    if (!incidentId) {
+      return;
+    }
+
+    button.disabled = true;
+    try {
+      if (acknowledgeButton) {
+        await acknowledgeSecurityDeliveryIncident(next, incidentId, revision);
+        setStatus('Security export delivery incident ack kaydedildi.');
+      } else {
+        await clearSecurityDeliveryIncident(next, incidentId, revision);
+        setStatus('Security export delivery incident clear tamamlandı.');
+      }
     } catch (error) {
       setStatus(String(error), true);
       log(`Hata: ${String(error)}`);

@@ -1,20 +1,25 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "Delivery analytics + automatic destination quarantine production-grade olarak teslim edildi",
+  "current_task": "Delivery incident ack + manual clear control plane production-grade olarak teslim edildi",
   "next_actions": [
-    "Delivery queue, security audit, UI session, policy ve signing storelarını gerçek shared backend/incident store katmanına taşı",
-    "Delivery analytics için acknowledgement/clear workflow ve operator playbook akışı ekle",
-    "Export delivery için merkezi egress proxy / VPC-level outbound enforcement tasarla",
-    "Signing maintenance lease modelini merkezi coordination backend + conflict-aware revision guard ile bir üst seviyeye çıkar"
+    "Delivery incident/quarantine state'ini queue/session/audit ile birlikte gerçek shared backend'e taşı",
+    "Incident clear için canary delivery doğrulaması + çift-onay (four-eyes) workflow'u ekle",
+    "Export delivery için merkezi egress proxy / VPC-level outbound enforcement tasarla ve uygula",
+    "Delivery incident dashboard'a timeline drill-down + runbook suggestion otomasyonu ekle"
   ],
   "risks": [
-    "Delivery incident/quarantine state hâlâ local delivery kayıtlarından türetiliyor; multi-instance HA için gerçek shared backend veya merkezi incident store gerekecek",
-    "Quarantine clear/ack için ayrı operatör onay workflowu henüz yok; mevcut model süre tabanlı soğuma penceresiyle çalışıyor",
+    "Delivery incident/quarantine state hâlâ local delivery store'dan türetiliyor; multi-instance HA için shared incident backend gerekecek",
+    "Incident clear şu an tek operatör onayıyla yapılabiliyor; canary-delivery doğrulaması ve çift-onay workflow'u henüz yok",
     "Delivery queue/audit/policy/session/signing persistence hâlâ local file tabanlı; multi-instance HA için shared backend gerekecek",
     "Export delivery için merkezi egress proxy / VPC-level outbound control henüz yok"
   ],
   "decisions": [
+    {
+      "date": "2026-04-07",
+      "decision": "Delivery incident ack + manual clear control plane'ini fail-closed quarantine modeline bağla",
+      "reason": "Problemli destination'ların cooldown sonrası fail-open açılmasını engellemek, operatör ownership izi üretmek ve stale panel verisiyle yanlış clear riskini revision guard ile kapatmak"
+    },
     {
       "date": "2026-04-06",
       "decision": "Security export delivery hattına analytics control plane ve automatic destination quarantine ekle",
@@ -70,5 +75,5 @@
     "service/tests/contract/security-events.test.ts",
     "service/tests/contract/security-export-deliveries.test.ts"
   ],
-  "updated_at": "2026-04-06T07:00:00+03:00"
+  "updated_at": "2026-04-07T07:00:00+03:00"
 }
