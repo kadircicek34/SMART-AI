@@ -1,4 +1,29 @@
-# SECURITY REPORT — SMART-AI v1.18
+# SECURITY REPORT — SMART-AI v1.19
+
+## 2026-04-07 Güvenlik sertleştirmesi — delivery incident ack + manual clear control plane
+- **Incident lifecycle control plane**
+  - Yeni endpointler: `GET /v1/security/export/delivery-incidents`, `POST /v1/security/export/delivery-incidents/:incidentId/acknowledge`, `POST /v1/security/export/delivery-incidents/:incidentId/clear`
+  - Incident kayıtları artık revision, ack owner, clear-after, resolved metadata ve redacted destination fingerprint ile tutuluyor.
+  - Dashboard security delivery incidents tablosu ack/clear aksiyonlarını doğrudan bu kontrol düzlemine bağlıyor.
+- **Fail-open quarantine kapanışı (ciddi iyileştirme #1)**
+  - Quarantine artık sadece süre tabanlı otomatik kalkmıyor; active incident açık kaldığı sürece preview/sync/async/redrive akışları fail-closed bloklu.
+  - Böylece cooldown süresi dolduğu anda operatör onayı olmadan riskli destination’ın tekrar açılma penceresi kapatıldı.
+- **Optimistic concurrency + zorunlu açıklama (ciddi iyileştirme #2)**
+  - Ack/clear endpointleri `revision` alanı ile stale panel verilerini reddediyor (`409 incident_state_conflict`).
+  - Ack/clear notları zorunlu ve sanitize edilerek audit kaydına yazılıyor; operasyonel karar izi zorunlu hale geldi.
+- **Ack reset on new failure (ciddi iyileştirme #3)**
+  - Acknowledged incident için yeni terminal failure/dead-letter geldiğinde önceki ack otomatik sıfırlanıyor.
+  - Eski bir operatör onayının yeni bir arıza dalgasını yanlışlıkla meşrulaştırma riski kaldırıldı.
+- **Telemetry genişletmesi**
+  - Yeni audit event tipleri: `security_export_delivery_incident_opened`, `security_export_delivery_incident_acknowledged`, `security_export_delivery_incident_cleared`.
+  - Security event feed üzerinden incident lifecycle baştan sona izlenebilir hale geldi.
+- **Dependency posture**
+  - `npm audit --omit=dev` tekrar temiz geçti (0 vulnerability).
+
+Kalan risk:
+- Incident/quarantine state hâlâ local delivery store içinde tutuluyor; multi-instance HA için shared incident backend gerekli.
+- Clear akışı tek operatör onayıyla çalışıyor; çift-onay/canary delivery sonrası clear politikası henüz yok.
+- Export delivery için merkezi egress proxy / VPC-level outbound enforcement hâlâ backlog’da.
 
 ## 2026-04-06 Güvenlik sertleştirmesi — delivery analytics + automatic destination quarantine
 - **Delivery analytics control plane**

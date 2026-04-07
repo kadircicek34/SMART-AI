@@ -1,4 +1,12 @@
-# DELIVERY — SMART-AI v1.18 (Delivery Analytics + Automatic Destination Quarantine)
+# DELIVERY — SMART-AI v1.19 (Delivery Incident Ack + Manual Clear Control Plane)
+
+## 2026-04-07 Teslim Özeti
+- Security export delivery hattına **incident response control plane** eklendi: `GET /v1/security/export/delivery-incidents`, `POST /v1/security/export/delivery-incidents/:incidentId/acknowledge`, `POST /v1/security/export/delivery-incidents/:incidentId/clear`.
+- Quarantine modeli fail-open yerine **operator-controlled fail-closed** hale getirildi: cooldown süresi dolsa bile active incident manual clear olmadan hedef tekrar açılamıyor.
+- Dashboard incident tablosu ack/clear aksiyonları, revision, clear-after, ack owner ve not metadata’sını gösteriyor.
+- Güvenlik katmanları güçlendirildi: stale revision guard (`409`), zorunlu incident note, yeni terminal failure geldiğinde ack reset.
+- Telemetry genişletildi: `security_export_delivery_incident_opened|acknowledged|cleared` eventleri security feed’e eklendi.
+- Doğrulama paketi tamamlandı: typecheck + focused contract + full test + audit + smoke + delivery-gate PASS.
 
 ## Özet
 Bu koşumda en yüksek etkili günlük iyileştirme olarak **delivery analytics + automatic destination quarantine paketi** teslim edildi.
