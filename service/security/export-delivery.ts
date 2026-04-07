@@ -15,7 +15,7 @@ import { ensureSignedSecurityAuditExportBundle, securityExportSigningRegistry } 
 
 const CONTROL_CHARS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
 const WHITESPACE = /\s+/g;
-const DELIVERY_STORE_VERSION = 3;
+const DELIVERY_STORE_VERSION = 4;
 const MAX_DELIVERY_URL_LENGTH = 2048;
 const RETRYABLE_HTTP_STATUS_CODES = new Set([408, 425, 429]);
 const RETRYABLE_ERROR_CODES = new Set(['ECONNRESET', 'ECONNREFUSED', 'ECONNABORTED', 'ECONNREFUSED', 'EAI_AGAIN', 'ENOTFOUND', 'ETIMEDOUT', 'EHOSTUNREACH', 'EPIPE']);
@@ -24,6 +24,7 @@ type LookupResult = Array<{ address: string; family: number }>;
 
 type SecurityExportDeliveryStatus = 'queued' | 'retrying' | 'succeeded' | 'failed' | 'blocked' | 'dead_letter';
 export type SecurityExportDeliveryMode = 'sync' | 'async';
+export type SecurityExportDeliveryIncidentStatus = 'active' | 'resolved';
 
 type DeliveryDestination = {
   origin: string;
@@ -100,6 +101,36 @@ export type SecurityExportDeliveryTargetPreviewReason = SecurityExportDeliveryTa
 
 export type SecurityExportDeliveryHealthVerdict = 'healthy' | 'degraded' | 'quarantined';
 
+export type SecurityExportDeliveryIncidentSummary = {
+  incident_id: string;
+  status: SecurityExportDeliveryIncidentStatus;
+  opened_at: string;
+  updated_at: string;
+  clear_after: string;
+  acknowledged_at: string | null;
+  acknowledged_by: string | null;
+  revision: number;
+};
+
+export type SecurityExportDeliveryIncident = SecurityExportDeliveryIncidentSummary & {
+  tenant_id: string;
+  destination: DeliveryDestination;
+  matched_rule: string | null;
+  latest_delivery_id: string | null;
+  latest_delivery_status: SecurityExportDeliveryStatus | null;
+  latest_delivery_at: string | null;
+  latest_failure_code: string | null;
+  latest_failure_reason: string | null;
+  counts: Record<SecurityExportDeliveryStatus, number>;
+  terminal_failures: number;
+  dead_letters: number;
+  acknowledgment_note: string | null;
+  resolved_at: string | null;
+  cleared_at: string | null;
+  cleared_by: string | null;
+  clear_note: string | null;
+};
+
 export type SecurityExportDeliveryDestinationHealth = {
   verdict: SecurityExportDeliveryHealthVerdict;
   total: number;
@@ -116,12 +147,14 @@ export type SecurityExportDeliveryDestinationHealth = {
   quarantine_duration_minutes: number;
   quarantine_failure_threshold: number;
   quarantine_dead_letter_threshold: number;
+  active_incident: SecurityExportDeliveryIncidentSummary | null;
 };
 
 export type SecurityExportDeliveryDestinationAnalytics = {
   destination: DeliveryDestination;
   matched_rule: string | null;
   health: SecurityExportDeliveryDestinationHealth;
+  incident: SecurityExportDeliveryIncidentSummary | null;
   latest_delivery_id: string | null;
   latest_mode: SecurityExportDeliveryMode | null;
   latest_completed_at: string | null;
@@ -142,6 +175,9 @@ export type SecurityExportDeliveryAnalytics = {
     active_destinations: number;
     quarantined_destinations: number;
     degraded_destinations: number;
+    active_incidents: number;
+    unacknowledged_incidents: number;
+    clearable_incidents: number;
     success_rate: number;
     counts: Record<SecurityExportDeliveryStatus, number>;
   };
@@ -196,6 +232,7 @@ type DeliveryStoreSnapshot = {
   version: number;
   updatedAt: string;
   tenants: Record<string, unknown[]>;
+  incidents?: Record<string, unknown[]>;
   retryMaterials?: unknown[];
   idempotency?: unknown[];
 };
@@ -223,10 +260,25 @@ class SecurityExportDeliveryError extends Error {
   }
 }
 
+class SecurityExportDeliveryIncidentError extends Error {
+  readonly code: string;
+  readonly statusCode: number;
+  readonly incident: SecurityExportDeliveryIncident | null;
+
+  constructor(message: string, options: { code: string; statusCode: number; incident?: SecurityExportDeliveryIncident | null }) {
+    super(message);
+    this.name = 'SecurityExportDeliveryIncidentError';
+    this.code = options.code;
+    this.statusCode = options.statusCode;
+    this.incident = options.incident ?? null;
+  }
+}
+
 class SecurityExportDeliveryStore {
   private readonly filePath: string;
   private readonly maxRecordsPerTenant: number;
   private readonly deliveries = new Map<string, SecurityExportDeliveryRecord[]>();
+  private readonly incidents = new Map<string, SecurityExportDeliveryIncident[]>();
   private readonly retryMaterials = new Map<string, DeliveryRetryMaterial>();
   private readonly idempotencyEntries = new Map<string, DeliveryIdempotencyEntry>();
 
@@ -250,6 +302,27 @@ class SecurityExportDeliveryStore {
 
   listAll(tenantId: string): SecurityExportDeliveryRecord[] {
     return [...(this.deliveries.get(tenantId) ?? [])];
+  }
+
+  listIncidents(
+    tenantId: string,
+    opts: {
+      limit?: number;
+      status?: SecurityExportDeliveryIncidentStatus;
+    } = {}
+  ): SecurityExportDeliveryIncident[] {
+    const incidents = this.incidents.get(tenantId) ?? [];
+    const filtered = opts.status ? incidents.filter((incident) => incident.status === opts.status) : incidents;
+    return filtered.slice(0, Math.max(0, opts.limit ?? 20));
+  }
+
+  getIncident(tenantId: string, incidentId: string): SecurityExportDeliveryIncident | null {
+    const incidents = this.incidents.get(tenantId) ?? [];
+    return incidents.find((incident) => incident.incident_id === incidentId) ?? null;
+  }
+
+  getActiveIncidentByDestination(tenantId: string, destination: DeliveryDestination): SecurityExportDeliveryIncident | null {
+    return this.getActiveIncidentByDestinationKey(tenantId, destinationAnalyticsKey(destination));
   }
 
   get(tenantId: string, deliveryId: string): SecurityExportDeliveryRecord | null {
@@ -338,6 +411,12 @@ class SecurityExportDeliveryStore {
     }
 
     this.deliveries.set(record.tenant_id, current.slice(0, this.maxRecordsPerTenant));
+    this.syncIncidentState(record.tenant_id, record.destination);
+    await this.persist();
+  }
+
+  async saveIncident(incident: SecurityExportDeliveryIncident): Promise<void> {
+    this.setIncidentRecord(incident);
     await this.persist();
   }
 
@@ -381,8 +460,157 @@ class SecurityExportDeliveryStore {
 
   reset(): void {
     this.deliveries.clear();
+    this.incidents.clear();
     this.retryMaterials.clear();
     this.idempotencyEntries.clear();
+  }
+
+  private getActiveIncidentByDestinationKey(tenantId: string, destinationKey: string): SecurityExportDeliveryIncident | null {
+    const incidents = this.incidents.get(tenantId) ?? [];
+    return incidents.find(
+      (incident) => incident.status === 'active' && destinationAnalyticsKey(incident.destination) === destinationKey
+    ) ?? null;
+  }
+
+  private setIncidentRecord(incident: SecurityExportDeliveryIncident): void {
+    const current = [...(this.incidents.get(incident.tenant_id) ?? [])].filter(
+      (entry) => entry.incident_id !== incident.incident_id
+    );
+    current.unshift(incident);
+    this.incidents.set(incident.tenant_id, current.slice(0, this.maxRecordsPerTenant));
+  }
+
+  private syncIncidentState(tenantId: string, destination: DeliveryDestination): void {
+    const destinationKey = destinationAnalyticsKey(destination);
+    const activeIncident = this.getActiveIncidentByDestinationKey(tenantId, destinationKey);
+    const windowStartMs = Date.now() - Math.max(1, config.security.exportDeliveryIncidentWindowHours) * 60 * 60 * 1000;
+    const records = (this.deliveries.get(tenantId) ?? []).filter((record) => {
+      if (destinationAnalyticsKey(record.destination) !== destinationKey) {
+        return false;
+      }
+
+      const timestamp = recordTimelineTimestamp(record);
+      return Number.isFinite(timestamp) && timestamp >= windowStartMs;
+    });
+
+    const snapshot = buildDestinationIncidentSnapshot(records);
+    const latestRecord = records[0] ?? null;
+    const latestDeliveryAt = latestRecord ? latestRecord.completed_at ?? latestRecord.updated_at ?? latestRecord.requested_at : null;
+
+    if (!activeIncident && !snapshot.thresholdBreached) {
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const clearAfter = snapshot.clearAfter ?? activeIncident?.clear_after ?? nowIso;
+
+    if (!activeIncident) {
+      const incident: SecurityExportDeliveryIncident = {
+        incident_id: crypto.randomUUID(),
+        tenant_id: tenantId,
+        status: 'active',
+        opened_at: nowIso,
+        updated_at: nowIso,
+        clear_after: clearAfter,
+        acknowledged_at: null,
+        acknowledged_by: null,
+        revision: 1,
+        destination: latestRecord?.destination ?? destination,
+        matched_rule: latestRecord?.destination.matched_host_rule ?? destination.matched_host_rule,
+        latest_delivery_id: latestRecord?.delivery_id ?? null,
+        latest_delivery_status: latestRecord?.status ?? null,
+        latest_delivery_at: latestDeliveryAt,
+        latest_failure_code: latestRecord?.failure_code ?? null,
+        latest_failure_reason: latestRecord?.failure_reason ?? null,
+        counts: snapshot.counts,
+        terminal_failures: snapshot.terminalFailures,
+        dead_letters: snapshot.deadLetters,
+        acknowledgment_note: null,
+        resolved_at: null,
+        cleared_at: null,
+        cleared_by: null,
+        clear_note: null
+      };
+      this.setIncidentRecord(incident);
+      securityAuditLog.record({
+        tenant_id: incident.tenant_id,
+        type: 'security_export_delivery_incident_opened',
+        details: {
+          incident_id: incident.incident_id,
+          destination_host: incident.destination.host,
+          path_hash: incident.destination.path_hash,
+          terminal_failures: incident.terminal_failures,
+          dead_letters: incident.dead_letters,
+          clear_after: incident.clear_after
+        }
+      });
+      return;
+    }
+
+    let changed = false;
+    let resetAcknowledgement = false;
+    const next: SecurityExportDeliveryIncident = {
+      ...activeIncident,
+      destination: latestRecord?.destination ?? activeIncident.destination,
+      matched_rule: latestRecord?.destination.matched_host_rule ?? activeIncident.matched_rule,
+      latest_delivery_id: latestRecord?.delivery_id ?? activeIncident.latest_delivery_id,
+      latest_delivery_status: latestRecord?.status ?? activeIncident.latest_delivery_status,
+      latest_delivery_at: latestDeliveryAt ?? activeIncident.latest_delivery_at,
+      latest_failure_code: latestRecord?.failure_code ?? activeIncident.latest_failure_code,
+      latest_failure_reason: latestRecord?.failure_reason ?? activeIncident.latest_failure_reason,
+      counts: snapshot.total > 0 ? snapshot.counts : activeIncident.counts,
+      terminal_failures: snapshot.total > 0 ? snapshot.terminalFailures : activeIncident.terminal_failures,
+      dead_letters: snapshot.total > 0 ? snapshot.deadLetters : activeIncident.dead_letters
+    };
+
+    if (snapshot.clearAfter && snapshot.clearAfter !== activeIncident.clear_after) {
+      next.clear_after = snapshot.clearAfter;
+      changed = true;
+      if (activeIncident.acknowledged_at) {
+        next.acknowledged_at = null;
+        next.acknowledged_by = null;
+        next.acknowledgment_note = null;
+        resetAcknowledgement = true;
+      }
+    }
+
+    if (
+      next.latest_delivery_id !== activeIncident.latest_delivery_id ||
+      next.latest_delivery_status !== activeIncident.latest_delivery_status ||
+      next.latest_delivery_at !== activeIncident.latest_delivery_at ||
+      next.latest_failure_code !== activeIncident.latest_failure_code ||
+      next.latest_failure_reason !== activeIncident.latest_failure_reason ||
+      JSON.stringify(next.counts) !== JSON.stringify(activeIncident.counts) ||
+      next.terminal_failures !== activeIncident.terminal_failures ||
+      next.dead_letters !== activeIncident.dead_letters ||
+      next.matched_rule !== activeIncident.matched_rule
+    ) {
+      changed = true;
+    }
+
+    if (!changed) {
+      return;
+    }
+
+    next.updated_at = nowIso;
+    next.revision = activeIncident.revision + 1;
+    this.setIncidentRecord(next);
+
+    if (resetAcknowledgement) {
+      securityAuditLog.record({
+        tenant_id: next.tenant_id,
+        type: 'security_export_delivery_incident_opened',
+        details: {
+          incident_id: next.incident_id,
+          destination_host: next.destination.host,
+          path_hash: next.destination.path_hash,
+          terminal_failures: next.terminal_failures,
+          dead_letters: next.dead_letters,
+          clear_after: next.clear_after,
+          acknowledgement_reset: true
+        }
+      });
+    }
   }
 
   private deleteIdempotencyByDeliveryId(deliveryId: string): void {
@@ -432,6 +660,23 @@ class SecurityExportDeliveryStore {
       }
     }
 
+    if (parsed.incidents && typeof parsed.incidents === 'object') {
+      for (const [tenantId, entries] of Object.entries(parsed.incidents)) {
+        if (!Array.isArray(entries)) {
+          continue;
+        }
+
+        const sanitized = entries
+          .map((entry) => sanitizeDeliveryIncident(entry))
+          .filter((entry): entry is SecurityExportDeliveryIncident => Boolean(entry))
+          .slice(0, this.maxRecordsPerTenant);
+
+        if (sanitized.length > 0) {
+          this.incidents.set(tenantId, sanitized);
+        }
+      }
+    }
+
     for (const material of parsed.retryMaterials ?? []) {
       const sanitized = sanitizeRetryMaterial(material);
       if (!sanitized) {
@@ -465,10 +710,16 @@ class SecurityExportDeliveryStore {
       tenants[tenantId] = records;
     }
 
+    const incidents: Record<string, SecurityExportDeliveryIncident[]> = {};
+    for (const [tenantId, records] of this.incidents.entries()) {
+      incidents[tenantId] = records;
+    }
+
     await writeJsonFileAtomic(this.filePath, {
       version: DELIVERY_STORE_VERSION,
       updatedAt: new Date().toISOString(),
       tenants,
+      incidents,
       retryMaterials: [...this.retryMaterials.values()],
       idempotency: [...this.idempotencyEntries.values()]
     });
@@ -559,6 +810,17 @@ function buildStatusCounts(): Record<SecurityExportDeliveryStatus, number> {
   };
 }
 
+type DeliveryIncidentSnapshot = {
+  counts: Record<SecurityExportDeliveryStatus, number>;
+  total: number;
+  terminalFailures: number;
+  deadLetters: number;
+  lastRecord: SecurityExportDeliveryRecord | null;
+  lastIncidentAtMs: number | null;
+  thresholdBreached: boolean;
+  clearAfter: string | null;
+};
+
 function destinationAnalyticsKey(destination: DeliveryDestination): string {
   return `${destination.origin}|${destination.path_hash}`;
 }
@@ -573,6 +835,55 @@ function isDerivedBlockFailureCode(failureCode?: string): boolean {
 
 function isTerminalIncidentRecord(record: SecurityExportDeliveryRecord): boolean {
   return (record.status === 'failed' || record.status === 'dead_letter') && !isDerivedBlockFailureCode(record.failure_code);
+}
+
+function hasIncidentThresholdBreach(options: { deadLetters: number; terminalFailures: number }): boolean {
+  return (
+    options.deadLetters >= Math.max(1, config.security.exportDeliveryQuarantineDeadLetterThreshold) ||
+    options.terminalFailures >= Math.max(1, config.security.exportDeliveryQuarantineFailureThreshold)
+  );
+}
+
+function buildDestinationIncidentSnapshot(records: SecurityExportDeliveryRecord[]): DeliveryIncidentSnapshot {
+  const counts = buildStatusCounts();
+  let terminalFailures = 0;
+  let deadLetters = 0;
+  let lastRecord: SecurityExportDeliveryRecord | null = null;
+  let lastIncidentAtMs: number | null = null;
+
+  for (const record of records) {
+    counts[record.status] += 1;
+    if (!lastRecord) {
+      lastRecord = record;
+    }
+    if (record.status === 'dead_letter') {
+      deadLetters += 1;
+    }
+    if (isTerminalIncidentRecord(record)) {
+      terminalFailures += 1;
+      const timestamp = recordTimelineTimestamp(record);
+      if (Number.isFinite(timestamp) && (!lastIncidentAtMs || timestamp > lastIncidentAtMs)) {
+        lastIncidentAtMs = timestamp;
+      }
+    }
+  }
+
+  const thresholdBreached = hasIncidentThresholdBreach({ deadLetters, terminalFailures });
+  const clearAfter =
+    thresholdBreached && lastIncidentAtMs && Number.isFinite(lastIncidentAtMs)
+      ? new Date(lastIncidentAtMs + Math.max(1, config.security.exportDeliveryQuarantineDurationMinutes) * 60 * 1000).toISOString()
+      : null;
+
+  return {
+    counts,
+    total: records.length,
+    terminalFailures,
+    deadLetters,
+    lastRecord,
+    lastIncidentAtMs,
+    thresholdBreached,
+    clearAfter
+  };
 }
 
 function isQuarantineTriggered(options: {
@@ -608,55 +919,58 @@ function isQuarantineTriggered(options: {
   };
 }
 
-function buildDestinationHealth(records: SecurityExportDeliveryRecord[], now: number): SecurityExportDeliveryDestinationHealth {
-  const counts = buildStatusCounts();
-  let terminalFailures = 0;
-  let deadLetters = 0;
-  let lastRecord: SecurityExportDeliveryRecord | null = null;
-  let lastIncidentAtMs: number | null = null;
-
-  for (const record of records) {
-    counts[record.status] += 1;
-    if (!lastRecord) {
-      lastRecord = record;
-    }
-    if (record.status === 'dead_letter') {
-      deadLetters += 1;
-    }
-    if (isTerminalIncidentRecord(record)) {
-      terminalFailures += 1;
-      const timestamp = recordTimelineTimestamp(record);
-      if (Number.isFinite(timestamp) && (!lastIncidentAtMs || timestamp > lastIncidentAtMs)) {
-        lastIncidentAtMs = timestamp;
-      }
-    }
+function toIncidentSummary(incident: SecurityExportDeliveryIncident | null): SecurityExportDeliveryIncidentSummary | null {
+  if (!incident) {
+    return null;
   }
 
+  return {
+    incident_id: incident.incident_id,
+    status: incident.status,
+    opened_at: incident.opened_at,
+    updated_at: incident.updated_at,
+    clear_after: incident.clear_after,
+    acknowledged_at: incident.acknowledged_at,
+    acknowledged_by: incident.acknowledged_by,
+    revision: incident.revision
+  };
+}
+
+function buildDestinationHealth(
+  records: SecurityExportDeliveryRecord[],
+  now: number,
+  activeIncident: SecurityExportDeliveryIncident | null = null
+): SecurityExportDeliveryDestinationHealth {
+  const snapshot = buildDestinationIncidentSnapshot(records);
   const quarantine = isQuarantineTriggered({
-    deadLetters,
-    terminalFailures,
-    lastIncidentAtMs,
+    deadLetters: snapshot.deadLetters,
+    terminalFailures: snapshot.terminalFailures,
+    lastIncidentAtMs: snapshot.lastIncidentAtMs,
     now
   });
-
-  const degraded = !quarantine.active && (terminalFailures > 0 || counts.blocked > 0 || counts.retrying > 0 || counts.queued > 0);
+  const incidentSummary = toIncidentSummary(activeIncident);
+  const degraded =
+    !quarantine.active &&
+    !incidentSummary &&
+    (snapshot.terminalFailures > 0 || snapshot.counts.blocked > 0 || snapshot.counts.retrying > 0 || snapshot.counts.queued > 0);
 
   return {
-    verdict: quarantine.active ? 'quarantined' : degraded ? 'degraded' : 'healthy',
-    total: records.length,
-    counts,
-    terminal_failures: terminalFailures,
-    dead_letters: deadLetters,
-    last_status: lastRecord?.status ?? null,
-    last_attempt_at: lastRecord?.last_attempt_at ?? lastRecord?.updated_at ?? lastRecord?.requested_at ?? null,
-    last_http_status: lastRecord?.http_status ?? null,
-    last_failure_code: lastRecord?.failure_code ?? null,
-    last_failure_reason: lastRecord?.failure_reason ?? null,
-    quarantined_until: quarantine.quarantinedUntil,
+    verdict: quarantine.active || Boolean(incidentSummary) ? 'quarantined' : degraded ? 'degraded' : 'healthy',
+    total: snapshot.total,
+    counts: snapshot.counts,
+    terminal_failures: snapshot.terminalFailures,
+    dead_letters: snapshot.deadLetters,
+    last_status: snapshot.lastRecord?.status ?? null,
+    last_attempt_at: snapshot.lastRecord?.last_attempt_at ?? snapshot.lastRecord?.updated_at ?? snapshot.lastRecord?.requested_at ?? null,
+    last_http_status: snapshot.lastRecord?.http_status ?? null,
+    last_failure_code: snapshot.lastRecord?.failure_code ?? null,
+    last_failure_reason: snapshot.lastRecord?.failure_reason ?? null,
+    quarantined_until: incidentSummary?.clear_after ?? quarantine.quarantinedUntil,
     incident_window_hours: Math.max(1, config.security.exportDeliveryIncidentWindowHours),
     quarantine_duration_minutes: Math.max(1, config.security.exportDeliveryQuarantineDurationMinutes),
     quarantine_failure_threshold: Math.max(1, config.security.exportDeliveryQuarantineFailureThreshold),
-    quarantine_dead_letter_threshold: Math.max(1, config.security.exportDeliveryQuarantineDeadLetterThreshold)
+    quarantine_dead_letter_threshold: Math.max(1, config.security.exportDeliveryQuarantineDeadLetterThreshold),
+    active_incident: incidentSummary
   };
 }
 
@@ -666,14 +980,49 @@ function buildDestinationAnalytics(records: SecurityExportDeliveryRecord[], now:
   }
 
   const latest = records[0];
+  const activeIncident = deliveryStore.getActiveIncidentByDestination(latest.tenant_id, latest.destination);
   return {
     destination: latest.destination,
     matched_rule: latest.destination.matched_host_rule,
-    health: buildDestinationHealth(records, now),
+    health: buildDestinationHealth(records, now, activeIncident),
+    incident: toIncidentSummary(activeIncident),
     latest_delivery_id: latest.delivery_id,
     latest_mode: latest.mode,
     latest_completed_at: latest.completed_at ?? latest.updated_at ?? latest.requested_at,
     redrive_count: records.reduce((max, record) => Math.max(max, record.redrive_count ?? 0), 0)
+  };
+}
+
+function buildDestinationAnalyticsFromIncident(
+  incident: SecurityExportDeliveryIncident,
+  now: number
+): SecurityExportDeliveryDestinationAnalytics {
+  return {
+    destination: incident.destination,
+    matched_rule: incident.matched_rule,
+    health: {
+      verdict: 'quarantined',
+      total: Object.values(incident.counts).reduce((sum, value) => sum + value, 0),
+      counts: incident.counts,
+      terminal_failures: incident.terminal_failures,
+      dead_letters: incident.dead_letters,
+      last_status: incident.latest_delivery_status,
+      last_attempt_at: incident.latest_delivery_at,
+      last_http_status: null,
+      last_failure_code: incident.latest_failure_code,
+      last_failure_reason: incident.latest_failure_reason,
+      quarantined_until: incident.clear_after,
+      incident_window_hours: Math.max(1, config.security.exportDeliveryIncidentWindowHours),
+      quarantine_duration_minutes: Math.max(1, config.security.exportDeliveryQuarantineDurationMinutes),
+      quarantine_failure_threshold: Math.max(1, config.security.exportDeliveryQuarantineFailureThreshold),
+      quarantine_dead_letter_threshold: Math.max(1, config.security.exportDeliveryQuarantineDeadLetterThreshold),
+      active_incident: toIncidentSummary(incident)
+    },
+    incident: toIncidentSummary(incident),
+    latest_delivery_id: incident.latest_delivery_id,
+    latest_mode: null,
+    latest_completed_at: incident.latest_delivery_at ?? incident.updated_at,
+    redrive_count: 0
   };
 }
 
@@ -701,10 +1050,22 @@ function getDestinationAnalyticsForTenant(
     grouped.set(key, records);
   }
 
-  return [...grouped.values()]
+  const entries = [...grouped.values()]
     .map((records) => buildDestinationAnalytics(records, now))
-    .filter((entry): entry is SecurityExportDeliveryDestinationAnalytics => Boolean(entry))
-    .sort((left, right) => {
+    .filter((entry): entry is SecurityExportDeliveryDestinationAnalytics => Boolean(entry));
+
+  const seenKeys = new Set(entries.map((entry) => destinationAnalyticsKey(entry.destination)));
+  for (const incident of deliveryStore.listIncidents(tenantId, { status: 'active', limit: config.security.exportDeliveryMaxRecordsPerTenant })) {
+    const key = destinationAnalyticsKey(incident.destination);
+    if (seenKeys.has(key)) {
+      continue;
+    }
+
+    entries.push(buildDestinationAnalyticsFromIncident(incident, now));
+    seenKeys.add(key);
+  }
+
+  return entries.sort((left, right) => {
       const severity = (entry: SecurityExportDeliveryDestinationAnalytics) => {
         if (entry.health.verdict === 'quarantined') return 3;
         if (entry.health.verdict === 'degraded') return 2;
@@ -823,6 +1184,73 @@ function sanitizeDeliveryRecord(value: unknown): SecurityExportDeliveryRecord | 
       nonce: sanitizeString(candidate.signature?.nonce ?? crypto.randomUUID(), 96),
       body_sha256: sanitizeString(candidate.signature?.body_sha256 ?? '', 96)
     }
+  };
+}
+
+function sanitizeDeliveryIncident(value: unknown): SecurityExportDeliveryIncident | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const candidate = value as Partial<SecurityExportDeliveryIncident>;
+  if (!candidate.incident_id || !candidate.tenant_id || !candidate.destination) {
+    return null;
+  }
+
+  const destination = candidate.destination as DeliveryDestination;
+  if (!destination.host || !destination.origin) {
+    return null;
+  }
+
+  const status = candidate.status === 'resolved' ? 'resolved' : candidate.status === 'active' ? 'active' : null;
+  if (!status) {
+    return null;
+  }
+
+  const counts = buildStatusCounts();
+  const candidateCounts = candidate.counts as Partial<Record<SecurityExportDeliveryStatus, number>> | undefined;
+  for (const key of Object.keys(counts) as SecurityExportDeliveryStatus[]) {
+    if (candidateCounts && Number.isFinite(candidateCounts[key])) {
+      counts[key] = Math.max(0, Number(candidateCounts[key]));
+    }
+  }
+
+  return {
+    incident_id: sanitizeString(candidate.incident_id, 96),
+    tenant_id: sanitizeString(candidate.tenant_id, 128),
+    status,
+    opened_at: sanitizeIsoTimestamp(candidate.opened_at),
+    updated_at: sanitizeIsoTimestamp(candidate.updated_at ?? candidate.opened_at),
+    clear_after: sanitizeIsoTimestamp(candidate.clear_after ?? candidate.updated_at ?? candidate.opened_at),
+    acknowledged_at: candidate.acknowledged_at ? sanitizeIsoTimestamp(candidate.acknowledged_at) : null,
+    acknowledged_by: candidate.acknowledged_by ? sanitizeString(candidate.acknowledged_by, 128) : null,
+    revision: Number.isFinite(candidate.revision) ? Math.max(1, Number(candidate.revision)) : 1,
+    destination: {
+      origin: sanitizeString(destination.origin, 180),
+      host: sanitizeString(destination.host, 180),
+      port: Number(destination.port || 443),
+      matched_host_rule: destination.matched_host_rule ? sanitizeString(destination.matched_host_rule, 180) : null,
+      path_hint: destination.path_hint === '/' ? '/' : '/…',
+      path_hash: sanitizeString(destination.path_hash, 32)
+    },
+    matched_rule: candidate.matched_rule ? sanitizeString(candidate.matched_rule, 180) : null,
+    latest_delivery_id: candidate.latest_delivery_id ? sanitizeString(candidate.latest_delivery_id, 96) : null,
+    latest_delivery_status: ['queued', 'retrying', 'succeeded', 'failed', 'blocked', 'dead_letter'].includes(
+      String(candidate.latest_delivery_status ?? '')
+    )
+      ? (candidate.latest_delivery_status as SecurityExportDeliveryStatus)
+      : null,
+    latest_delivery_at: candidate.latest_delivery_at ? sanitizeIsoTimestamp(candidate.latest_delivery_at) : null,
+    latest_failure_code: candidate.latest_failure_code ? sanitizeString(candidate.latest_failure_code, 96) : null,
+    latest_failure_reason: candidate.latest_failure_reason ? sanitizeString(candidate.latest_failure_reason, 180) : null,
+    counts,
+    terminal_failures: Number.isFinite(candidate.terminal_failures) ? Math.max(0, Number(candidate.terminal_failures)) : 0,
+    dead_letters: Number.isFinite(candidate.dead_letters) ? Math.max(0, Number(candidate.dead_letters)) : 0,
+    acknowledgment_note: candidate.acknowledgment_note ? sanitizeString(candidate.acknowledgment_note, 280) : null,
+    resolved_at: candidate.resolved_at ? sanitizeIsoTimestamp(candidate.resolved_at) : null,
+    cleared_at: candidate.cleared_at ? sanitizeIsoTimestamp(candidate.cleared_at) : null,
+    cleared_by: candidate.cleared_by ? sanitizeString(candidate.cleared_by, 128) : null,
+    clear_note: candidate.clear_note ? sanitizeString(candidate.clear_note, 280) : null
   };
 }
 
@@ -1261,6 +1689,18 @@ function describeDeliveryTargetPolicyError(reason: SecurityExportDeliveryTargetP
 }
 
 function describeQuarantinedDestinationError(health: SecurityExportDeliveryDestinationHealth): string {
+  if (health.active_incident) {
+    const clearAfter = new Date(health.active_incident.clear_after).toISOString();
+    const acknowledged = health.active_incident.acknowledged_at
+      ? ` acknowledged by ${health.active_incident.acknowledged_by ?? 'an operator'}`
+      : ' not yet acknowledged';
+    if (Date.parse(health.active_incident.clear_after) > Date.now()) {
+      return `Destination is quarantined by active incident ${health.active_incident.incident_id} until at least ${clearAfter}; it is${acknowledged} and must be manually cleared before delivery resumes.`;
+    }
+
+    return `Destination remains quarantined by active incident ${health.active_incident.incident_id}; cooldown ended at ${clearAfter} but it is${acknowledged} and still requires manual clear before delivery resumes.`;
+  }
+
   const until = health.quarantined_until ? new Date(health.quarantined_until).toISOString() : 'unknown';
   return `Destination is temporarily quarantined due to recent failed or dead-letter security export deliveries until ${until}.`;
 }
@@ -1287,7 +1727,10 @@ function getDeliveryDestinationHealth(tenantId: string, destination: DeliveryDes
       incident_window_hours: Math.max(1, config.security.exportDeliveryIncidentWindowHours),
       quarantine_duration_minutes: Math.max(1, config.security.exportDeliveryQuarantineDurationMinutes),
       quarantine_failure_threshold: Math.max(1, config.security.exportDeliveryQuarantineFailureThreshold),
-      quarantine_dead_letter_threshold: Math.max(1, config.security.exportDeliveryQuarantineDeadLetterThreshold)
+      quarantine_dead_letter_threshold: Math.max(1, config.security.exportDeliveryQuarantineDeadLetterThreshold),
+      active_incident: deliveryStore.getActiveIncidentByDestination(tenantId, destination)
+        ? toIncidentSummary(deliveryStore.getActiveIncidentByDestination(tenantId, destination))
+        : null
     }
   );
 }
@@ -2443,6 +2886,146 @@ export function listSecurityExportDeliveries(
   return deliveryStore.list(tenantId, opts);
 }
 
+export function listSecurityExportDeliveryIncidents(
+  tenantId: string,
+  opts: {
+    limit?: number;
+    status?: SecurityExportDeliveryIncidentStatus;
+  } = {}
+): SecurityExportDeliveryIncident[] {
+  return deliveryStore.listIncidents(tenantId, opts);
+}
+
+export async function acknowledgeSecurityExportDeliveryIncident(options: {
+  tenantId: string;
+  incidentId: string;
+  actor: string;
+  note: string;
+  expectedRevision?: number;
+}): Promise<SecurityExportDeliveryIncident> {
+  const incident = deliveryStore.getIncident(options.tenantId, options.incidentId);
+  if (!incident || incident.status !== 'active') {
+    throw new SecurityExportDeliveryIncidentError('Security export delivery incident not found.', {
+      code: 'incident_not_found',
+      statusCode: 404,
+      incident
+    });
+  }
+
+  if (
+    Number.isFinite(options.expectedRevision) &&
+    Number(options.expectedRevision) > 0 &&
+    Number(options.expectedRevision) !== incident.revision
+  ) {
+    throw new SecurityExportDeliveryIncidentError('Security export delivery incident revision is stale. Refresh and retry.', {
+      code: 'incident_revision_conflict',
+      statusCode: 409,
+      incident
+    });
+  }
+
+  if (incident.acknowledged_at) {
+    throw new SecurityExportDeliveryIncidentError('Security export delivery incident is already acknowledged.', {
+      code: 'incident_already_acknowledged',
+      statusCode: 409,
+      incident
+    });
+  }
+
+  const updated: SecurityExportDeliveryIncident = {
+    ...incident,
+    updated_at: new Date().toISOString(),
+    acknowledged_at: new Date().toISOString(),
+    acknowledged_by: sanitizeString(options.actor, 128),
+    acknowledgment_note: sanitizeString(options.note, 280),
+    revision: incident.revision + 1
+  };
+
+  await deliveryStore.saveIncident(updated);
+  securityAuditLog.record({
+    tenant_id: updated.tenant_id,
+    type: 'security_export_delivery_incident_acknowledged',
+    details: {
+      incident_id: updated.incident_id,
+      destination_host: updated.destination.host,
+      path_hash: updated.destination.path_hash,
+      actor: updated.acknowledged_by ?? 'unknown'
+    }
+  });
+  return updated;
+}
+
+export async function clearSecurityExportDeliveryIncident(options: {
+  tenantId: string;
+  incidentId: string;
+  actor: string;
+  note: string;
+  expectedRevision?: number;
+}): Promise<SecurityExportDeliveryIncident> {
+  const incident = deliveryStore.getIncident(options.tenantId, options.incidentId);
+  if (!incident || incident.status !== 'active') {
+    throw new SecurityExportDeliveryIncidentError('Security export delivery incident not found.', {
+      code: 'incident_not_found',
+      statusCode: 404,
+      incident
+    });
+  }
+
+  if (
+    Number.isFinite(options.expectedRevision) &&
+    Number(options.expectedRevision) > 0 &&
+    Number(options.expectedRevision) !== incident.revision
+  ) {
+    throw new SecurityExportDeliveryIncidentError('Security export delivery incident revision is stale. Refresh and retry.', {
+      code: 'incident_revision_conflict',
+      statusCode: 409,
+      incident
+    });
+  }
+
+  if (!incident.acknowledged_at) {
+    throw new SecurityExportDeliveryIncidentError('Security export delivery incident must be acknowledged before it can be cleared.', {
+      code: 'incident_ack_required',
+      statusCode: 409,
+      incident
+    });
+  }
+
+  const clearAfterMs = Date.parse(incident.clear_after);
+  if (!Number.isFinite(clearAfterMs) || clearAfterMs > Date.now()) {
+    throw new SecurityExportDeliveryIncidentError('Security export delivery incident cooldown is still active. Wait until clear_after before clearing it.', {
+      code: 'incident_cooldown_active',
+      statusCode: 409,
+      incident
+    });
+  }
+
+  const nowIso = new Date().toISOString();
+  const updated: SecurityExportDeliveryIncident = {
+    ...incident,
+    status: 'resolved',
+    updated_at: nowIso,
+    resolved_at: nowIso,
+    cleared_at: nowIso,
+    cleared_by: sanitizeString(options.actor, 128),
+    clear_note: sanitizeString(options.note, 280),
+    revision: incident.revision + 1
+  };
+
+  await deliveryStore.saveIncident(updated);
+  securityAuditLog.record({
+    tenant_id: updated.tenant_id,
+    type: 'security_export_delivery_incident_cleared',
+    details: {
+      incident_id: updated.incident_id,
+      destination_host: updated.destination.host,
+      path_hash: updated.destination.path_hash,
+      actor: updated.cleared_by ?? 'unknown'
+    }
+  });
+  return updated;
+}
+
 export function getSecurityExportDeliveryAnalytics(
   tenantId: string,
   options: {
@@ -2470,6 +3053,8 @@ export function getSecurityExportDeliveryAnalytics(
   const terminalCount = counts.succeeded + counts.failed + counts.blocked + counts.dead_letter;
   const successRate = terminalCount > 0 ? Number((counts.succeeded / terminalCount).toFixed(4)) : 1;
   const destinations = getDestinationAnalyticsForTenant(tenantId, { windowHours, now });
+  const activeIncidents = deliveryStore.listIncidents(tenantId, { status: 'active', limit: config.security.exportDeliveryMaxRecordsPerTenant });
+  const clearableIncidents = activeIncidents.filter((incident) => Date.parse(incident.clear_after) <= now);
 
   const bucketMs = bucketHours * 60 * 60 * 1000;
   const bucketStartMs = now - windowHours * 60 * 60 * 1000;
@@ -2515,6 +3100,9 @@ export function getSecurityExportDeliveryAnalytics(
       active_destinations: destinations.length,
       quarantined_destinations: destinations.filter((entry) => entry.health.verdict === 'quarantined').length,
       degraded_destinations: destinations.filter((entry) => entry.health.verdict === 'degraded').length,
+      active_incidents: activeIncidents.length,
+      unacknowledged_incidents: activeIncidents.filter((incident) => !incident.acknowledged_at).length,
+      clearable_incidents: clearableIncidents.length,
       success_rate: successRate,
       counts
     },
@@ -2552,4 +3140,4 @@ export const __private__ = {
   }
 };
 
-export { SecurityExportDeliveryError };
+export { SecurityExportDeliveryError, SecurityExportDeliveryIncidentError };
