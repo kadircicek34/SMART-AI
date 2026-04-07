@@ -17,10 +17,14 @@ import {
   verifySecurityAuditExportBundleSignature
 } from '../../security/export-signing.js';
 import {
+  acknowledgeSecurityExportDeliveryIncident,
+  clearSecurityExportDeliveryIncident,
   SecurityExportDeliveryError,
+  SecurityExportDeliveryIncidentError,
   deliverSecurityAuditExport,
   getSecurityExportDeliveryAnalytics,
   enqueueSecurityAuditExportDelivery,
+  listSecurityExportDeliveryIncidents,
   listSecurityExportDeliveries,
   previewSecurityExportDeliveryTarget,
   redriveSecurityAuditExportDelivery
@@ -144,8 +148,31 @@ const DELIVERY_ANALYTICS_QUERY_SCHEMA = z.object({
     .refine((value) => value >= 1 && value <= 50, { message: 'destination_limit must be between 1 and 50' })
 });
 
+const DELIVERY_INCIDENT_LIST_QUERY_SCHEMA = z.object({
+  limit: z
+    .union([z.string(), z.number()])
+    .optional()
+    .transform((value) => {
+      if (value === undefined) return 20;
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return 20;
+      return parsed;
+    })
+    .refine((value) => value >= 1 && value <= 100, { message: 'limit must be between 1 and 100' }),
+  status: z.enum(['active', 'resolved']).optional()
+});
+
 const DELIVERY_REDIVE_PARAMS_SCHEMA = z.object({
   deliveryId: z.string().min(1).max(96)
+});
+
+const DELIVERY_INCIDENT_PARAMS_SCHEMA = z.object({
+  incidentId: z.string().uuid()
+});
+
+const DELIVERY_INCIDENT_ACTION_BODY_SCHEMA = z.object({
+  note: z.string().trim().min(8).max(280),
+  revision: z.number().int().positive().optional()
 });
 
 const DELIVERY_POLICY_BODY_SCHEMA = z.object({
@@ -841,6 +868,27 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
     };
   });
 
+  app.get('/v1/security/export/delivery-incidents', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    const parsed = DELIVERY_INCIDENT_LIST_QUERY_SCHEMA.safeParse(req.query);
+    if (!parsed.success) {
+      return reply.status(400).send(invalidRequest('Invalid query for security export delivery incidents.', parsed.error.flatten()));
+    }
+
+    return {
+      object: 'list',
+      tenant_id: tenantId,
+      data: listSecurityExportDeliveryIncidents(tenantId, {
+        limit: parsed.data.limit,
+        status: parsed.data.status
+      })
+    };
+  });
+
   app.post('/v1/security/export/deliveries', async (req, reply) => {
     const tenantId = req.requestContext?.tenantId;
     if (!tenantId) {
@@ -933,6 +981,100 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
       const handled = replyForSecurityExportSigningError(reply, error);
       if (handled) {
         return handled;
+      }
+
+      throw error;
+    }
+  });
+
+  app.post('/v1/security/export/delivery-incidents/:incidentId/acknowledge', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    const params = DELIVERY_INCIDENT_PARAMS_SCHEMA.safeParse(req.params ?? {});
+    if (!params.success) {
+      return reply.status(400).send(invalidRequest('Invalid delivery incident id.', params.error.flatten()));
+    }
+
+    const parsed = DELIVERY_INCIDENT_ACTION_BODY_SCHEMA.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return reply.status(400).send(invalidRequest('Invalid payload for delivery incident acknowledgement.', parsed.error.flatten()));
+    }
+
+    try {
+      const incident = await acknowledgeSecurityExportDeliveryIncident({
+        tenantId,
+        incidentId: params.data.incidentId,
+        actor: req.requestContext?.authPrincipalName ?? 'unknown',
+        note: parsed.data.note,
+        expectedRevision: parsed.data.revision
+      });
+
+      return {
+        object: 'security_export_delivery_incident',
+        tenant_id: tenantId,
+        data: incident
+      };
+    } catch (error) {
+      if (error instanceof SecurityExportDeliveryIncidentError) {
+        if (error.statusCode === 404) {
+          return reply.status(404).send(invalidRequest(error.message, { incident: error.incident }));
+        }
+
+        if (error.statusCode === 409) {
+          return reply.status(409).send(apiError(error.message, error.incident));
+        }
+
+        return reply.status(error.statusCode).send(apiError(error.message, error.incident));
+      }
+
+      throw error;
+    }
+  });
+
+  app.post('/v1/security/export/delivery-incidents/:incidentId/clear', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    const params = DELIVERY_INCIDENT_PARAMS_SCHEMA.safeParse(req.params ?? {});
+    if (!params.success) {
+      return reply.status(400).send(invalidRequest('Invalid delivery incident id.', params.error.flatten()));
+    }
+
+    const parsed = DELIVERY_INCIDENT_ACTION_BODY_SCHEMA.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return reply.status(400).send(invalidRequest('Invalid payload for delivery incident clear.', parsed.error.flatten()));
+    }
+
+    try {
+      const incident = await clearSecurityExportDeliveryIncident({
+        tenantId,
+        incidentId: params.data.incidentId,
+        actor: req.requestContext?.authPrincipalName ?? 'unknown',
+        note: parsed.data.note,
+        expectedRevision: parsed.data.revision
+      });
+
+      return {
+        object: 'security_export_delivery_incident',
+        tenant_id: tenantId,
+        data: incident
+      };
+    } catch (error) {
+      if (error instanceof SecurityExportDeliveryIncidentError) {
+        if (error.statusCode === 404) {
+          return reply.status(404).send(invalidRequest(error.message, { incident: error.incident }));
+        }
+
+        if (error.statusCode === 409) {
+          return reply.status(409).send(apiError(error.message, error.incident));
+        }
+
+        return reply.status(error.statusCode).send(apiError(error.message, error.incident));
       }
 
       throw error;
