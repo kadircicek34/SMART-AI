@@ -1,5 +1,40 @@
 # DECISIONS — OpenRouter Agentic Intelligence API
 
+## 2026-04-07 — Delivery incident acknowledgement + manual clear control plane kararı
+### Problem
+Delivery analytics + automatic destination quarantine paketi problemli hedefleri görünür ve fail-closed hale getirdi; ancak production operasyonunda üç kritik boşluk kaldı:
+1. Quarantine penceresi süre dolunca kendiliğinden kalkıyordu; bozuk webhook/SIEM hedefi operatör kontrolü olmadan tekrar açılabiliyor, aynı incident sessizce geri dönebiliyordu.
+2. Dashboard/API tarafında aktif quarantine incident’ını kimin gördüğü, kimin üstlendiği ve ne zaman güvenli biçimde açıldığına dair explicit acknowledgement / clear workflow yoktu.
+3. Operatör ekranı stale veriden clear denemesi yaparsa yanlış destination’ı erken açma riski vardı; optimistic concurrency/revision guard ve zorunlu açıklama kaydı eksikti.
+
+### Seçenekler
+- A: Mevcut auto-quarantine cooldown modelini koruyup sadece runbook notu eklemek
+- B: Incident görünürlüğü verip clear aksiyonunu yine otomatik bırakmak
+- C: Delivery incident control plane + operator ack/manual-clear workflow + stale revision guard + ack reset on new failures paketini tek koşumda teslim etmek
+
+### Karar
+**C seçildi:**
+1. **Yeni özellik:** `GET /v1/security/export/delivery-incidents`, `POST /v1/security/export/delivery-incidents/:incidentId/acknowledge`, `POST /v1/security/export/delivery-incidents/:incidentId/clear` endpointleri ve dashboard incident aksiyonları eklendi.
+2. **Ciddi güvenlik iyileştirmesi #1:** Destination quarantine artık fail-open kalkmıyor; cooldown sonrası bile aktif incident operator acknowledgement + manual clear olmadan preview/sync/async/redrive zincirinde bloklu kalıyor.
+3. **Ciddi güvenlik iyileştirmesi #2:** Ack/clear aksiyonları optimistic revision guard ve zorunlu not ile korunuyor; stale dashboard ekranından gelen clear denemeleri 409 ile reddediliyor.
+4. **Ciddi güvenlik iyileştirmesi #3:** Acknowledged incident için yeni terminal failure gelirse acknowledgement otomatik sıfırlanıyor; eski onay yeni riskli durumu yanlışlıkla kapatmıyor.
+5. **Ops / UX iyileştirmesi:** Delivery analytics summary artık active/unacked/clearable incident sayılarını, incident tablosu ise incident id + ack durumu + clear-after + aksiyonları gösteriyor.
+
+### Gerekçe
+- Auto-quarantine tek başına yeterli değildi; riskli delivery hedefinin tekrar açılması açıkça operatör iradesine bağlanmalıydı.
+- Incident ownership ve çözüm izi olmadan dashboard yalnızca gözlem paneli olarak kalıyordu.
+- Revision guard + zorunlu note kombinasyonu operasyonel hata/yarış durumlarında auditlenebilir ve güvenli bir workflow oluşturdu.
+
+### Etki
+- Problemli destination’lar artık süre dolsa bile sessizce tekrar açılmıyor.
+- Operatör kim ack verdi, ne zaman clear etti ve hangi notla açtı bilgisi audit trail içinde tutuluyor.
+- Dashboard security export paneli receipt ekranından gerçek incident response control plane seviyesine yükseldi.
+
+### Bilinçli Olarak Ertelenenler
+- Incident/quarantine state’ini delivery file store’dan ayrı shared backend’e taşıma
+- Clear sonrası zorunlu başarılı canary delivery veya multi-operator approval workflow
+- Export delivery için merkezi egress proxy / VPC-level outbound enforcement
+
 ## 2026-04-06 — Delivery analytics + automatic destination quarantine kararı
 ### Problem
 Security export delivery hattı artık dedicated policy plane, encrypted retry queue ve manual redrive yüzeyine sahipti; ancak production operasyonunda üç kritik boşluk kalmıştı:
