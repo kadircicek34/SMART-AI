@@ -9,6 +9,12 @@ export type VerificationResult = {
   suggestedTool?: ToolName;
 };
 
+export type SimplicityResult = {
+  score: number;
+  level: 'clean' | 'balanced' | 'dense';
+  reasons: string[];
+};
+
 function looksFailureSummary(summary: string | undefined): boolean {
   if (!summary) return true;
   return /\b(failed?|error|timeout|denied|unavailable|no data|not found|empty result)\b/i.test(summary);
@@ -86,6 +92,82 @@ function countDistinctCitationSources(results: ToolResult[]): number {
   }
 
   return sourceSet.size;
+}
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function countRegexMatches(text: string, regex: RegExp): number {
+  return text.match(regex)?.length ?? 0;
+}
+
+export function scoreAnswerSimplicity(text: string): SimplicityResult {
+  const normalized = text.trim();
+  if (!normalized) {
+    return {
+      score: 1,
+      level: 'clean',
+      reasons: ['empty-response']
+    };
+  }
+
+  const words = normalized.split(/\s+/).filter(Boolean);
+  const sentences = normalized
+    .split(/[.!?]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const avgWordsPerSentence = words.length / Math.max(1, sentences.length);
+  const longSentenceCount = sentences.filter((sentence) => sentence.split(/\s+/).length >= 24).length;
+  const bulletCount = countRegexMatches(normalized, /^\s*[-*•]\s+/gm);
+  const urlCount = countRegexMatches(normalized, /https?:\/\/\S+/gi);
+  const fillerCount = countRegexMatches(
+    normalized,
+    /\b(bir anlamda|temelde|genel olarak|kısacası söylemek gerekirse|it seems|appears to|muhtemelen|olabilir)\b/gi
+  );
+
+  let penalty = 0;
+  const reasons: string[] = [];
+
+  if (avgWordsPerSentence > 20) {
+    penalty += Math.min(0.45, (avgWordsPerSentence - 20) * 0.03);
+    reasons.push('long-average-sentence-length');
+  }
+
+  if (longSentenceCount > 0) {
+    penalty += Math.min(0.36, longSentenceCount * 0.12);
+    reasons.push('too-many-long-sentences');
+  }
+
+  if (bulletCount > 8) {
+    penalty += Math.min(0.14, (bulletCount - 8) * 0.025);
+    reasons.push('over-bulleted');
+  }
+
+  if (urlCount > 2) {
+    penalty += Math.min(0.24, (urlCount - 2) * 0.08);
+    reasons.push('too-many-links');
+  }
+
+  if (fillerCount > 1) {
+    penalty += Math.min(0.2, (fillerCount - 1) * 0.08);
+    reasons.push('filler-heavy-language');
+  }
+
+  if (normalized.length > 2200) {
+    penalty += Math.min(0.12, (normalized.length - 2200) / 2500);
+    reasons.push('overlong-response');
+  }
+
+  const score = clamp01(1 - penalty);
+  const level: SimplicityResult['level'] = score >= 0.78 ? 'clean' : score >= 0.58 ? 'balanced' : 'dense';
+
+  return {
+    score,
+    level,
+    reasons
+  };
 }
 
 export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string): VerificationResult {
@@ -315,5 +397,6 @@ export function verifyEvidence(plan: Plan, results: ToolResult[], query?: string
 
 export const __private__ = {
   citationSourceKey,
-  countDistinctCitationSources
+  countDistinctCitationSources,
+  scoreAnswerSimplicity
 };

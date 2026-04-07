@@ -128,7 +128,8 @@ export const config = {
   },
   verifier: {
     minCitations: Number(process.env.VERIFIER_MIN_CITATIONS ?? 2),
-    minSourceDomains: Number(process.env.VERIFIER_MIN_SOURCE_DOMAINS ?? 2)
+    minSourceDomains: Number(process.env.VERIFIER_MIN_SOURCE_DOMAINS ?? 2),
+    minSimplicityScore: Number(process.env.VERIFIER_MIN_SIMPLICITY_SCORE ?? 0.58)
   },
   synthesizer: {
     citationMode: parseCitationMode(process.env.SYNTHESIS_CITATION_MODE),

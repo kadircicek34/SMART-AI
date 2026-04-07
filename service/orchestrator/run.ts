@@ -6,7 +6,7 @@ import { executePlan } from './executor.js';
 import { chooseBestPlan } from './thinking-loop.js';
 import { synthesizeAnswer } from './synthesizer.js';
 import type { Plan, RunInput, RunOutput } from './types.js';
-import { verifyEvidence } from './verifier.js';
+import { scoreAnswerSimplicity, verifyEvidence } from './verifier.js';
 import { throwIfAborted } from '../utils/abort.js';
 
 function normalizePlanTools(plan: Plan, allowed: ToolName[]): Plan {
@@ -54,8 +54,12 @@ export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
 
   const isSmallTalk = /^(selam|merhaba|hi|hello|hey|nasılsın|naber)[!.?\s]*$/i.test(query);
   if (isSmallTalk) {
+    const smallTalkText = 'Merhaba Başkanım, nasıl yardımcı olayım?';
+    const simplicity = scoreAnswerSimplicity(smallTalkText);
+    const simplicityThreshold = config.verifier.minSimplicityScore;
+
     return {
-      text: 'Merhaba Başkanım, nasıl yardımcı olayım?',
+      text: smallTalkText,
       finishReason: 'stop',
       model: 'rule-based-smalltalk',
       usage: {
@@ -69,6 +73,19 @@ export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
         tools: [],
         reasoning: 'Smalltalk short-circuit',
         stages: [{ id: 'direct', title: 'Doğrudan yanıt', tools: [], status: 'done' }]
+      },
+      verification: {
+        evidence: {
+          sufficient: true,
+          confidence: 1,
+          reason: 'Smalltalk short-circuit',
+          suggestedTool: undefined
+        },
+        simplicity: {
+          ...simplicity,
+          threshold: simplicityThreshold,
+          belowThreshold: simplicity.score < simplicityThreshold
+        }
       }
     };
   }
@@ -152,6 +169,9 @@ export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
 
   const promptTokensApprox = Math.ceil(JSON.stringify(input.messages).length / 4);
 
+  const simplicity = scoreAnswerSimplicity(synthesized.text);
+  const simplicityThreshold = config.verifier.minSimplicityScore;
+
   return {
     text: synthesized.text,
     finishReason: 'stop',
@@ -162,7 +182,20 @@ export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
       totalTokens: synthesized.usage.totalTokens || promptTokensApprox + synthesized.usage.completionTokens
     },
     toolResults: allResults,
-    plan
+    plan,
+    verification: {
+      evidence: {
+        sufficient: verification.sufficient,
+        confidence: verification.confidence,
+        reason: verification.reason,
+        suggestedTool: verification.suggestedTool
+      },
+      simplicity: {
+        ...simplicity,
+        threshold: simplicityThreshold,
+        belowThreshold: simplicity.score < simplicityThreshold
+      }
+    }
   };
 }
 

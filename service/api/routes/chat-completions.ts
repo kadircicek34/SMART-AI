@@ -168,7 +168,17 @@ export async function registerChatCompletionsRoute(app: FastifyInstance) {
         model_policy_source: modelResolution.policy.source,
         used_default_model: modelResolution.usedDefault,
         plan: out.plan,
-        tool_count: out.toolResults.length
+        tool_count: out.toolResults.length,
+        verification: {
+          evidence_sufficient: out.verification.evidence.sufficient,
+          evidence_confidence: out.verification.evidence.confidence,
+          evidence_reason: out.verification.evidence.reason,
+          simplicity_score: out.verification.simplicity.score,
+          simplicity_level: out.verification.simplicity.level,
+          simplicity_threshold: out.verification.simplicity.threshold,
+          simplicity_below_threshold: out.verification.simplicity.belowThreshold,
+          simplicity_reasons: out.verification.simplicity.reasons
+        }
       }
     };
   });

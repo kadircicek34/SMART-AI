@@ -23,6 +23,7 @@
 - `ORCHESTRATOR_MAX_REPEATED_TOOL_PASSES` (varsayılan: 2)
 - `VERIFIER_MIN_CITATIONS` (varsayılan: 2)
 - `VERIFIER_MIN_SOURCE_DOMAINS` (varsayılan: 2)
+- `VERIFIER_MIN_SIMPLICITY_SCORE` (0-1 arası kalite eşiği, varsayılan: 0.58)
 - `SYNTHESIS_CITATION_MODE` (`on_demand|always|never`, varsayılan: `on_demand`)
 - `SYNTHESIS_FORCE_SOURCES_WHEN_VERIFICATION_LOW` (varsayılan: false)
 - `RESEARCH_MAX_QUERIES` (varsayılan: 3)

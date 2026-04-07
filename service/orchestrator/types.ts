@@ -1,4 +1,5 @@
 import type { ToolName, ToolResult } from '../tools/types.js';
+import type { SimplicityResult } from './verifier.js';
 
 export type ChatRole = 'system' | 'user' | 'assistant' | 'tool';
 
@@ -43,4 +44,16 @@ export type RunOutput = {
   model: string;
   toolResults: ToolResult[];
   plan: Plan;
+  verification: {
+    evidence: {
+      sufficient: boolean;
+      confidence: number;
+      reason: string;
+      suggestedTool?: ToolName;
+    };
+    simplicity: SimplicityResult & {
+      threshold: number;
+      belowThreshold: boolean;
+    };
+  };
 };

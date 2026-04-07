@@ -116,4 +116,6 @@ test('POST /v1/chat/completions returns completion shape', async () => {
   assert.equal(body.choices[0].message.role, 'assistant');
   assert.ok(typeof body.choices[0].message.content === 'string');
   assert.ok(typeof body.usage.total_tokens === 'number');
+  assert.ok(typeof body.metadata.verification.simplicity_score === 'number');
+  assert.ok(typeof body.metadata.verification.evidence_confidence === 'number');
 });

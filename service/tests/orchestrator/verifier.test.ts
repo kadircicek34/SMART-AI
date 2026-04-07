@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { verifyEvidence } from '../../orchestrator/verifier.js';
+import { scoreAnswerSimplicity, verifyEvidence } from '../../orchestrator/verifier.js';
 
 test('verifier suggests qmd_search for project-doc queries when evidence is missing', () => {
   const result = verifyEvidence(
@@ -193,4 +193,23 @@ test('verifier rejects mostly-failed tool outputs and asks for web_search refres
 
   assert.equal(result.sufficient, false);
   assert.equal(result.suggestedTool, 'web_search');
+});
+
+test('simplicity scorer marks concise answer as clean', () => {
+  const score = scoreAnswerSimplicity('BTC son 24 saatte dar bantta hareket etti. Hacim stabil, yön teyidi için kırılım beklenebilir.');
+
+  assert.ok(score.score >= 0.78);
+  assert.equal(score.level, 'clean');
+});
+
+test('simplicity scorer marks dense answer as dense', () => {
+  const dense =
+    'Bu konuya yaklaşırken bir anlamda çok katmanlı, iç içe geçmiş ve farklı paydaş beklentilerini aynı anda optimize etmeye çalışan bir perspektiften ilerlemek gerekir çünkü mimari, operasyon, veri işleme, model yönetişimi ve gözlemlenebilirlik seviyelerinin her birinde değerlendirilebilecek trade-off kümeleri vardır ve bunların her biri farklı önceliklerde, farklı zamanlarda ve farklı risk iştahlarında ele alınmalıdır. ' +
+    'Genel olarak bu çerçeveyi değerlendirirken temelde sadece kısa vadeli kazanımlara bakmak yeterli değildir, aynı zamanda orta vadede bakım maliyeti, uzun vadede platform kilitlenmesi, ekip öğrenme eğrisi ve domain bağımlılığı gibi etkiler de birlikte düşünülmelidir. ' +
+    'Ayrıca detaylı bağlantılar için https://example.com/a https://example.com/b https://example.com/c https://example.com/d https://example.com/e https://example.com/f incelenebilir ve bu bağlantıların her biri kendi içinde farklı bir değerlendirme perspektifi sunabilir.';
+
+  const score = scoreAnswerSimplicity(dense);
+
+  assert.ok(score.score < 0.58);
+  assert.equal(score.level, 'dense');
 });

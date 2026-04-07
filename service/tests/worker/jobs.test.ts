@@ -35,6 +35,20 @@ const stubRunnerOutput: RunOutput = {
     objective: 'stub',
     tools: [],
     reasoning: 'stub'
+  },
+  verification: {
+    evidence: {
+      sufficient: true,
+      confidence: 1,
+      reason: 'stub'
+    },
+    simplicity: {
+      score: 0.95,
+      level: 'clean',
+      reasons: [],
+      threshold: 0.58,
+      belowThreshold: false
+    }
   }
 };
 
