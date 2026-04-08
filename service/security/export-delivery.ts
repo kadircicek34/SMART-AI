@@ -15,7 +15,7 @@ import { ensureSignedSecurityAuditExportBundle, securityExportSigningRegistry } 
 
 const CONTROL_CHARS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
 const WHITESPACE = /\s+/g;
-const DELIVERY_STORE_VERSION = 4;
+const DELIVERY_STORE_VERSION = 5;
 const MAX_DELIVERY_URL_LENGTH = 2048;
 const RETRYABLE_HTTP_STATUS_CODES = new Set([408, 425, 429]);
 const RETRYABLE_ERROR_CODES = new Set(['ECONNRESET', 'ECONNREFUSED', 'ECONNABORTED', 'ECONNREFUSED', 'EAI_AGAIN', 'ENOTFOUND', 'ETIMEDOUT', 'EHOSTUNREACH', 'EPIPE']);
@@ -101,6 +101,25 @@ export type SecurityExportDeliveryTargetPreviewReason = SecurityExportDeliveryTa
 
 export type SecurityExportDeliveryHealthVerdict = 'healthy' | 'degraded' | 'quarantined';
 
+export type SecurityExportDeliveryIncidentClearRequest = {
+  request_id: string;
+  requested_at: string;
+  requested_by: string;
+  note: string;
+  expires_at: string;
+  canary_checked_at: string;
+  canary_http_status: number;
+  canary_duration_ms: number;
+  canary_response_excerpt: string | null;
+  canary_response_excerpt_truncated: boolean;
+  canary_pinned_address: string;
+  canary_pinned_address_family: number;
+  canary_matched_rule: string | null;
+  consumed_at: string | null;
+  consumed_by: string | null;
+  approval_note: string | null;
+};
+
 export type SecurityExportDeliveryIncidentSummary = {
   incident_id: string;
   status: SecurityExportDeliveryIncidentStatus;
@@ -109,6 +128,7 @@ export type SecurityExportDeliveryIncidentSummary = {
   clear_after: string;
   acknowledged_at: string | null;
   acknowledged_by: string | null;
+  clear_request: SecurityExportDeliveryIncidentClearRequest | null;
   revision: number;
 };
 
@@ -129,6 +149,7 @@ export type SecurityExportDeliveryIncident = SecurityExportDeliveryIncidentSumma
   cleared_at: string | null;
   cleared_by: string | null;
   clear_note: string | null;
+  clear_request: SecurityExportDeliveryIncidentClearRequest | null;
 };
 
 export type SecurityExportDeliveryDestinationHealth = {
@@ -228,6 +249,13 @@ type DeliveryIdempotencyEntry = {
   created_at: string;
 };
 
+type DeliveryTargetMaterial = {
+  tenant_id: string;
+  destination_key: string;
+  target_url: EncryptedValue;
+  updated_at: string;
+};
+
 type DeliveryStoreSnapshot = {
   version: number;
   updatedAt: string;
@@ -235,6 +263,7 @@ type DeliveryStoreSnapshot = {
   incidents?: Record<string, unknown[]>;
   retryMaterials?: unknown[];
   idempotency?: unknown[];
+  targets?: unknown[];
 };
 
 type EnqueueSecurityExportDeliveryResult =
@@ -281,6 +310,7 @@ class SecurityExportDeliveryStore {
   private readonly incidents = new Map<string, SecurityExportDeliveryIncident[]>();
   private readonly retryMaterials = new Map<string, DeliveryRetryMaterial>();
   private readonly idempotencyEntries = new Map<string, DeliveryIdempotencyEntry>();
+  private readonly destinationTargets = new Map<string, DeliveryTargetMaterial>();
 
   constructor(filePath: string, maxRecordsPerTenant: number) {
     this.filePath = filePath;
@@ -319,6 +349,30 @@ class SecurityExportDeliveryStore {
   getIncident(tenantId: string, incidentId: string): SecurityExportDeliveryIncident | null {
     const incidents = this.incidents.get(tenantId) ?? [];
     return incidents.find((incident) => incident.incident_id === incidentId) ?? null;
+  }
+
+  async rememberDestinationTarget(tenantId: string, destination: DeliveryDestination, destinationUrl: string): Promise<void> {
+    const material: DeliveryTargetMaterial = {
+      tenant_id: tenantId,
+      destination_key: destinationAnalyticsKey(destination),
+      target_url: encryptString(destinationUrl),
+      updated_at: new Date().toISOString()
+    };
+    this.destinationTargets.set(destinationTargetLookupKey(tenantId, material.destination_key), material);
+    await this.persist();
+  }
+
+  getDestinationTargetUrl(tenantId: string, destination: DeliveryDestination): string | null {
+    const material = this.destinationTargets.get(destinationTargetLookupKey(tenantId, destinationAnalyticsKey(destination)));
+    if (!material) {
+      return null;
+    }
+
+    try {
+      return decryptString(material.target_url);
+    } catch {
+      return null;
+    }
   }
 
   getActiveIncidentByDestination(tenantId: string, destination: DeliveryDestination): SecurityExportDeliveryIncident | null {
@@ -463,6 +517,7 @@ class SecurityExportDeliveryStore {
     this.incidents.clear();
     this.retryMaterials.clear();
     this.idempotencyEntries.clear();
+    this.destinationTargets.clear();
   }
 
   private getActiveIncidentByDestinationKey(tenantId: string, destinationKey: string): SecurityExportDeliveryIncident | null {
@@ -529,7 +584,8 @@ class SecurityExportDeliveryStore {
         resolved_at: null,
         cleared_at: null,
         cleared_by: null,
-        clear_note: null
+        clear_note: null,
+        clear_request: null
       };
       this.setIncidentRecord(incident);
       securityAuditLog.record({
@@ -549,6 +605,7 @@ class SecurityExportDeliveryStore {
 
     let changed = false;
     let resetAcknowledgement = false;
+    let resetClearRequest = false;
     const next: SecurityExportDeliveryIncident = {
       ...activeIncident,
       destination: latestRecord?.destination ?? activeIncident.destination,
@@ -570,6 +627,7 @@ class SecurityExportDeliveryStore {
         next.acknowledged_at = null;
         next.acknowledged_by = null;
         next.acknowledgment_note = null;
+        next.clear_request = null;
         resetAcknowledgement = true;
       }
     }
@@ -585,6 +643,10 @@ class SecurityExportDeliveryStore {
       next.dead_letters !== activeIncident.dead_letters ||
       next.matched_rule !== activeIncident.matched_rule
     ) {
+      if (activeIncident.clear_request && !activeIncident.clear_request.consumed_at) {
+        next.clear_request = null;
+        resetClearRequest = true;
+      }
       changed = true;
     }
 
@@ -608,6 +670,22 @@ class SecurityExportDeliveryStore {
           dead_letters: next.dead_letters,
           clear_after: next.clear_after,
           acknowledgement_reset: true
+        }
+      });
+    }
+
+    if (resetClearRequest && !resetAcknowledgement) {
+      securityAuditLog.record({
+        tenant_id: next.tenant_id,
+        type: 'security_export_delivery_incident_opened',
+        details: {
+          incident_id: next.incident_id,
+          destination_host: next.destination.host,
+          path_hash: next.destination.path_hash,
+          terminal_failures: next.terminal_failures,
+          dead_letters: next.dead_letters,
+          clear_after: next.clear_after,
+          clear_request_reset: true
         }
       });
     }
@@ -702,6 +780,15 @@ class SecurityExportDeliveryStore {
 
       this.idempotencyEntries.set(idempotencyLookupKey(sanitized.tenant_id, sanitized.key_hash), sanitized);
     }
+
+    for (const target of parsed.targets ?? []) {
+      const sanitized = sanitizeDeliveryTargetMaterial(target);
+      if (!sanitized) {
+        continue;
+      }
+
+      this.destinationTargets.set(destinationTargetLookupKey(sanitized.tenant_id, sanitized.destination_key), sanitized);
+    }
   }
 
   private async persist(): Promise<void> {
@@ -721,7 +808,8 @@ class SecurityExportDeliveryStore {
       tenants,
       incidents,
       retryMaterials: [...this.retryMaterials.values()],
-      idempotency: [...this.idempotencyEntries.values()]
+      idempotency: [...this.idempotencyEntries.values()],
+      targets: [...this.destinationTargets.values()]
     });
   }
 }
@@ -777,6 +865,10 @@ function decryptString(payload: EncryptedValue): string {
 
 function idempotencyLookupKey(tenantId: string, keyHash: string): string {
   return `${tenantId}:${keyHash}`;
+}
+
+function destinationTargetLookupKey(tenantId: string, destinationKey: string): string {
+  return `${tenantId}:${destinationKey}`;
 }
 
 function normalizeDeliveryPort(url: URL): number {
@@ -932,6 +1024,7 @@ function toIncidentSummary(incident: SecurityExportDeliveryIncident | null): Sec
     clear_after: incident.clear_after,
     acknowledged_at: incident.acknowledged_at,
     acknowledged_by: incident.acknowledged_by,
+    clear_request: incident.clear_request,
     revision: incident.revision
   };
 }
@@ -1187,6 +1280,36 @@ function sanitizeDeliveryRecord(value: unknown): SecurityExportDeliveryRecord | 
   };
 }
 
+function sanitizeDeliveryIncidentClearRequest(value: unknown): SecurityExportDeliveryIncidentClearRequest | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const candidate = value as Partial<SecurityExportDeliveryIncidentClearRequest>;
+  if (!candidate.request_id || !candidate.requested_at || !candidate.requested_by || !candidate.note || !candidate.expires_at || !candidate.canary_checked_at) {
+    return null;
+  }
+
+  return {
+    request_id: sanitizeString(candidate.request_id, 96),
+    requested_at: sanitizeIsoTimestamp(candidate.requested_at),
+    requested_by: sanitizeString(candidate.requested_by, 128),
+    note: sanitizeString(candidate.note, 280),
+    expires_at: sanitizeIsoTimestamp(candidate.expires_at),
+    canary_checked_at: sanitizeIsoTimestamp(candidate.canary_checked_at),
+    canary_http_status: Number.isFinite(candidate.canary_http_status) ? Math.max(0, Number(candidate.canary_http_status)) : 0,
+    canary_duration_ms: Number.isFinite(candidate.canary_duration_ms) ? Math.max(0, Number(candidate.canary_duration_ms)) : 0,
+    canary_response_excerpt: candidate.canary_response_excerpt ? sanitizeString(candidate.canary_response_excerpt, 220) : null,
+    canary_response_excerpt_truncated: Boolean(candidate.canary_response_excerpt_truncated),
+    canary_pinned_address: sanitizeString(candidate.canary_pinned_address ?? 'unknown', 128),
+    canary_pinned_address_family: Number.isFinite(candidate.canary_pinned_address_family) ? Math.max(0, Number(candidate.canary_pinned_address_family)) : 0,
+    canary_matched_rule: candidate.canary_matched_rule ? sanitizeString(candidate.canary_matched_rule, 160) : null,
+    consumed_at: candidate.consumed_at ? sanitizeIsoTimestamp(candidate.consumed_at) : null,
+    consumed_by: candidate.consumed_by ? sanitizeString(candidate.consumed_by, 128) : null,
+    approval_note: candidate.approval_note ? sanitizeString(candidate.approval_note, 280) : null
+  };
+}
+
 function sanitizeDeliveryIncident(value: unknown): SecurityExportDeliveryIncident | null {
   if (!value || typeof value !== 'object') {
     return null;
@@ -1250,7 +1373,8 @@ function sanitizeDeliveryIncident(value: unknown): SecurityExportDeliveryInciden
     resolved_at: candidate.resolved_at ? sanitizeIsoTimestamp(candidate.resolved_at) : null,
     cleared_at: candidate.cleared_at ? sanitizeIsoTimestamp(candidate.cleared_at) : null,
     cleared_by: candidate.cleared_by ? sanitizeString(candidate.cleared_by, 128) : null,
-    clear_note: candidate.clear_note ? sanitizeString(candidate.clear_note, 280) : null
+    clear_note: candidate.clear_note ? sanitizeString(candidate.clear_note, 280) : null,
+    clear_request: sanitizeDeliveryIncidentClearRequest(candidate.clear_request)
   };
 }
 
@@ -1313,6 +1437,29 @@ function sanitizeIdempotencyEntry(value: unknown): DeliveryIdempotencyEntry | nu
     key_hash: sanitizeString(candidate.key_hash, 128),
     payload_sha256: sanitizeString(candidate.payload_sha256, 96),
     created_at: sanitizeIsoTimestamp(candidate.created_at)
+  };
+}
+
+function sanitizeDeliveryTargetMaterial(value: unknown): DeliveryTargetMaterial | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const candidate = value as Partial<DeliveryTargetMaterial>;
+  const targetUrl = candidate.target_url as EncryptedValue | undefined;
+  if (!candidate.tenant_id || !candidate.destination_key || !targetUrl?.iv || !targetUrl.tag || !targetUrl.data) {
+    return null;
+  }
+
+  return {
+    tenant_id: sanitizeString(candidate.tenant_id, 128),
+    destination_key: sanitizeString(candidate.destination_key, 220),
+    target_url: {
+      iv: String(targetUrl.iv),
+      tag: String(targetUrl.tag),
+      data: String(targetUrl.data)
+    },
+    updated_at: sanitizeIsoTimestamp(candidate.updated_at)
   };
 }
 
@@ -1735,7 +1882,7 @@ function getDeliveryDestinationHealth(tenantId: string, destination: DeliveryDes
   );
 }
 
-async function resolveDeliveryTarget(tenantId: string, destinationUrl: string): Promise<{
+async function resolveDeliveryTarget(tenantId: string, destinationUrl: string, options: { allowQuarantined?: boolean } = {}): Promise<{
   url: URL;
   hostname: string;
   matchedHostRule: string;
@@ -1756,7 +1903,7 @@ async function resolveDeliveryTarget(tenantId: string, destinationUrl: string): 
 
   const descriptor = buildDeliveryDestination(normalized.url, policyDecision.matchedRule);
   const health = getDeliveryDestinationHealth(tenantId, descriptor);
-  if (health.verdict === 'quarantined') {
+  if (!options.allowQuarantined && health.verdict === 'quarantined') {
     throw new Error(describeQuarantinedDestinationError(health));
   }
 
@@ -1787,6 +1934,7 @@ async function resolvePinnedAddress(hostname: string): Promise<{ address: string
 export async function previewSecurityExportDeliveryTarget(options: {
   tenantId: string;
   destinationUrl: string;
+  allowQuarantined?: boolean;
 }): Promise<SecurityExportDeliveryTargetPreview> {
   const normalized = normalizeDeliveryTargetDestination(options.destinationUrl);
   const policyDecision = await evaluateSecurityExportDeliveryTargetPolicy({
@@ -1798,7 +1946,8 @@ export async function previewSecurityExportDeliveryTarget(options: {
   const destination = buildDeliveryDestination(normalized.url, policyDecision.matchedRule);
   const health = getDeliveryDestinationHealth(options.tenantId, destination);
   const pinnedAddress = await resolvePinnedAddress(normalized.hostname);
-  const quarantined = policyDecision.allowed && Boolean(policyDecision.matchedRule) && health.verdict === 'quarantined';
+  const quarantined =
+    !options.allowQuarantined && policyDecision.allowed && Boolean(policyDecision.matchedRule) && health.verdict === 'quarantined';
 
   return {
     allowed: policyDecision.allowed && !quarantined,
@@ -1817,9 +1966,13 @@ async function prepareSecurityExportDelivery(options: {
   requestId?: string;
   destinationUrl: string;
   bundle: SecurityAuditExportBundle;
+  allowQuarantined?: boolean;
 }): Promise<{ prepared: PreparedDelivery; requestedAt: string }> {
   const requestedAt = new Date().toISOString();
-  const target = await resolveDeliveryTarget(options.tenantId, options.destinationUrl);
+  const target = await resolveDeliveryTarget(options.tenantId, options.destinationUrl, {
+    allowQuarantined: options.allowQuarantined
+  });
+  await deliveryStore.rememberDestinationTarget(options.tenantId, target.descriptor, options.destinationUrl);
   const pinnedAddress = await resolvePinnedAddress(target.hostname);
   const deliveryId = crypto.randomUUID();
   const signedBundle = ensureSignedSecurityAuditExportBundle(options.bundle);
@@ -1845,8 +1998,12 @@ async function prepareSecurityExportDeliveryAttempt(options: {
   destinationUrl: string;
   bundle: SecurityAuditExportBundle;
   payload: string;
+  allowQuarantined?: boolean;
 }): Promise<PreparedDelivery> {
-  const target = await resolveDeliveryTarget(options.tenantId, options.destinationUrl);
+  const target = await resolveDeliveryTarget(options.tenantId, options.destinationUrl, {
+    allowQuarantined: options.allowQuarantined
+  });
+  await deliveryStore.rememberDestinationTarget(options.tenantId, target.descriptor, options.destinationUrl);
   const pinnedAddress = await resolvePinnedAddress(target.hostname);
   const signedBundle = ensureSignedSecurityAuditExportBundle(options.bundle);
   const payload = JSON.stringify(signedBundle);
@@ -2955,6 +3112,180 @@ export async function acknowledgeSecurityExportDeliveryIncident(options: {
   return updated;
 }
 
+async function runSecurityExportDeliveryIncidentCanary(options: {
+  tenantId: string;
+  incident: SecurityExportDeliveryIncident;
+  requestId?: string;
+}): Promise<{ 
+  matchedRule: string | null;
+  pinnedAddress: string;
+  pinnedAddressFamily: number;
+  httpStatus: number;
+  durationMs: number;
+  responseExcerpt: string | null;
+  responseExcerptTruncated: boolean;
+}> {
+  const destinationUrl = deliveryStore.getDestinationTargetUrl(options.tenantId, options.incident.destination);
+  if (!destinationUrl) {
+    throw new SecurityExportDeliveryIncidentError('Security export delivery incident target could not be recovered. Trigger a fresh delivery failure before requesting clear.', {
+      code: 'incident_target_unavailable',
+      statusCode: 409,
+      incident: options.incident
+    });
+  }
+
+  const bundle = ensureSignedSecurityAuditExportBundle(
+    securityAuditLog.export(options.tenantId, {
+      sinceTimestamp: Date.now() - Math.max(1, config.security.exportDeliveryIncidentWindowHours) * 60 * 60 * 1000,
+      limit: 25,
+      topIpLimit: 5
+    })
+  );
+
+  try {
+    const { prepared } = await prepareSecurityExportDelivery({
+      tenantId: options.tenantId,
+      requestId: options.requestId,
+      destinationUrl,
+      bundle,
+      allowQuarantined: true
+    });
+    const result = await dispatchSecurityExportDelivery(prepared);
+    if (result.statusCode < 200 || result.statusCode >= 300) {
+      throw new SecurityExportDeliveryIncidentError('Security export incident canary delivery failed. Keep destination quarantined until the target accepts a live canary again.', {
+        code: 'incident_clear_canary_failed',
+        statusCode: 502,
+        incident: options.incident
+      });
+    }
+
+    return {
+      matchedRule: prepared.target.matchedHostRule,
+      pinnedAddress: prepared.pinnedAddress.address,
+      pinnedAddressFamily: prepared.pinnedAddress.family,
+      httpStatus: result.statusCode,
+      durationMs: result.durationMs ?? 0,
+      responseExcerpt: result.bodyText ? sanitizeString(result.bodyText, 220) : null,
+      responseExcerptTruncated: Boolean(result.bodyTruncated)
+    };
+  } catch (error) {
+    if (error instanceof SecurityExportDeliveryIncidentError) {
+      throw error;
+    }
+
+    if (error instanceof SecurityExportDeliveryError) {
+      throw new SecurityExportDeliveryIncidentError(error.message, {
+        code: error.code === 'destination_quarantined' ? 'incident_clear_canary_blocked' : 'incident_clear_canary_failed',
+        statusCode: error.statusCode,
+        incident: options.incident
+      });
+    }
+
+    throw error;
+  }
+}
+
+export async function requestSecurityExportDeliveryIncidentClear(options: {
+  tenantId: string;
+  incidentId: string;
+  actor: string;
+  note: string;
+  expectedRevision?: number;
+  requestId?: string;
+}): Promise<SecurityExportDeliveryIncident> {
+  const incident = deliveryStore.getIncident(options.tenantId, options.incidentId);
+  if (!incident || incident.status !== 'active') {
+    throw new SecurityExportDeliveryIncidentError('Security export delivery incident not found.', {
+      code: 'incident_not_found',
+      statusCode: 404,
+      incident
+    });
+  }
+
+  if (
+    Number.isFinite(options.expectedRevision) &&
+    Number(options.expectedRevision) > 0 &&
+    Number(options.expectedRevision) !== incident.revision
+  ) {
+    throw new SecurityExportDeliveryIncidentError('Security export delivery incident revision is stale. Refresh and retry.', {
+      code: 'incident_revision_conflict',
+      statusCode: 409,
+      incident
+    });
+  }
+
+  if (!incident.acknowledged_at) {
+    throw new SecurityExportDeliveryIncidentError('Security export delivery incident must be acknowledged before a clear request can be created.', {
+      code: 'incident_ack_required',
+      statusCode: 409,
+      incident
+    });
+  }
+
+  const clearAfterMs = Date.parse(incident.clear_after);
+  if (!Number.isFinite(clearAfterMs) || clearAfterMs > Date.now()) {
+    throw new SecurityExportDeliveryIncidentError('Security export delivery incident cooldown is still active. Wait until clear_after before requesting clear.', {
+      code: 'incident_cooldown_active',
+      statusCode: 409,
+      incident
+    });
+  }
+
+  if (incident.clear_request && !incident.clear_request.consumed_at && Date.parse(incident.clear_request.expires_at) > Date.now()) {
+    throw new SecurityExportDeliveryIncidentError('Security export delivery incident already has a pending clear request awaiting second-operator approval.', {
+      code: 'incident_clear_request_pending',
+      statusCode: 409,
+      incident
+    });
+  }
+
+  const canary = await runSecurityExportDeliveryIncidentCanary({
+    tenantId: options.tenantId,
+    incident,
+    requestId: options.requestId
+  });
+  const nowIso = new Date().toISOString();
+  const updated: SecurityExportDeliveryIncident = {
+    ...incident,
+    updated_at: nowIso,
+    clear_request: {
+      request_id: crypto.randomUUID(),
+      requested_at: nowIso,
+      requested_by: sanitizeString(options.actor, 128),
+      note: sanitizeString(options.note, 280),
+      expires_at: new Date(Date.now() + Math.max(1, Math.trunc(config.security.exportDeliveryClearRequestTtlMinutes)) * 60 * 1000).toISOString(),
+      canary_checked_at: nowIso,
+      canary_http_status: canary.httpStatus,
+      canary_duration_ms: canary.durationMs,
+      canary_response_excerpt: canary.responseExcerpt,
+      canary_response_excerpt_truncated: canary.responseExcerptTruncated,
+      canary_pinned_address: canary.pinnedAddress,
+      canary_pinned_address_family: canary.pinnedAddressFamily,
+      canary_matched_rule: canary.matchedRule,
+      consumed_at: null,
+      consumed_by: null,
+      approval_note: null
+    },
+    revision: incident.revision + 1
+  };
+
+  await deliveryStore.saveIncident(updated);
+  securityAuditLog.record({
+    tenant_id: updated.tenant_id,
+    type: 'security_export_delivery_incident_clear_requested',
+    details: {
+      incident_id: updated.incident_id,
+      request_id: updated.clear_request?.request_id ?? null,
+      destination_host: updated.destination.host,
+      path_hash: updated.destination.path_hash,
+      actor: updated.clear_request?.requested_by ?? 'unknown',
+      canary_http_status: updated.clear_request?.canary_http_status ?? 0,
+      expires_at: updated.clear_request?.expires_at ?? nowIso
+    }
+  });
+  return updated;
+}
+
 export async function clearSecurityExportDeliveryIncident(options: {
   tenantId: string;
   incidentId: string;
@@ -2991,10 +3322,57 @@ export async function clearSecurityExportDeliveryIncident(options: {
     });
   }
 
+  if (!incident.clear_request || incident.clear_request.consumed_at) {
+    throw new SecurityExportDeliveryIncidentError('Security export delivery incident requires a successful clear request and live canary before it can be cleared.', {
+      code: 'incident_clear_request_required',
+      statusCode: 409,
+      incident
+    });
+  }
+
   const clearAfterMs = Date.parse(incident.clear_after);
   if (!Number.isFinite(clearAfterMs) || clearAfterMs > Date.now()) {
     throw new SecurityExportDeliveryIncidentError('Security export delivery incident cooldown is still active. Wait until clear_after before clearing it.', {
       code: 'incident_cooldown_active',
+      statusCode: 409,
+      incident
+    });
+  }
+
+  const clearRequestExpiryMs = Date.parse(incident.clear_request.expires_at);
+  if (!Number.isFinite(clearRequestExpiryMs) || clearRequestExpiryMs <= Date.now()) {
+    throw new SecurityExportDeliveryIncidentError('Security export delivery incident clear request expired. Run a fresh canary before attempting clear again.', {
+      code: 'incident_clear_request_expired',
+      statusCode: 409,
+      incident
+    });
+  }
+
+  if (sanitizeString(options.actor, 128) === incident.clear_request.requested_by) {
+    throw new SecurityExportDeliveryIncidentError('Security export delivery incident clear requires a second operator. The requester cannot approve and clear their own request.', {
+      code: 'incident_clear_request_second_operator_required',
+      statusCode: 409,
+      incident
+    });
+  }
+
+  const destinationUrl = deliveryStore.getDestinationTargetUrl(options.tenantId, incident.destination);
+  if (!destinationUrl) {
+    throw new SecurityExportDeliveryIncidentError('Security export delivery incident target could not be recovered. Trigger a fresh delivery failure before requesting clear.', {
+      code: 'incident_target_unavailable',
+      statusCode: 409,
+      incident
+    });
+  }
+
+  const preview = await previewSecurityExportDeliveryTarget({
+    tenantId: options.tenantId,
+    destinationUrl,
+    allowQuarantined: true
+  });
+  if (!preview.allowed || preview.matched_rule !== incident.clear_request.canary_matched_rule) {
+    throw new SecurityExportDeliveryIncidentError('Security export delivery incident clear request is stale against the current delivery policy. Run a fresh canary before clearing.', {
+      code: 'incident_clear_request_stale',
       statusCode: 409,
       incident
     });
@@ -3009,6 +3387,12 @@ export async function clearSecurityExportDeliveryIncident(options: {
     cleared_at: nowIso,
     cleared_by: sanitizeString(options.actor, 128),
     clear_note: sanitizeString(options.note, 280),
+    clear_request: {
+      ...incident.clear_request,
+      consumed_at: nowIso,
+      consumed_by: sanitizeString(options.actor, 128),
+      approval_note: sanitizeString(options.note, 280)
+    },
     revision: incident.revision + 1
   };
 
@@ -3018,6 +3402,7 @@ export async function clearSecurityExportDeliveryIncident(options: {
     type: 'security_export_delivery_incident_cleared',
     details: {
       incident_id: updated.incident_id,
+      request_id: updated.clear_request?.request_id ?? null,
       destination_host: updated.destination.host,
       path_hash: updated.destination.path_hash,
       actor: updated.cleared_by ?? 'unknown'

@@ -1,20 +1,25 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "Delivery incident ack + manual clear control plane production-grade olarak teslim edildi",
+  "current_task": "Canary-backed incident clear request + four-eyes approval workflow production-grade olarak teslim edildi",
   "next_actions": [
-    "Delivery incident/quarantine state'ini queue/session/audit ile birlikte gerçek shared backend'e taşı",
-    "Incident clear için canary delivery doğrulaması + çift-onay (four-eyes) workflow'u ekle",
-    "Export delivery için merkezi egress proxy / VPC-level outbound enforcement tasarla ve uygula",
-    "Delivery incident dashboard'a timeline drill-down + runbook suggestion otomasyonu ekle"
+    "Incident/quarantine state'ini queue/session/audit ile birlikte gerçek shared backend'e taşı",
+    "Four-eyes clear approval için tenant içi approver RBAC ve ayrı operator roster ekle",
+    "Clear sonrası staged reopen/canary ramp-up policy'si ekle",
+    "Export delivery için merkezi egress proxy / VPC-level outbound enforcement tasarla ve uygula"
   ],
   "risks": [
     "Delivery incident/quarantine state hâlâ local delivery store'dan türetiliyor; multi-instance HA için shared incident backend gerekecek",
-    "Incident clear şu an tek operatör onayıyla yapılabiliyor; canary-delivery doğrulaması ve çift-onay workflow'u henüz yok",
+    "Four-eyes onayı bugün principal-name seviyesinde uygulanıyor; tenant içi ayrı operator/role directory henüz yok",
     "Delivery queue/audit/policy/session/signing persistence hâlâ local file tabanlı; multi-instance HA için shared backend gerekecek",
     "Export delivery için merkezi egress proxy / VPC-level outbound control henüz yok"
   ],
   "decisions": [
+    {
+      "date": "2026-04-08",
+      "decision": "Delivery incident reopen akışını canlı canary-backed clear request + four-eyes approval modeline yükselt",
+      "reason": "Tek operatör clear riskini kapatmak, hedef toparlanmasını canlı delivery ile kanıtlamak ve recovery için encrypted internal target recovery material kullanarak redacted API yüzeyini korumak"
+    },
     {
       "date": "2026-04-07",
       "decision": "Delivery incident ack + manual clear control plane'ini fail-closed quarantine modeline bağla",
@@ -68,12 +73,10 @@
     "service/.env.example",
     "service/config.ts",
     "service/api/routes/security-events.ts",
+    "service/security/audit-log.ts",
     "service/security/export-delivery.ts",
-    "service/security/export-signing.ts",
     "service/web/assets/dashboard.js",
-    "service/web/dashboard.html",
-    "service/tests/contract/security-events.test.ts",
     "service/tests/contract/security-export-deliveries.test.ts"
   ],
-  "updated_at": "2026-04-07T07:00:00+03:00"
+  "updated_at": "2026-04-08T07:00:00+03:00"
 }

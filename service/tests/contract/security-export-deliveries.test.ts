@@ -39,6 +39,7 @@ before(async () => {
   process.env.APP_API_KEYS = '';
   process.env.APP_API_KEY_DEFINITIONS = JSON.stringify([
     { name: 'tenant-admin', key: 'test-admin-key', scopes: ['tenant:admin'] },
+    { name: 'tenant-approver', key: 'test-approver-key', scopes: ['tenant:admin'] },
     { name: 'tenant-read', key: 'test-read-key', scopes: ['tenant:read'] }
   ]);
   process.env.KEY_STORE_FILE = `/tmp/smart-ai-test-keys-security-export-deliveries-${process.pid}.json`;
@@ -65,6 +66,7 @@ before(async () => {
   process.env.SECURITY_EXPORT_DELIVERY_QUARANTINE_FAILURE_THRESHOLD = '2';
   process.env.SECURITY_EXPORT_DELIVERY_QUARANTINE_DEAD_LETTER_THRESHOLD = '2';
   process.env.SECURITY_EXPORT_DELIVERY_QUARANTINE_DURATION_MINUTES = '60';
+  process.env.SECURITY_EXPORT_DELIVERY_CLEAR_REQUEST_TTL_MINUTES = '20';
 
   deliveryStoreFile = process.env.SECURITY_EXPORT_DELIVERY_STORE_FILE;
 
@@ -97,12 +99,12 @@ beforeEach(() => {
   deliveryPrivate.setLookupForTests(async () => [{ address: '93.184.216.34', family: 4 }]);
 });
 
-async function createAdminSession(tenantId: string) {
+async function createSession(tenantId: string, apiKey: string) {
   const sessionRes = await app.inject({
     method: 'POST',
     url: '/ui/session',
     payload: {
-      apiKey: 'test-admin-key',
+      apiKey,
       tenantId
     },
     headers: {
@@ -112,6 +114,10 @@ async function createAdminSession(tenantId: string) {
 
   assert.equal(sessionRes.statusCode, 200);
   return sessionRes.json();
+}
+
+async function createAdminSession(tenantId: string) {
+  return createSession(tenantId, 'test-admin-key');
 }
 
 async function allowDeliveryTarget(tenantId: string, allowedTargets = ['siem.example.com/hooks']) {
@@ -792,7 +798,7 @@ test('delivery analytics surfaces quarantined destinations and preview blocks re
   assert.ok(analytics.data.timeline.some((bucket: any) => bucket.total >= 1));
 });
 
-test('delivery incident acknowledgement and manual clear keep quarantine fail-closed until an operator resolves it', async () => {
+test('delivery incident clear now requires a fresh canary-backed clear request and second-operator approval', async () => {
   const tenantId = 'tenant-security-delivery-incident-workflow';
   const session = await createAdminSession(tenantId);
   await allowDeliveryTarget(tenantId);
@@ -902,7 +908,7 @@ test('delivery incident acknowledgement and manual clear keep quarantine fail-cl
   assert.equal(previewBlocked.reason, 'destination_quarantined');
   assert.equal(previewBlocked.health.active_incident.incident_id, incidentId);
 
-  const staleClearRes = await app.inject({
+  const clearWithoutRequestRes = await app.inject({
     method: 'POST',
     url: `/v1/security/export/delivery-incidents/${incidentId}/clear`,
     headers: {
@@ -912,32 +918,12 @@ test('delivery incident acknowledgement and manual clear keep quarantine fail-cl
       origin: 'https://dashboard.example.com'
     },
     payload: {
-      note: 'Target verified and safe to re-enable.',
-      revision: initialRevision
-    }
-  });
-
-  assert.equal(staleClearRes.statusCode, 409);
-
-  const clearRes = await app.inject({
-    method: 'POST',
-    url: `/v1/security/export/delivery-incidents/${incidentId}/clear`,
-    headers: {
-      authorization: 'Bearer test-admin-key',
-      'x-tenant-id': tenantId,
-      'content-type': 'application/json',
-      origin: 'https://dashboard.example.com'
-    },
-    payload: {
-      note: 'Target verified and safe to re-enable.',
+      note: 'Target verified and safe to re-enable with direct operator action.',
       revision: acknowledged.revision
     }
   });
 
-  assert.equal(clearRes.statusCode, 200);
-  const cleared = clearRes.json().data;
-  assert.equal(cleared.status, 'resolved');
-  assert.equal(cleared.cleared_by, 'tenant-admin');
+  assert.equal(clearWithoutRequestRes.statusCode, 409);
 
   deliveryPrivate.setTransportForTests(async () => ({
     statusCode: 202,
@@ -946,6 +932,84 @@ test('delivery incident acknowledgement and manual clear keep quarantine fail-cl
     durationMs: 10,
     contentType: 'text/plain'
   }));
+
+  const clearRequestRes = await app.inject({
+    method: 'POST',
+    url: `/v1/security/export/delivery-incidents/${incidentId}/clear-request`,
+    headers: {
+      authorization: 'Bearer test-admin-key',
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      note: 'Live canary delivery accepted by destination, requesting four-eyes approval.',
+      revision: acknowledged.revision
+    }
+  });
+
+  assert.equal(clearRequestRes.statusCode, 200);
+  const clearRequested = clearRequestRes.json().data;
+  assert.equal(clearRequested.status, 'active');
+  assert.equal(clearRequested.clear_request.requested_by, 'tenant-admin');
+  assert.equal(clearRequested.clear_request.consumed_by, null);
+  assert.equal(clearRequested.clear_request.canary_http_status, 202);
+
+  const duplicateClearRequestRes = await app.inject({
+    method: 'POST',
+    url: `/v1/security/export/delivery-incidents/${incidentId}/clear-request`,
+    headers: {
+      authorization: 'Bearer test-admin-key',
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      note: 'Retrying request creation should be rejected while a request is pending.',
+      revision: clearRequested.revision
+    }
+  });
+
+  assert.equal(duplicateClearRequestRes.statusCode, 409);
+
+  const sameActorClearRes = await app.inject({
+    method: 'POST',
+    url: `/v1/security/export/delivery-incidents/${incidentId}/clear`,
+    headers: {
+      authorization: 'Bearer test-admin-key',
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      note: 'Same operator should not be able to approve and clear their own request.',
+      revision: clearRequested.revision
+    }
+  });
+
+  assert.equal(sameActorClearRes.statusCode, 409);
+
+  const clearRes = await app.inject({
+    method: 'POST',
+    url: `/v1/security/export/delivery-incidents/${incidentId}/clear`,
+    headers: {
+      authorization: 'Bearer test-approver-key',
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      note: 'Second operator reviewed the live canary result and approves reopening.',
+      revision: clearRequested.revision
+    }
+  });
+
+  assert.equal(clearRes.statusCode, 200);
+  const cleared = clearRes.json().data;
+  assert.equal(cleared.status, 'resolved');
+  assert.equal(cleared.cleared_by, 'tenant-approver');
+  assert.equal(cleared.clear_request.requested_by, 'tenant-admin');
+  assert.equal(cleared.clear_request.consumed_by, 'tenant-approver');
 
   const previewAllowedRes = await app.inject({
     method: 'POST',
@@ -989,7 +1053,119 @@ test('delivery incident acknowledgement and manual clear keep quarantine fail-cl
   assert.equal(ackEventsRes.statusCode, 200);
   const ackEvents = ackEventsRes.json();
   assert.ok(ackEvents.data.some((event: any) => event.type === 'security_export_delivery_incident_acknowledged'));
+  assert.ok(ackEvents.data.some((event: any) => event.type === 'security_export_delivery_incident_clear_requested'));
   assert.ok(ackEvents.data.some((event: any) => event.type === 'security_export_delivery_incident_cleared'));
+});
+
+test('delivery incident clear requests expire and force a new canary before second-operator clear', async () => {
+  const tenantId = 'tenant-security-delivery-clear-request-expiry';
+  const session = await createAdminSession(tenantId);
+  await allowDeliveryTarget(tenantId);
+
+  deliveryPrivate.setTransportForTests(async () => ({
+    statusCode: 503,
+    bodyText: 'upstream unavailable',
+    bodyTruncated: false,
+    durationMs: 15,
+    contentType: 'text/plain'
+  }));
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/security/export/deliveries',
+      headers: {
+        authorization: `Bearer ${session.token}`,
+        'x-tenant-id': tenantId,
+        'content-type': 'application/json',
+        origin: 'https://dashboard.example.com'
+      },
+      payload: {
+        destinationUrl: 'https://siem.example.com/hooks/clear-request-expiry',
+        mode: 'sync',
+        windowHours: 24,
+        limit: 50
+      }
+    });
+
+    assert.equal(res.statusCode, 502);
+  }
+
+  const incidentsRes = await app.inject({
+    method: 'GET',
+    url: '/v1/security/export/delivery-incidents?status=active&limit=5',
+    headers: {
+      authorization: 'Bearer test-admin-key',
+      'x-tenant-id': tenantId
+    }
+  });
+
+  const incident = incidentsRes.json().data[0];
+  const incidentId = incident.incident_id;
+
+  const ackRes = await app.inject({
+    method: 'POST',
+    url: `/v1/security/export/delivery-incidents/${incidentId}/acknowledge`,
+    headers: {
+      authorization: 'Bearer test-admin-key',
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      note: 'Investigating target failure and validating webhook endpoint.',
+      revision: incident.revision
+    }
+  });
+
+  assert.equal(ackRes.statusCode, 200);
+  const acknowledged = ackRes.json().data;
+
+  Date.now = () => originalDateNow() + 61 * 60 * 1000;
+  deliveryPrivate.setTransportForTests(async () => ({
+    statusCode: 202,
+    bodyText: 'accepted',
+    bodyTruncated: false,
+    durationMs: 10,
+    contentType: 'text/plain'
+  }));
+
+  const clearRequestRes = await app.inject({
+    method: 'POST',
+    url: `/v1/security/export/delivery-incidents/${incidentId}/clear-request`,
+    headers: {
+      authorization: 'Bearer test-admin-key',
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      note: 'Canary passed, waiting for second operator approval.',
+      revision: acknowledged.revision
+    }
+  });
+
+  assert.equal(clearRequestRes.statusCode, 200);
+  const clearRequested = clearRequestRes.json().data;
+
+  Date.now = () => originalDateNow() + 82 * 60 * 1000;
+
+  const expiredClearRes = await app.inject({
+    method: 'POST',
+    url: `/v1/security/export/delivery-incidents/${incidentId}/clear`,
+    headers: {
+      authorization: 'Bearer test-approver-key',
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      note: 'Approval arrived too late and should require a new canary request.',
+      revision: clearRequested.revision
+    }
+  });
+
+  assert.equal(expiredClearRes.statusCode, 409);
 });
 
 test('async delivery creation is fail-closed when destination is quarantined', async () => {

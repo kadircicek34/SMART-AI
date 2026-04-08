@@ -1,4 +1,22 @@
-# TEST REPORT — SMART-AI v1.19 (Delivery Incident Ack + Manual Clear Control Plane)
+# TEST REPORT — SMART-AI v1.20 (Canary-backed Clear Request + Four-Eyes Incident Reopen)
+
+## 2026-04-08 doğrulama özeti — canary-backed clear request + four-eyes workflow
+
+### Çalıştırılan komutlar
+1. `npm run typecheck` → PASS
+2. `npx tsx --test tests/contract/security-export-deliveries.test.ts` → PASS (12/12)
+3. `npm test` → PASS (187/187)
+4. `npm audit --omit=dev` → PASS (0 vulnerability)
+
+### Yeni regresyon kanıtı
+- Incident clear artık doğrudan tek operatörle açılamıyor, pending clear request olmadan `409` dönüyor.
+- `clear-request` canlı canary delivery 2xx almadan oluşmuyor.
+- Same-actor self-approval bloklandı, ikinci operatör gereksinimi contract test ile doğrulandı.
+- Clear request TTL dolunca stale canary ile clear denemesi `409` dönüyor.
+
+### Fresh verification notu
+- Bu iterasyonda focused contract suite ve tam test paketi tekrar çalıştırıldı.
+- Security export delivery incident workflow değişikliği dashboard + API + persistence katmanında birlikte doğrulandı.
 
 ## Test Stratejisi
 - Contract tests: OpenAI-compatible + RAG + Memory + MCP + UI + security export control plane

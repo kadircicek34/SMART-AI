@@ -393,23 +393,33 @@ function renderSecurityDeliveryIncidentsTable(destinations = []) {
       : health?.quarantined_until
         ? new Date(health.quarantined_until).toLocaleString('tr-TR')
         : '—';
+    const clearRequest = incident?.clear_request ?? null;
     const acknowledgement = incident?.acknowledged_at
       ? `Ack ${new Date(incident.acknowledged_at).toLocaleString('tr-TR')} (${incident.acknowledged_by ?? 'unknown'})`
       : 'Ack gerekli';
     const canClear = Boolean(incident?.clear_after) && Date.parse(incident.clear_after) <= Date.now();
+    const clearRequestPending = Boolean(clearRequest) && !clearRequest?.consumed_at && Date.parse(clearRequest?.expires_at ?? 0) > Date.now();
+    const clearRequestLabel = clearRequestPending
+      ? `Clear request ${new Date(clearRequest.requested_at).toLocaleString('tr-TR')} (${clearRequest.requested_by ?? 'unknown'})`
+      : clearRequest?.consumed_at
+        ? `Onaylandı ${new Date(clearRequest.consumed_at).toLocaleString('tr-TR')} (${clearRequest.consumed_by ?? 'unknown'})`
+        : 'Clear request yok';
     const actions = incident
       ? `
           <button class="secondary compact acknowledge-delivery-incident-btn" data-incident-id="${escapeHtml(incident.incident_id)}" data-incident-revision="${escapeHtml(String(incident.revision ?? 1))}" ${incident.acknowledged_at ? 'disabled' : ''}>
             Ack
           </button>
-          <button class="secondary compact clear-delivery-incident-btn" data-incident-id="${escapeHtml(incident.incident_id)}" data-incident-revision="${escapeHtml(String(incident.revision ?? 1))}" ${canClear ? '' : 'disabled'}>
-            Clear
+          <button class="secondary compact request-clear-delivery-incident-btn" data-incident-id="${escapeHtml(incident.incident_id)}" data-incident-revision="${escapeHtml(String(incident.revision ?? 1))}" ${canClear && !clearRequestPending ? '' : 'disabled'}>
+            Canary + Request
+          </button>
+          <button class="secondary compact clear-delivery-incident-btn" data-incident-id="${escapeHtml(incident.incident_id)}" data-incident-revision="${escapeHtml(String(incident.revision ?? 1))}" ${clearRequestPending ? '' : 'disabled'}>
+            Approve & Clear
           </button>
         `
       : '<span class="muted">—</span>';
     tr.innerHTML = `
       <td>${escapeHtml(entry?.destination?.origin ?? '—')}<br /><span class="muted">${escapeHtml(entry?.destination?.path_hash ?? '—')}</span></td>
-      <td>${escapeHtml(incident?.incident_id ? `${incident.incident_id.slice(0, 8)}…` : '—')}<br /><span class="muted">${escapeHtml(acknowledgement)}</span></td>
+      <td>${escapeHtml(incident?.incident_id ? `${incident.incident_id.slice(0, 8)}…` : '—')}<br /><span class="muted">${escapeHtml(acknowledgement)}</span><br /><span class="muted">${escapeHtml(clearRequestLabel)}</span></td>
       <td>${escapeHtml(health?.verdict ?? 'healthy')}<br /><span class="muted">matched=${escapeHtml(entry?.matched_rule ?? '—')}</span></td>
       <td>${escapeHtml(`ok=${counts.succeeded ?? 0}, fail=${health?.terminal_failures ?? 0}, dead=${health?.dead_letters ?? 0}, blocked=${counts.blocked ?? 0}`)}</td>
       <td>${escapeHtml(clearAfter)}</td>
@@ -987,10 +997,39 @@ async function acknowledgeSecurityDeliveryIncident(settings, incidentId, revisio
   return incident;
 }
 
+async function requestSecurityDeliveryIncidentClear(settings, incidentId, revision) {
+  await maybeRefreshSession(settings);
+
+  const note = window.prompt('Canary + clear request notu girin (en az 8 karakter):', 'Canlı canary delivery geçti, ikinci operatör onayı talep ediyorum.');
+  if (!note) {
+    return null;
+  }
+
+  const response = await safeFetchJson(`${settings.baseUrl}/v1/security/export/delivery-incidents/${encodeURIComponent(incidentId)}/clear-request`, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(settings),
+      origin: window.location.origin
+    },
+    body: JSON.stringify({
+      note,
+      revision: Number(revision)
+    })
+  });
+
+  const incident = response?.data ?? {};
+  const clearRequest = incident.clear_request ?? {};
+  log(
+    `Delivery incident clear request oluşturuldu. incident=${String(incident.incident_id ?? incidentId).slice(0, 8)}…, requester=${clearRequest.requested_by ?? 'unknown'}, canary=${clearRequest.canary_http_status ?? 'n/a'}`
+  );
+  await loadSecurityDeliveryAnalytics(settings);
+  return incident;
+}
+
 async function clearSecurityDeliveryIncident(settings, incidentId, revision) {
   await maybeRefreshSession(settings);
 
-  const note = window.prompt('Incident clear notu girin (en az 8 karakter):', 'Hedef doğrulandı, teslim tekrar açılıyor.');
+  const note = window.prompt('İkinci operatör clear/approval notu girin (en az 8 karakter):', 'İkinci operatör onayı verildi, hedef tekrar açılıyor.');
   if (!note) {
     return null;
   }
@@ -1347,8 +1386,9 @@ async function init() {
 
   document.getElementById('securityDeliveryIncidentsTableBody').addEventListener('click', async (event) => {
     const acknowledgeButton = event.target?.closest?.('.acknowledge-delivery-incident-btn');
+    const requestClearButton = event.target?.closest?.('.request-clear-delivery-incident-btn');
     const clearButton = event.target?.closest?.('.clear-delivery-incident-btn');
-    const button = acknowledgeButton ?? clearButton;
+    const button = acknowledgeButton ?? requestClearButton ?? clearButton;
     if (!button) {
       return;
     }
@@ -1366,9 +1406,12 @@ async function init() {
       if (acknowledgeButton) {
         await acknowledgeSecurityDeliveryIncident(next, incidentId, revision);
         setStatus('Security export delivery incident ack kaydedildi.');
+      } else if (requestClearButton) {
+        await requestSecurityDeliveryIncidentClear(next, incidentId, revision);
+        setStatus('Security export delivery incident clear request oluşturuldu, ikinci operatör onayı bekleniyor.');
       } else {
         await clearSecurityDeliveryIncident(next, incidentId, revision);
-        setStatus('Security export delivery incident clear tamamlandı.');
+        setStatus('Security export delivery incident second-operator clear tamamlandı.');
       }
     } catch (error) {
       setStatus(String(error), true);

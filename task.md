@@ -1,5 +1,15 @@
 # TASKS — OpenRouter Agentic Intelligence API
 
+## v1.20 Delta (Canary-backed Clear Request + Four-Eyes Incident Reopen) — Tamamlandı
+- [x] Yeni özellik: `POST /v1/security/export/delivery-incidents/:incidentId/clear-request` endpointi ve dashboard aksiyonu eklendi
+- [x] Güvenlik: incident clear artık pending clear request + ikinci operatör onayı olmadan çalışmıyor
+- [x] Güvenlik: clear request yalnızca canlı canary delivery 2xx kabul edilirse oluşturuluyor
+- [x] Güvenlik: clear request TTL + same-actor self-approval blokajı + stale policy/canary reject guard eklendi
+- [x] Güvenlik/operasyon: recovery için delivery hedef URL’i encrypted-at-rest internal target material olarak saklanıyor; API/receipt yüzeyine sızmıyor
+- [x] Dashboard incidents tablosuna `Canary + Request` ve `Approve & Clear` aksiyonları eklendi
+- [x] Contract testleri: second-operator clear enforcement, duplicate pending request reject, request expiry/stale canary regresyonları yazıldı
+- [x] Fresh verification: typecheck + focused contract + full test + audit + delivery-gate akışı tamamlandı
+
 ## v1.17 Delta (Delivery Incident Ack + Manual Clear Control Plane) — Tamamlandı
 - [x] Yeni özellik: `GET /v1/security/export/delivery-incidents`, `POST /v1/security/export/delivery-incidents/:incidentId/acknowledge`, `POST /v1/security/export/delivery-incidents/:incidentId/clear` endpointleri eklendi
 - [x] Dashboard incidents tablosuna ack/clear aksiyonları, incident id/revision ve clear-after görünürlüğü eklendi
