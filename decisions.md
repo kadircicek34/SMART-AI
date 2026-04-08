@@ -1,5 +1,40 @@
 # DECISIONS — OpenRouter Agentic Intelligence API
 
+## 2026-04-08 — Canary-backed incident clear request + four-eyes approval kararı
+### Problem
+Dünkü incident ack/manual clear paketi quarantine hedeflerini fail-closed tuttu; ancak production operasyonunda üç kritik boşluk kaldı:
+1. Cooldown sonrası clear kararı hâlâ tek operatörün inisiyatifine bağlıydı; yanlış veya acele clear, bozuk webhook/SIEM hedefini tekrar açabilirdi.
+2. Clear öncesi hedefin gerçekten toparlandığını kanıtlayan canlı bir delivery doğrulaması yoktu; operatör yalnızca panel notuna güveniyordu.
+3. Incident oluştuğunda hedef URL redacted tutulduğu için aynı hedefe güvenli recovery/canary akışı için ayrı, encrypted recovery state gerekmiyordu ve mevcut model bunu expose etmiyordu.
+
+### Seçenekler
+- A: Mevcut ack + manual clear modelini koruyup runbook notu eklemek
+- B: Sadece ikinci operatör onayı ekleyip canlı canary doğrulamasını ertelemek
+- C: Canary-backed clear request endpointi + four-eyes clear enforcement + encrypted target recovery material paketini tek koşumda teslim etmek
+
+### Karar
+**C seçildi:**
+1. **Yeni özellik:** `POST /v1/security/export/delivery-incidents/:incidentId/clear-request` endpointi ve dashboard aksiyonu eklendi; sistem aktif incident hedefi için canlı canary delivery koşup ikinci operatör onayı bekleyen clear request üretiyor.
+2. **Ciddi güvenlik iyileştirmesi #1:** `POST .../clear` artık doğrudan tek operatör clear yapmıyor; pending clear request ve ikinci operatör şartı olmadan incident çözülmüyor.
+3. **Ciddi güvenlik iyileştirmesi #2:** Clear request yalnızca canlı canary delivery 2xx kabul edilirse oluşuyor; hedef toparlanmadan quarantine açılamıyor.
+4. **Ciddi güvenlik iyileştirmesi #3:** Canary sonucu TTL ile sınırlandırıldı, requester kendi request’ini approve edemiyor ve stale request/policy drift durumunda clear fail-closed reddediliyor.
+5. **Operasyonel güvenlik iyileştirmesi:** Delivery hedefinin recovery için gereken raw URL’i API’ye sızdırmadan encrypted-at-rest internal recovery material olarak saklanıyor; canary/clear akışı bu materyalden yeniden hydrate ediliyor.
+
+### Gerekçe
+- Incident recovery artık “not yazıp aç” seviyesinden çıkıp kontrollü change-management akışına geçti.
+- Canary doğrulaması olmadan yapılan reopen kararı operatör yanılgısına fazla bağımlıydı.
+- Encrypted target recovery olmadan canary feature’ı ya hiç çalışmayacak ya da redacted state tasarımını delmek zorunda kalacaktı.
+
+### Etki
+- Problemli destination’lar ancak canlı canary + ikinci operatör onayı ile tekrar açılıyor.
+- Clear kararı artık hem teknik kanıta hem de two-person control’a bağlı.
+- Dashboard incident paneli ack/clear ekranından gerçek incident recovery workflow’una yükseldi.
+
+### Bilinçli Olarak Ertelenenler
+- Clear approval için tenant içi rol bazlı ayrı approver havuzu / RBAC
+- Multi-instance shared incident backend + distributed four-eyes workflow store
+- Canary sonrası otomatik staged ramp-up / progressive delivery reopen
+
 ## 2026-04-07 — Delivery incident acknowledgement + manual clear control plane kararı
 ### Problem
 Delivery analytics + automatic destination quarantine paketi problemli hedefleri görünür ve fail-closed hale getirdi; ancak production operasyonunda üç kritik boşluk kaldı:
