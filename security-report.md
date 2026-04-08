@@ -1,4 +1,20 @@
-# SECURITY REPORT — SMART-AI v1.19
+# SECURITY REPORT — SMART-AI v1.20
+
+## 2026-04-08 Güvenlik sertleştirmesi — canary-backed clear request + four-eyes incident reopen
+
+### Bu koşumda kapatılan riskler
+1. **Tek operatör reopen riski kapatıldı:** Incident clear artık pending clear request + ikinci operatör onayı gerektiriyor.
+2. **Kör reopen riski kapatıldı:** Clear request yalnızca canlı canary delivery 2xx kabul edilirse oluşuyor.
+3. **Stale recovery riski daraltıldı:** Clear request TTL ile sınırlı, requester kendi talebini approve edemiyor ve stale policy/canary durumunda clear fail-closed reddediliyor.
+4. **Recovery target sızıntısı engellendi:** Canary için gereken raw destination URL, API/receipt yüzeyine çıkmadan encrypted internal target material olarak saklanıyor.
+
+### Kontroller
+- Contract testler ile second-operator enforcement, duplicate pending request reject ve expired clear request reject doğrulandı.
+- `npm audit --omit=dev` sonucu: `0 vulnerability`.
+
+### Kalan riskler
+- Four-eyes enforcement bugün principal-name seviyesinde; tenant içi ayrı approver directory/RBAC henüz yok.
+- Incident/persistence store hâlâ local file tabanlı; multi-instance shared backend gereksinimi sürüyor.
 
 ## 2026-04-07 Güvenlik sertleştirmesi — delivery incident ack + manual clear control plane
 - **Incident lifecycle control plane**

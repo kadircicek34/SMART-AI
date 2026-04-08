@@ -110,6 +110,7 @@
 - `SECURITY_EXPORT_DELIVERY_QUARANTINE_FAILURE_THRESHOLD` (aynı hedefte quarantine tetikleyen terminal failure eşiği, varsayılan: 3)
 - `SECURITY_EXPORT_DELIVERY_QUARANTINE_DEAD_LETTER_THRESHOLD` (aynı hedefte quarantine tetikleyen dead-letter eşiği, varsayılan: 2)
 - `SECURITY_EXPORT_DELIVERY_QUARANTINE_DURATION_MINUTES` (quarantine süresi, varsayılan: 60)
+- `SECURITY_EXPORT_DELIVERY_CLEAR_REQUEST_TTL_MINUTES` (canary-backed clear request geçerlilik süresi, varsayılan: 30)
 - `SECURITY_EXPORT_SIGNING_MAX_VERIFY_KEYS` (varsayılan: 4)
 - `SECURITY_EXPORT_SIGNING_AUTO_ROTATE_ENABLED` (varsayılan: `true`)
 - `SECURITY_EXPORT_SIGNING_ROTATE_AFTER_HOURS` (varsayılan: `720`)
@@ -158,6 +159,7 @@
 - `GET /v1/security/export/delivery-analytics` → delivery status breakdown + success rate + destination health/quarantine + timeline bucket’ları
 - `GET /v1/security/export/delivery-incidents` → active/resolved delivery incident kayıtlarını revision + owner metadata ile listele
 - `POST /v1/security/export/delivery-incidents/:incidentId/acknowledge` → incident ownership/ack notu ile quarantine incident’ını üstlen
+- `POST /v1/security/export/delivery-incidents/:incidentId/clear-request` → canlı canary delivery çalıştır, ikinci operatör onayı bekleyen clear request oluştur
 - `POST /v1/security/export/delivery-incidents/:incidentId/clear` → cooldown sonrası revision guard + zorunlu not ile incident’ı çöz ve hedefi tekrar aç
 - `POST /v1/security/export/deliveries/preview` → delivery hedefini gerçek gönderim yapmadan preview et (`allowed`, `reason`, `matched_rule`, `pinned_address`)
 - `POST /v1/security/export/deliveries` → allowlisted HTTPS webhook/SIEM hedefine Ed25519-imzalı export gönder (`mode=sync|async`; async mod encrypted retry queue + backoff + dead-letter lifecycle + Idempotency-Key dedupe)
@@ -201,16 +203,17 @@
 - Dead-letter receipt’leri dashboard veya API üzerinden manual redrive ile aynı hedef + aynı signed payload kullanılarak tekrar kuyruğa alınabilir.
 - `Idempotency-Key` aynı export isteğinin duplicate/replay flood’unu bastırır; tenant başına aktif async delivery sayısı ayrıca üst sınırla korunur.
 - `GET /v1/security/export/delivery-analytics` son pencere için success-rate, status dağılımı, incident timeline ve destination health verdict’lerini (`healthy|degraded|quarantined`) döndürür.
-- `GET /v1/security/export/delivery-incidents`, `POST /v1/security/export/delivery-incidents/:incidentId/acknowledge`, `POST /v1/security/export/delivery-incidents/:incidentId/clear` ile operatör incident lifecycle’ını yönetebilir.
+- `GET /v1/security/export/delivery-incidents`, `POST /v1/security/export/delivery-incidents/:incidentId/acknowledge`, `POST /v1/security/export/delivery-incidents/:incidentId/clear-request`, `POST /v1/security/export/delivery-incidents/:incidentId/clear` ile operatör incident lifecycle’ını yönetebilir.
 - Aynı tenant içindeki aynı destination tekrar tekrar terminal failure/dead-letter üretirse hedef otomatik quarantine durumuna girer; preview, sync delivery, async enqueue ve manual redrive akışları fail-closed bloke edilir.
 - Quarantine artık süre bitince sessizce kalkmaz; hedef operator acknowledgement + cooldown sonrası manual clear olmadan tekrar açılamaz.
-- Incident clear aksiyonu optimistic revision guard ve zorunlu not ile çalışır; ack alındıktan sonra yeni terminal failure gelirse önceki ack otomatik sıfırlanır.
+- Incident clear artık canlı canary delivery sonrası oluşturulan clear request ve ikinci operatör onayı gerektirir; request sahibi kendi talebini onaylayamaz.
+- Canary-backed clear request TTL ile sınırlandırılır; yeni failure veya stale policy durumu geldiğinde eski clear request geçersiz sayılır ve yeni canary gerekir.
 - Delivery target’ı `allowlist_only` modunda host+path eşleşmezse fail-closed bloke edilir; backward-compatible migration için `inherit_remote_policy` modu desteklenir.
 - Hedef hostname public DNS ile resolve edilir ve pinned address üzerinden bağlanılır; private/local/reserved ağlara egress fail-closed reddedilir.
 - Retry/redrive materyali hedef fingerprint’i (`origin`, `host`, `path_hash`, `matched_host_rule`) ile saklanır; mismatch veya redrive-limit aşımı fail-closed reddedilir.
 - Her istekte `content-digest`, `x-smart-ai-signature`, `x-smart-ai-signature-input`, `x-smart-ai-delivery-id`, `x-smart-ai-head-chain-hash` header’ları gönderilir.
 - Receipt history path/query secret’larını loglamaz; yalnızca redacted destination origin + hash metadata saklar.
-- Audit event tipleri: `security_export_delivered`, `security_export_delivery_failed`, `security_export_delivery_blocked`, `security_export_delivery_dead_lettered`, `security_export_delivery_redriven`, `security_export_delivery_previewed`, `security_export_delivery_policy_updated`, `security_export_delivery_policy_reset`, `security_export_delivery_incident_opened`, `security_export_delivery_incident_acknowledged`, `security_export_delivery_incident_cleared`.
+- Audit event tipleri: `security_export_delivered`, `security_export_delivery_failed`, `security_export_delivery_blocked`, `security_export_delivery_dead_lettered`, `security_export_delivery_redriven`, `security_export_delivery_previewed`, `security_export_delivery_policy_updated`, `security_export_delivery_policy_reset`, `security_export_delivery_incident_opened`, `security_export_delivery_incident_acknowledged`, `security_export_delivery_incident_clear_requested`, `security_export_delivery_incident_cleared`.
 
 ## Tool plane updates
 - `qmd_search` aracı eklendi (VPS'teki kurulu `qmd` CLI ile lokal repo doküman araması)

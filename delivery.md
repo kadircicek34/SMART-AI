@@ -1,4 +1,22 @@
-# DELIVERY — SMART-AI v1.19 (Delivery Incident Ack + Manual Clear Control Plane)
+# DELIVERY — SMART-AI v1.20 (Canary-backed Clear Request + Four-Eyes Incident Reopen)
+
+## 2026-04-08 Teslim Özeti
+
+### Yapılanlar
+- Delivery incident workflow’a yeni `clear-request` aşaması eklendi.
+- Clear akışı canlı canary delivery + ikinci operatör onayı olmadan incident çözmeyecek şekilde fail-closed sertleştirildi.
+- Recovery için gereken hedef URL internal encrypted target material olarak saklandı; API/receipt yüzeyi redacted kaldı.
+- Dashboard incident paneli `Canary + Request` ve `Approve & Clear` aksiyonlarıyla güncellendi.
+
+### Doğrulama
+- `npm run typecheck` → PASS
+- `npx tsx --test tests/contract/security-export-deliveries.test.ts` → PASS (12/12)
+- `npm test` → PASS (187/187)
+- `npm audit --omit=dev` → PASS (0 vulnerability)
+
+### Kalan riskler
+- Four-eyes kontrolü principal-name seviyesinde, tam approver RBAC henüz yok.
+- Shared backend / multi-instance incident state henüz uygulanmadı.
 
 ## 2026-04-07 Teslim Özeti
 - Security export delivery hattına **incident response control plane** eklendi: `GET /v1/security/export/delivery-incidents`, `POST /v1/security/export/delivery-incidents/:incidentId/acknowledge`, `POST /v1/security/export/delivery-incidents/:incidentId/clear`.
