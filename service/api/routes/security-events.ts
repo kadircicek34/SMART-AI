@@ -19,6 +19,7 @@ import {
 import {
   acknowledgeSecurityExportDeliveryIncident,
   clearSecurityExportDeliveryIncident,
+  requestSecurityExportDeliveryIncidentClear,
   SecurityExportDeliveryError,
   SecurityExportDeliveryIncidentError,
   deliverSecurityAuditExport,
@@ -1028,6 +1029,63 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
         }
 
         return reply.status(error.statusCode).send(apiError(error.message, error.incident));
+      }
+
+      throw error;
+    }
+  });
+
+  app.post('/v1/security/export/delivery-incidents/:incidentId/clear-request', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    const params = DELIVERY_INCIDENT_PARAMS_SCHEMA.safeParse(req.params ?? {});
+    if (!params.success) {
+      return reply.status(400).send(invalidRequest('Invalid delivery incident id.', params.error.flatten()));
+    }
+
+    const parsed = DELIVERY_INCIDENT_ACTION_BODY_SCHEMA.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return reply.status(400).send(invalidRequest('Invalid payload for delivery incident clear request.', parsed.error.flatten()));
+    }
+
+    try {
+      const incident = await requestSecurityExportDeliveryIncidentClear({
+        tenantId,
+        incidentId: params.data.incidentId,
+        actor: req.requestContext?.authPrincipalName ?? 'unknown',
+        note: parsed.data.note,
+        expectedRevision: parsed.data.revision,
+        requestId: req.requestContext?.requestId
+      });
+
+      return {
+        object: 'security_export_delivery_incident',
+        tenant_id: tenantId,
+        data: incident
+      };
+    } catch (error) {
+      if (error instanceof SecurityExportDeliveryIncidentError) {
+        if (error.statusCode === 404) {
+          return reply.status(404).send(invalidRequest(error.message, { incident: error.incident }));
+        }
+
+        if (error.statusCode === 400) {
+          return reply.status(400).send(invalidRequest(error.message, { incident: error.incident }));
+        }
+
+        if (error.statusCode === 409) {
+          return reply.status(409).send(apiError(error.message, error.incident));
+        }
+
+        return reply.status(error.statusCode).send(apiError(error.message, error.incident));
+      }
+
+      const handled = replyForSecurityExportSigningError(reply, error);
+      if (handled) {
+        return handled;
       }
 
       throw error;

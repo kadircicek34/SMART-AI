@@ -41,6 +41,7 @@ export const SECURITY_AUDIT_EVENT_TYPES = [
   'security_export_delivery_redriven',
   'security_export_delivery_incident_opened',
   'security_export_delivery_incident_acknowledged',
+  'security_export_delivery_incident_clear_requested',
   'security_export_delivery_incident_cleared',
   'security_export_delivery_previewed',
   'security_export_delivery_policy_updated',

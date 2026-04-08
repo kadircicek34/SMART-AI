@@ -290,6 +290,7 @@ export const config = {
     exportDeliveryQuarantineFailureThreshold: Number(process.env.SECURITY_EXPORT_DELIVERY_QUARANTINE_FAILURE_THRESHOLD ?? 3),
     exportDeliveryQuarantineDeadLetterThreshold: Number(process.env.SECURITY_EXPORT_DELIVERY_QUARANTINE_DEAD_LETTER_THRESHOLD ?? 2),
     exportDeliveryQuarantineDurationMinutes: Number(process.env.SECURITY_EXPORT_DELIVERY_QUARANTINE_DURATION_MINUTES ?? 60),
+    exportDeliveryClearRequestTtlMinutes: Number(process.env.SECURITY_EXPORT_DELIVERY_CLEAR_REQUEST_TTL_MINUTES ?? 30),
     exportDeliveryUserAgent:
       process.env.SECURITY_EXPORT_DELIVERY_USER_AGENT?.trim() || 'SMART-AI-Security-Delivery/1.0',
     exportDeliveryPolicyDefaultMode: ((process.env.SECURITY_EXPORT_DELIVERY_POLICY_DEFAULT_MODE ?? '').trim().toLowerCase() ||
