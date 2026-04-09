@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { config } from '../config.js';
 import { throwIfAborted } from '../utils/abort.js';
+import { executeQmdEmbeddingFallback } from './qmd-embedding-fallback.js';
 import type { ToolAdapter, ToolInput, ToolResult } from './types.js';
 
 type QmdSearchItem = {
@@ -124,9 +125,25 @@ async function executeQmdSearchWithRunner(
     autoAddCollection: boolean;
     maxResults: number;
     maxSnippetChars: number;
+    fallbackSearch?: (params: { reason: string; stdout?: string; stderr?: string }) => Promise<ToolResult | null>;
   }
 ): Promise<ToolResult> {
+  async function runFallback(params: { reason: string; stdout?: string; stderr?: string }): Promise<ToolResult | null> {
+    if (!opts.fallbackSearch) {
+      return null;
+    }
+
+    return opts.fallbackSearch(params);
+  }
+
   if (!opts.enabled) {
+    const fallback = await runFallback({
+      reason: 'QMD search devre dışı (QMD_ENABLED=false).'
+    });
+    if (fallback) {
+      return fallback;
+    }
+
     return {
       tool: 'qmd_search',
       summary: 'QMD search devre dışı (QMD_ENABLED=false).',
@@ -134,57 +151,77 @@ async function executeQmdSearchWithRunner(
     };
   }
 
-  await ensureCollection(
-    runner,
-    {
-      collectionName: opts.collectionName,
-      collectionPath: opts.collectionPath,
-      autoAdd: opts.autoAddCollection
-    },
-    input.signal
-  );
+  try {
+    await ensureCollection(
+      runner,
+      {
+        collectionName: opts.collectionName,
+        collectionPath: opts.collectionPath,
+        autoAdd: opts.autoAddCollection
+      },
+      input.signal
+    );
 
-  const args = [
-    'search',
-    input.query,
-    '--json',
-    '-n',
-    String(Math.max(1, Math.min(opts.maxResults, 20))),
-    '-c',
-    opts.collectionName
-  ];
+    const args = [
+      'search',
+      input.query,
+      '--json',
+      '-n',
+      String(Math.max(1, Math.min(opts.maxResults, 20))),
+      '-c',
+      opts.collectionName
+    ];
 
-  throwIfAborted(input.signal);
-  const searchResult = await runner(args, input.signal);
-  const items = parseQmdSearchJson(searchResult.stdout).slice(0, opts.maxResults);
+    throwIfAborted(input.signal);
+    const searchResult = await runner(args, input.signal);
+    const items = parseQmdSearchJson(searchResult.stdout).slice(0, opts.maxResults);
 
-  if (items.length === 0) {
+    if (items.length === 0) {
+      const fallback = await runFallback({
+        reason: `QMD local aramada sonuç bulunamadı (${opts.collectionName}).`,
+        stdout: searchResult.stdout,
+        stderr: searchResult.stderr
+      });
+      if (fallback) {
+        return fallback;
+      }
+
+      return {
+        tool: 'qmd_search',
+        summary: `QMD local aramada sonuç bulunamadı (${opts.collectionName}).`,
+        citations: [],
+        raw: {
+          provider: 'qmd',
+          collection: opts.collectionName,
+          stdout: truncate(searchResult.stdout, 600),
+          stderr: truncate(searchResult.stderr, 300)
+        }
+      };
+    }
+
+    const formatted = formatItems(items, opts.maxSnippetChars);
+
     return {
       tool: 'qmd_search',
-      summary: `QMD local aramada sonuç bulunamadı (${opts.collectionName}).`,
-      citations: [],
+      summary: formatted.summary,
+      citations: formatted.citations,
       raw: {
         provider: 'qmd',
         collection: opts.collectionName,
-        stdout: truncate(searchResult.stdout, 600),
-        stderr: truncate(searchResult.stderr, 300)
+        total: items.length,
+        items
       }
     };
-  }
-
-  const formatted = formatItems(items, opts.maxSnippetChars);
-
-  return {
-    tool: 'qmd_search',
-    summary: formatted.summary,
-    citations: formatted.citations,
-    raw: {
-      provider: 'qmd',
-      collection: opts.collectionName,
-      total: items.length,
-      items
+  } catch (error) {
+    const fallback = await runFallback({
+      reason: `QMD çalıştırılamadı: ${toMessage(error)}`
+    });
+    if (fallback) {
+      return fallback;
     }
-  };
+
+    throw error;
+  }
 }
 
 export const qmdSearchTool: ToolAdapter = {
@@ -196,7 +233,14 @@ export const qmdSearchTool: ToolAdapter = {
       collectionPath: config.tools.qmdCollectionPath,
       autoAddCollection: config.tools.qmdCollectionAutoAdd,
       maxResults: config.tools.qmdMaxResults,
-      maxSnippetChars: config.tools.qmdMaxSnippetChars
+      maxSnippetChars: config.tools.qmdMaxSnippetChars,
+      fallbackSearch: async ({ reason }) =>
+        executeQmdEmbeddingFallback({
+          input,
+          maxResults: config.tools.qmdMaxResults,
+          maxSnippetChars: config.tools.qmdMaxSnippetChars,
+          reason
+        })
     });
   }
 };

@@ -177,6 +177,16 @@ export const config = {
     qmdCollectionAutoAdd: (process.env.QMD_COLLECTION_AUTO_ADD ?? 'true').toLowerCase() === 'true',
     qmdMaxResults: Number(process.env.QMD_MAX_RESULTS ?? 6),
     qmdMaxSnippetChars: Number(process.env.QMD_MAX_SNIPPET_CHARS ?? 260),
+    qmdEmbeddingFallbackEnabled:
+      (process.env.QMD_EMBEDDING_FALLBACK_ENABLED ?? (process.env.OPENAI_API_KEY ? 'true' : 'false')).toLowerCase() === 'true',
+    qmdEmbeddingFallbackOpenAiApiKey: process.env.QMD_EMBEDDING_FALLBACK_OPENAI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim(),
+    qmdEmbeddingFallbackOpenAiBaseUrl:
+      process.env.QMD_EMBEDDING_FALLBACK_OPENAI_BASE_URL?.trim() || 'https://api.openai.com/v1',
+    qmdEmbeddingFallbackModel: process.env.QMD_EMBEDDING_FALLBACK_MODEL?.trim() || 'text-embedding-3-small',
+    qmdEmbeddingFallbackTimeoutMs: Number(process.env.QMD_EMBEDDING_FALLBACK_TIMEOUT_MS ?? 12_000),
+    qmdEmbeddingFallbackCandidateLimit: Number(process.env.QMD_EMBEDDING_FALLBACK_CANDIDATE_LIMIT ?? 24),
+    qmdEmbeddingFallbackMaxInputChars: Number(process.env.QMD_EMBEDDING_FALLBACK_MAX_INPUT_CHARS ?? 4_000),
+    qmdEmbeddingFallbackMinScore: Number(process.env.QMD_EMBEDDING_FALLBACK_MIN_SCORE ?? 0.2),
     mcporterCommand: process.env.MCPORTER_COMMAND ?? 'mcporter',
     mcporterTimeoutMs: Number(process.env.MCPORTER_TIMEOUT_MS ?? 45_000),
     mcpMaxResults: Number(process.env.MCP_MAX_RESULTS ?? 6),
@@ -218,7 +228,9 @@ export const config = {
       path.resolve(process.cwd(), '.data', 'security-export-operator-policies.json'),
     securityExportSigningStoreFile:
       process.env.SECURITY_EXPORT_SIGNING_STORE_FILE ??
-      path.resolve(process.cwd(), '.data', 'security-export-signing-keys.json')
+      path.resolve(process.cwd(), '.data', 'security-export-signing-keys.json'),
+    qmdEmbeddingFallbackCacheFile:
+      process.env.QMD_EMBEDDING_FALLBACK_CACHE_FILE ?? path.resolve(process.cwd(), '.data', 'qmd-embedding-cache.json')
   },
   rag: {
     storeFile: process.env.RAG_STORE_FILE ?? path.resolve(process.cwd(), '.data', 'rag-store.json'),

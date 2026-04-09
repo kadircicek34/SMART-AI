@@ -129,3 +129,32 @@ test('qmd_search handles non-json output gracefully', async () => {
   assert.equal(result.tool, 'qmd_search');
   assert.match(result.summary, /sonuç bulunamadı/);
 });
+
+test('qmd_search uses fallback when qmd execution fails', async () => {
+  const result = await __private__.executeQmdSearchWithRunner(
+    {
+      query: 'smart ai hafıza fallback',
+      tenantId: 'tenant-test'
+    },
+    async () => {
+      throw new Error('spawn qmd ENOENT');
+    },
+    {
+      enabled: true,
+      collectionName: 'SMART-AI',
+      collectionPath: '/tmp/SMART-AI',
+      autoAddCollection: true,
+      maxResults: 5,
+      maxSnippetChars: 120,
+      fallbackSearch: async ({ reason }) => ({
+        tool: 'qmd_search',
+        summary: `fallback ok: ${reason}`,
+        citations: ['memory://tenant-test/mem-1']
+      })
+    }
+  );
+
+  assert.equal(result.tool, 'qmd_search');
+  assert.match(result.summary, /fallback ok/);
+  assert.ok(result.citations.includes('memory://tenant-test/mem-1'));
+});

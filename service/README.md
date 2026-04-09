@@ -37,6 +37,7 @@
 - Tenant-specific keys via `/v1/keys/openrouter`
 - `BRAVE_API_KEY` (web_search aracı için Brave Search API)
 - `ALPHA_VANTAGE_API_KEY` (financial_deep_search için ek quote provider)
+- `OPENAI_API_KEY` (QMD embedding fallback için OpenAI embeddings)
 - `RAG_STORE_FILE` (tenant bazlı bilgi tabanı dosyası)
 - `RAG_REMOTE_FETCH_TIMEOUT_MS` (remote URL ingest timeout, varsayılan: 15000)
 - `RAG_REMOTE_FETCH_MAX_BYTES` (remote URL body byte cap, varsayılan: 1000000)
@@ -62,6 +63,15 @@
 - `QMD_COLLECTION_PATH` (varsayılan: proje kök dizini)
 - `QMD_COLLECTION_AUTO_ADD` (varsayılan: true)
 - `QMD_MAX_RESULTS` (varsayılan: 6)
+- `QMD_EMBEDDING_FALLBACK_ENABLED` (varsayılan: `OPENAI_API_KEY` varsa true)
+- `QMD_EMBEDDING_FALLBACK_OPENAI_API_KEY` (opsiyonel; boşsa `OPENAI_API_KEY` kullanılır)
+- `QMD_EMBEDDING_FALLBACK_OPENAI_BASE_URL` (varsayılan: `https://api.openai.com/v1`)
+- `QMD_EMBEDDING_FALLBACK_MODEL` (varsayılan: `text-embedding-3-small`)
+- `QMD_EMBEDDING_FALLBACK_TIMEOUT_MS` (varsayılan: 12000)
+- `QMD_EMBEDDING_FALLBACK_CANDIDATE_LIMIT` (varsayılan: 24)
+- `QMD_EMBEDDING_FALLBACK_MAX_INPUT_CHARS` (varsayılan: 4000)
+- `QMD_EMBEDDING_FALLBACK_MIN_SCORE` (varsayılan: 0.2)
+- `QMD_EMBEDDING_FALLBACK_CACHE_FILE` (varsayılan: `.data/qmd-embedding-cache.json`)
 - `MCPORTER_COMMAND` (varsayılan: `mcporter`)
 - `MCPORTER_TIMEOUT_MS` (varsayılan: 45000)
 - `MCP_MAX_RESULTS` (varsayılan: 6)
@@ -228,6 +238,7 @@
 
 ## Tool plane updates
 - `qmd_search` aracı eklendi (VPS'teki kurulu `qmd` CLI ile lokal repo doküman araması)
+- QMD çalışmadığında `qmd_search` artık tenant memory + tenant RAG corpus üzerinde OpenAI embeddings fallback yapabiliyor
 - `mevzuat_mcp_search`, `borsa_mcp_search`, `yargi_mcp_search` araçları eklendi (mcporter üzerinden remote MCP)
 - `openbb_search` aracı eklendi (OpenBB API üzerinden equity quote/historical + company/world news)
 - `financial_deep_search` artık OpenBB-pattern fallback ile `stooq + alpha_vantage` kaynaklarını harmonize ediyor
