@@ -115,6 +115,7 @@ function getMasterKey(): Buffer {
 export const config = {
   env: process.env.NODE_ENV ?? 'development',
   isProd: (process.env.NODE_ENV ?? 'development') === 'production',
+  host: process.env.HOST?.trim() || '127.0.0.1',
   port: Number(process.env.PORT ?? 8080),
   appApiKeys: parseCsv(process.env.APP_API_KEYS),
   appApiKeyDefinitions: parseAppApiKeyDefinitions(process.env.APP_API_KEY_DEFINITIONS),
@@ -147,14 +148,14 @@ export const config = {
   },
   openRouter: {
     baseUrl: process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1',
-    defaultModel: process.env.OPENROUTER_DEFAULT_MODEL ?? 'deepseek/deepseek-chat-v3.1',
+    defaultModel: process.env.OPENROUTER_DEFAULT_MODEL ?? 'deepseek/deepseek-v3.2',
     allowedModels: (() => {
       const configured = parseCsv(process.env.OPENROUTER_ALLOWED_MODELS);
       if (configured.length > 0) {
         return configured;
       }
 
-      return [process.env.OPENROUTER_DEFAULT_MODEL ?? 'deepseek/deepseek-chat-v3.1'];
+      return [process.env.OPENROUTER_DEFAULT_MODEL ?? 'deepseek/deepseek-v3.2'];
     })(),
     maxTenantAllowedModels: Number(process.env.OPENROUTER_MAX_TENANT_ALLOWED_MODELS ?? 12),
     modelIdMaxLength: Number(process.env.OPENROUTER_MODEL_ID_MAX_LENGTH ?? 120),
@@ -178,11 +179,34 @@ export const config = {
     qmdMaxResults: Number(process.env.QMD_MAX_RESULTS ?? 6),
     qmdMaxSnippetChars: Number(process.env.QMD_MAX_SNIPPET_CHARS ?? 260),
     qmdEmbeddingFallbackEnabled:
-      (process.env.QMD_EMBEDDING_FALLBACK_ENABLED ?? (process.env.OPENAI_API_KEY ? 'true' : 'false')).toLowerCase() === 'true',
+      (
+        process.env.QMD_EMBEDDING_FALLBACK_ENABLED ??
+        (process.env.OPENAI_API_KEY || process.env.GOOGLE_API_KEY || process.env.QMD_EMBEDDING_FALLBACK_GOOGLE_API_KEY
+          ? 'true'
+          : 'false')
+      ).toLowerCase() === 'true',
+    qmdEmbeddingFallbackProvider: (() => {
+      const normalized = (process.env.QMD_EMBEDDING_FALLBACK_PROVIDER ?? '').trim().toLowerCase();
+      if (normalized === 'google' || normalized === 'gemini') {
+        return 'google' as const;
+      }
+      if (normalized === 'openai') {
+        return 'openai' as const;
+      }
+      if (process.env.QMD_EMBEDDING_FALLBACK_GOOGLE_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim()) {
+        return 'google' as const;
+      }
+      return 'openai' as const;
+    })(),
     qmdEmbeddingFallbackOpenAiApiKey: process.env.QMD_EMBEDDING_FALLBACK_OPENAI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim(),
     qmdEmbeddingFallbackOpenAiBaseUrl:
       process.env.QMD_EMBEDDING_FALLBACK_OPENAI_BASE_URL?.trim() || 'https://api.openai.com/v1',
     qmdEmbeddingFallbackModel: process.env.QMD_EMBEDDING_FALLBACK_MODEL?.trim() || 'text-embedding-3-small',
+    qmdEmbeddingFallbackGoogleApiKey:
+      process.env.QMD_EMBEDDING_FALLBACK_GOOGLE_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim(),
+    qmdEmbeddingFallbackGoogleBaseUrl:
+      process.env.QMD_EMBEDDING_FALLBACK_GOOGLE_BASE_URL?.trim() || 'https://generativelanguage.googleapis.com/v1beta',
+    qmdEmbeddingFallbackGoogleModel: process.env.QMD_EMBEDDING_FALLBACK_GOOGLE_MODEL?.trim() || 'gemini-embedding-001',
     qmdEmbeddingFallbackTimeoutMs: Number(process.env.QMD_EMBEDDING_FALLBACK_TIMEOUT_MS ?? 12_000),
     qmdEmbeddingFallbackCandidateLimit: Number(process.env.QMD_EMBEDDING_FALLBACK_CANDIDATE_LIMIT ?? 24),
     qmdEmbeddingFallbackMaxInputChars: Number(process.env.QMD_EMBEDDING_FALLBACK_MAX_INPUT_CHARS ?? 4_000),

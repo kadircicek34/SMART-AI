@@ -6,8 +6,8 @@ let modelPolicyModule: typeof import('../../security/model-policy.js');
 
 before(async () => {
   process.env.MODEL_POLICY_FILE = `/tmp/smart-ai-test-model-policy-security-${process.pid}.json`;
-  process.env.OPENROUTER_ALLOWED_MODELS = 'deepseek/deepseek-chat-v3.1';
-  process.env.OPENROUTER_DEFAULT_MODEL = 'deepseek/deepseek-chat-v3.1';
+  process.env.OPENROUTER_ALLOWED_MODELS = 'deepseek/deepseek-v3.2';
+  process.env.OPENROUTER_DEFAULT_MODEL = 'deepseek/deepseek-v3.2';
   process.env.OPENROUTER_MAX_TENANT_ALLOWED_MODELS = '2';
 
   await fs.writeFile(
@@ -33,13 +33,13 @@ before(async () => {
 
 test('validateTenantModelPolicyInput dedupes allowedModels and preserves a valid default', () => {
   const result = modelPolicyModule.validateTenantModelPolicyInput({
-    defaultModel: 'deepseek/deepseek-chat-v3.1',
-    allowedModels: ['deepseek/deepseek-chat-v3.1', 'deepseek/deepseek-chat-v3.1']
+    defaultModel: 'deepseek/deepseek-v3.2',
+    allowedModels: ['deepseek/deepseek-v3.2', 'deepseek/deepseek-v3.2']
   });
 
   assert.equal(result.ok, true);
   if (result.ok) {
-    assert.deepEqual(result.value.allowedModels, ['deepseek/deepseek-chat-v3.1']);
+    assert.deepEqual(result.value.allowedModels, ['deepseek/deepseek-v3.2']);
   }
 });
 

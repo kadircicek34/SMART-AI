@@ -34,7 +34,7 @@ test('chatWithOpenRouter retries on 429 and succeeds on next attempt', async () 
 
     return new Response(
       JSON.stringify({
-        model: 'deepseek/deepseek-chat-v3.1',
+        model: 'deepseek/deepseek-v3.2',
         choices: [{ message: { content: 'ok' } }],
         usage: {
           prompt_tokens: 10,
@@ -59,7 +59,7 @@ test('chatWithOpenRouter retries on 429 and succeeds on next attempt', async () 
   try {
     const response = await chatWithOpenRouter({
       apiKey: 'test-key',
-      model: 'deepseek/deepseek-chat-v3.1',
+      model: 'deepseek/deepseek-v3.2',
       messages: [{ role: 'user', content: 'hello' }]
     });
 
@@ -87,7 +87,7 @@ test('chatWithOpenRouter does not retry on non-retryable failures', async () => 
       () =>
         chatWithOpenRouter({
           apiKey: 'test-key',
-          model: 'deepseek/deepseek-chat-v3.1',
+          model: 'deepseek/deepseek-v3.2',
           messages: [{ role: 'user', content: 'hello' }]
         }),
       /OpenRouter request failed \(400\): bad request/

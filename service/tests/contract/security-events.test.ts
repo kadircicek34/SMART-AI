@@ -19,8 +19,8 @@ before(async () => {
   process.env.SECURITY_EXPORT_SIGNING_MAINTENANCE_INTERVAL_MS = '0';
   process.env.SECURITY_EXPORT_SIGNING_MAINTENANCE_LEASE_TTL_MS = '60000';
   process.env.SECURITY_EXPORT_SIGNING_MAINTENANCE_HISTORY_LIMIT = '12';
-  process.env.OPENROUTER_ALLOWED_MODELS = 'deepseek/deepseek-chat-v3.1,openai/gpt-4o-mini';
-  process.env.OPENROUTER_DEFAULT_MODEL = 'deepseek/deepseek-chat-v3.1';
+  process.env.OPENROUTER_ALLOWED_MODELS = 'deepseek/deepseek-v3.2,openai/gpt-4o-mini';
+  process.env.OPENROUTER_DEFAULT_MODEL = 'deepseek/deepseek-v3.2';
   process.env.MASTER_KEY_BASE64 = Buffer.alloc(32, 2).toString('base64');
   process.env.UI_ALLOWED_ORIGINS = 'https://dashboard.example.com';
 

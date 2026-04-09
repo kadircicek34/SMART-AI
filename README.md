@@ -432,7 +432,7 @@ curl -X PUT http://127.0.0.1:8080/v1/model-policy \
   -H 'content-type: application/json' \
   -d '{
     "defaultModel":"openai/gpt-4o-mini",
-    "allowedModels":["openai/gpt-4o-mini","deepseek/deepseek-chat-v3.1"]
+    "allowedModels":["openai/gpt-4o-mini","deepseek/deepseek-v3.2"]
   }'
 ```
 

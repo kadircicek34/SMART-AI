@@ -40,8 +40,12 @@ type RankedDocument = RuntimeSearchDocument & {
   score: number;
 };
 
+type EmbeddingTaskType = 'RETRIEVAL_QUERY' | 'RETRIEVAL_DOCUMENT';
+type EmbeddingProvider = 'openai' | 'google';
+
 type EmbeddingRequest = {
   texts: string[];
+  taskType?: EmbeddingTaskType;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
 };
@@ -321,6 +325,84 @@ async function requestOpenAiEmbeddings(params: EmbeddingRequest): Promise<number
   return embeddings;
 }
 
+async function requestGoogleEmbeddings(params: EmbeddingRequest): Promise<number[][]> {
+  const apiKey = config.tools.qmdEmbeddingFallbackGoogleApiKey?.trim();
+  if (!apiKey) {
+    throw new Error('GOOGLE_API_KEY missing for QMD embedding fallback.');
+  }
+
+  const model = config.tools.qmdEmbeddingFallbackGoogleModel.trim();
+  const baseUrl = config.tools.qmdEmbeddingFallbackGoogleBaseUrl.replace(/\/$/, '');
+  const response = await (params.fetchImpl ?? fetch)(
+    `${baseUrl}/models/${encodeURIComponent(model)}:batchEmbedContents?key=${encodeURIComponent(apiKey)}`,
+    {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        requests: params.texts.map((text) => ({
+          model: `models/${model}`,
+          taskType: params.taskType ?? 'RETRIEVAL_DOCUMENT',
+          content: {
+            parts: [
+              {
+                text
+              }
+            ]
+          }
+        }))
+      }),
+      signal: createTimeoutSignal(config.tools.qmdEmbeddingFallbackTimeoutMs, params.signal)
+    }
+  );
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Google embeddings request failed (${response.status}): ${truncate(body, 320)}`);
+  }
+
+  const json = (await response.json()) as {
+    embeddings?: Array<{
+      values?: number[];
+    }>;
+  };
+
+  const embeddings = (Array.isArray(json.embeddings) ? json.embeddings : [])
+    .map((entry) => entry.values)
+    .filter((value): value is number[] => Array.isArray(value));
+  if (embeddings.length !== params.texts.length) {
+    throw new Error(`Google embeddings returned ${embeddings.length} vectors for ${params.texts.length} inputs.`);
+  }
+
+  return embeddings;
+}
+
+function resolveEmbeddingProvider(): EmbeddingProvider {
+  return config.tools.qmdEmbeddingFallbackProvider === 'google' ? 'google' : 'openai';
+}
+
+function resolveEmbeddingModel(provider: EmbeddingProvider): string {
+  if (provider === 'google') {
+    return config.tools.qmdEmbeddingFallbackGoogleModel;
+  }
+
+  return config.tools.qmdEmbeddingFallbackModel;
+}
+
+function resolveEmbeddingProviderLabel(provider: EmbeddingProvider): string {
+  return provider === 'google' ? 'Gemini' : 'OpenAI';
+}
+
+async function requestEmbeddings(params: EmbeddingRequest): Promise<number[][]> {
+  const provider = resolveEmbeddingProvider();
+  if (provider === 'google') {
+    return requestGoogleEmbeddings(params);
+  }
+
+  return requestOpenAiEmbeddings(params);
+}
+
 async function resolveDocumentEmbeddings(params: {
   documents: RuntimeSearchDocument[];
   signal?: AbortSignal;
@@ -329,6 +411,8 @@ async function resolveDocumentEmbeddings(params: {
   return withCacheLock(async () => {
     const cache = loadEmbeddingCache();
     const embeddings = new Map<string, number[]>();
+    const embeddingProvider = resolveEmbeddingProvider();
+    const embeddingModel = resolveEmbeddingModel(embeddingProvider);
     const pending: Array<{
       document: RuntimeSearchDocument;
       contentHash: string;
@@ -342,7 +426,7 @@ async function resolveDocumentEmbeddings(params: {
 
       if (
         cacheEntry &&
-        cacheEntry.model === config.tools.qmdEmbeddingFallbackModel &&
+        cacheEntry.model === `${embeddingProvider}:${embeddingModel}` &&
         cacheEntry.contentHash === contentHash &&
         Array.isArray(cacheEntry.embedding)
       ) {
@@ -359,8 +443,9 @@ async function resolveDocumentEmbeddings(params: {
 
     for (let offset = 0; offset < pending.length; offset += MAX_EMBED_BATCH_SIZE) {
       const batch = pending.slice(offset, offset + MAX_EMBED_BATCH_SIZE);
-      const vectors = await requestOpenAiEmbeddings({
+      const vectors = await requestEmbeddings({
         texts: batch.map((entry) => entry.input),
+        taskType: 'RETRIEVAL_DOCUMENT',
         signal: params.signal,
         fetchImpl: params.fetchImpl
       });
@@ -369,7 +454,7 @@ async function resolveDocumentEmbeddings(params: {
         const vector = vectors[index];
         embeddings.set(entry.document.documentKey, vector);
         cache.entries[entry.document.documentKey] = {
-          model: config.tools.qmdEmbeddingFallbackModel,
+          model: `${embeddingProvider}:${embeddingModel}`,
           contentHash: entry.contentHash,
           embedding: vector,
           updatedAt: entry.document.updatedAt,
@@ -395,7 +480,8 @@ function buildSummary(reason: string, hits: RankedDocument[], maxSnippetChars: n
     return `${index + 1}. [${corpusLabel}] ${truncate(hit.title, 120)} score=${hit.score.toFixed(3)}\nKaynak: ${hit.citation}\n${truncate(hit.text, maxSnippetChars)}`;
   });
 
-  return `QMD local arama kullanılamadı (${truncate(reason, 180)}). OpenAI embedding fallback sonucu:\n\n${lines.join('\n\n')}`;
+  const providerLabel = resolveEmbeddingProviderLabel(resolveEmbeddingProvider());
+  return `QMD local arama kullanılamadı (${truncate(reason, 180)}). ${providerLabel} embedding fallback sonucu:\n\n${lines.join('\n\n')}`;
 }
 
 export async function executeQmdEmbeddingFallback(params: {
@@ -413,10 +499,18 @@ export async function executeQmdEmbeddingFallback(params: {
     return null;
   }
 
-  if (!config.tools.qmdEmbeddingFallbackOpenAiApiKey?.trim()) {
+  const embeddingProvider = resolveEmbeddingProvider();
+  const embeddingProviderLabel = resolveEmbeddingProviderLabel(embeddingProvider);
+  const embeddingModel = resolveEmbeddingModel(embeddingProvider);
+  const hasEmbeddingKey =
+    embeddingProvider === 'google'
+      ? Boolean(config.tools.qmdEmbeddingFallbackGoogleApiKey?.trim())
+      : Boolean(config.tools.qmdEmbeddingFallbackOpenAiApiKey?.trim());
+
+  if (!hasEmbeddingKey) {
     return {
       tool: 'qmd_search',
-      summary: `QMD local arama kullanılamadı (${truncate(params.reason, 180)}). Embedding fallback hazır değil: OPENAI_API_KEY tanımlı değil.`,
+      summary: `QMD local arama kullanılamadı (${truncate(params.reason, 180)}). Embedding fallback hazır değil: ${embeddingProvider === 'google' ? 'GOOGLE_API_KEY' : 'OPENAI_API_KEY'} tanımlı değil.`,
       citations: []
     };
   }
@@ -439,8 +533,9 @@ export async function executeQmdEmbeddingFallback(params: {
       Math.max(1, config.tools.qmdEmbeddingFallbackCandidateLimit)
     );
 
-    const [queryEmbedding] = await requestOpenAiEmbeddings({
+    const [queryEmbedding] = await requestEmbeddings({
       texts: [truncate(params.input.query, config.tools.qmdEmbeddingFallbackMaxInputChars)],
+      taskType: 'RETRIEVAL_QUERY',
       signal: params.input.signal,
       fetchImpl: params.fetchImpl
     });
@@ -477,7 +572,7 @@ export async function executeQmdEmbeddingFallback(params: {
     if (topHits.length === 0) {
       return {
         tool: 'qmd_search',
-        summary: `QMD local arama kullanılamadı (${truncate(params.reason, 180)}). OpenAI embedding fallback anlamlı eşleşme bulamadı.`,
+        summary: `QMD local arama kullanılamadı (${truncate(params.reason, 180)}). ${embeddingProviderLabel} embedding fallback anlamlı eşleşme bulamadı.`,
         citations: []
       };
     }
@@ -487,8 +582,8 @@ export async function executeQmdEmbeddingFallback(params: {
       summary: buildSummary(params.reason, topHits, params.maxSnippetChars),
       citations: [...new Set(topHits.map((hit) => hit.citation))],
       raw: {
-        provider: 'openai-embedding-fallback',
-        model: config.tools.qmdEmbeddingFallbackModel,
+        provider: embeddingProvider === 'google' ? 'google-embedding-fallback' : 'openai-embedding-fallback',
+        model: embeddingModel,
         reason: params.reason,
         candidateCount: candidates.length,
         totalDocuments: documents.length,
@@ -504,7 +599,7 @@ export async function executeQmdEmbeddingFallback(params: {
   } catch (error) {
     return {
       tool: 'qmd_search',
-      summary: `QMD local arama kullanılamadı (${truncate(params.reason, 180)}). OpenAI embedding fallback da başarısız oldu: ${truncate(error instanceof Error ? error.message : String(error), 220)}`,
+      summary: `QMD local arama kullanılamadı (${truncate(params.reason, 180)}). ${embeddingProviderLabel} embedding fallback da başarısız oldu: ${truncate(error instanceof Error ? error.message : String(error), 220)}`,
       citations: []
     };
   }

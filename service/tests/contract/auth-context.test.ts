@@ -34,8 +34,8 @@ before(async () => {
   process.env.KEY_STORE_FILE = `/tmp/smart-ai-test-keys-auth-context-${process.pid}.json`;
   process.env.MODEL_POLICY_FILE = `/tmp/smart-ai-test-model-policy-auth-context-${process.pid}.json`;
   process.env.MEMORY_STORE_FILE = `/tmp/smart-ai-test-memory-auth-context-${process.pid}.json`;
-  process.env.OPENROUTER_ALLOWED_MODELS = 'deepseek/deepseek-chat-v3.1,openai/gpt-4o-mini';
-  process.env.OPENROUTER_DEFAULT_MODEL = 'deepseek/deepseek-chat-v3.1';
+  process.env.OPENROUTER_ALLOWED_MODELS = 'deepseek/deepseek-v3.2,openai/gpt-4o-mini';
+  process.env.OPENROUTER_DEFAULT_MODEL = 'deepseek/deepseek-v3.2';
   process.env.MASTER_KEY_BASE64 = Buffer.alloc(32, 7).toString('base64');
   process.env.UI_SESSION_TTL_SECONDS = '120';
   process.env.UI_SESSION_MAX_IDLE_SECONDS = '120';
@@ -129,8 +129,8 @@ test('operate credential can use tenant write APIs but cannot access admin-only 
       'content-type': 'application/json'
     },
     payload: {
-      defaultModel: 'deepseek/deepseek-chat-v3.1',
-      allowedModels: ['deepseek/deepseek-chat-v3.1']
+      defaultModel: 'deepseek/deepseek-v3.2',
+      allowedModels: ['deepseek/deepseek-v3.2']
     }
   });
 
@@ -227,8 +227,8 @@ test('admin credential can manage model policy and protected key routes', async 
       'content-type': 'application/json'
     },
     payload: {
-      defaultModel: 'deepseek/deepseek-chat-v3.1',
-      allowedModels: ['deepseek/deepseek-chat-v3.1']
+      defaultModel: 'deepseek/deepseek-v3.2',
+      allowedModels: ['deepseek/deepseek-v3.2']
     }
   });
 
