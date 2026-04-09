@@ -1,0 +1,42 @@
+[
+  {
+    "id": "fed-monetary-strategy-2025",
+    "title": "Federal Reserve 2025 Statement on Longer-Run Goals and Monetary Policy Strategy",
+    "url": "https://www.federalreserve.gov/monetarypolicy/monetary-policy-strategy-tools-and-communications-statement-on-longer-run-goals-monetary-policy-strategy-2025.htm",
+    "html_file": "/root/SMART-AI/service/rag-sources/2026-04-09/fed-monetary-strategy-2025.html",
+    "text_file": "/root/SMART-AI/service/rag-sources/2026-04-09/fed-monetary-strategy-2025.txt",
+    "chars": 5897
+  },
+  {
+    "id": "fed-mpr-2025-06-part2",
+    "title": "Federal Reserve Monetary Policy Report June 2025 (Part 2)",
+    "url": "https://www.federalreserve.gov/monetarypolicy/2025-06-mpr-part2.htm",
+    "html_file": "/root/SMART-AI/service/rag-sources/2026-04-09/fed-mpr-2025-06-part2.html",
+    "text_file": "/root/SMART-AI/service/rag-sources/2026-04-09/fed-mpr-2025-06-part2.txt",
+    "chars": 28532
+  },
+  {
+    "id": "fed-framework-roadmap-2025",
+    "title": "Federal Reserve FEDS Notes: A Roadmap for the 2025 MPF Review",
+    "url": "https://www.federalreserve.gov/econres/notes/feds-notes/a-roadmap-for-the-federal-reserves-2025-review-of-Its-monetary-policy-framework-20250822.html",
+    "html_file": "/root/SMART-AI/service/rag-sources/2026-04-09/fed-framework-roadmap-2025.html",
+    "text_file": "/root/SMART-AI/service/rag-sources/2026-04-09/fed-framework-roadmap-2025.txt",
+    "chars": 19871
+  },
+  {
+    "id": "treasury-quarterly-refunding-2025-02-05",
+    "title": "US Treasury Quarterly Refunding Statement (February 2025)",
+    "url": "https://home.treasury.gov/news/press-releases/sb0010",
+    "html_file": "/root/SMART-AI/service/rag-sources/2026-04-09/treasury-quarterly-refunding-2025-02-05.html",
+    "text_file": "/root/SMART-AI/service/rag-sources/2026-04-09/treasury-quarterly-refunding-2025-02-05.txt",
+    "chars": 4766
+  },
+  {
+    "id": "bis-annual-economic-report-2025-summary",
+    "title": "BIS Annual Economic Report 2025 release summary",
+    "url": "https://www.bis.org/publ/arpdf/ar2025e.htm",
+    "html_file": "/root/SMART-AI/service/rag-sources/2026-04-09/bis-annual-economic-report-2025-summary.html",
+    "text_file": "/root/SMART-AI/service/rag-sources/2026-04-09/bis-annual-economic-report-2025-summary.txt",
+    "chars": 753
+  }
+]

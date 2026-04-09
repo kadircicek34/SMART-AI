@@ -16,8 +16,8 @@ before(async () => {
   process.env.APP_API_KEYS = 'test-api-key';
   process.env.KEY_STORE_FILE = `/tmp/smart-ai-test-keys-model-policy-${process.pid}.json`;
   process.env.MODEL_POLICY_FILE = `/tmp/smart-ai-test-model-policy-contract-${process.pid}.json`;
-  process.env.OPENROUTER_ALLOWED_MODELS = 'deepseek/deepseek-chat-v3.1,openai/gpt-4o-mini,google/gemini-2.5-flash';
-  process.env.OPENROUTER_DEFAULT_MODEL = 'deepseek/deepseek-chat-v3.1';
+  process.env.OPENROUTER_ALLOWED_MODELS = 'deepseek/deepseek-v3.2,openai/gpt-4o-mini,google/gemini-2.5-flash';
+  process.env.OPENROUTER_DEFAULT_MODEL = 'deepseek/deepseek-v3.2';
   process.env.OPENROUTER_MAX_TENANT_ALLOWED_MODELS = '2';
   process.env.MASTER_KEY_BASE64 = Buffer.alloc(32, 11).toString('base64');
 
@@ -41,9 +41,9 @@ test('GET /v1/model-policy returns deployment defaults by default', async () => 
   assert.equal(body.object, 'model_policy');
   assert.equal(body.source, 'deployment');
   assert.equal(body.policy_status, 'inherited');
-  assert.equal(body.default_model, 'deepseek/deepseek-chat-v3.1');
+  assert.equal(body.default_model, 'deepseek/deepseek-v3.2');
   assert.deepEqual(body.allowed_models, [
-    'deepseek/deepseek-chat-v3.1',
+    'deepseek/deepseek-v3.2',
     'openai/gpt-4o-mini',
     'google/gemini-2.5-flash'
   ]);
@@ -128,5 +128,5 @@ test('DELETE /v1/model-policy resets tenant policy back to deployment defaults',
   const body = resetRes.json();
   assert.equal(body.reset, true);
   assert.equal(body.source, 'deployment');
-  assert.equal(body.default_model, 'deepseek/deepseek-chat-v3.1');
+  assert.equal(body.default_model, 'deepseek/deepseek-v3.2');
 });

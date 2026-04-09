@@ -93,7 +93,7 @@ test('enqueueResearchJob reuses existing job when Idempotency-Key matches same p
 
   const first = enqueueResearchJob({
     tenantId: 'tenant-worker-idempotency',
-    model: 'deepseek/deepseek-chat-v3.1',
+    model: 'deepseek/deepseek-v3.2',
     query: 'Aynı job tekrar edilmesin',
     idempotencyKey: 'idempo-001',
     maxActiveJobsPerTenant: 2,
@@ -104,7 +104,7 @@ test('enqueueResearchJob reuses existing job when Idempotency-Key matches same p
 
   const second = enqueueResearchJob({
     tenantId: 'tenant-worker-idempotency',
-    model: 'deepseek/deepseek-chat-v3.1',
+    model: 'deepseek/deepseek-v3.2',
     query: 'Aynı job tekrar edilmesin',
     idempotencyKey: 'idempo-001',
     maxActiveJobsPerTenant: 2,
@@ -140,7 +140,7 @@ test('enqueueResearchJob rejects idempotency key conflicts when payload differs'
 
   const first = enqueueResearchJob({
     tenantId: 'tenant-worker-idempotency-conflict',
-    model: 'deepseek/deepseek-chat-v3.1',
+    model: 'deepseek/deepseek-v3.2',
     query: 'ilk payload',
     idempotencyKey: 'idempo-conflict',
     maxActiveJobsPerTenant: 2,
@@ -151,7 +151,7 @@ test('enqueueResearchJob rejects idempotency key conflicts when payload differs'
 
   const second = enqueueResearchJob({
     tenantId: 'tenant-worker-idempotency-conflict',
-    model: 'deepseek/deepseek-chat-v3.1',
+    model: 'deepseek/deepseek-v3.2',
     query: 'farklı payload',
     idempotencyKey: 'idempo-conflict',
     maxActiveJobsPerTenant: 2,
@@ -173,7 +173,7 @@ test('enqueueResearchJob expires idempotency key after TTL window', async () => 
 
   const first = enqueueResearchJob({
     tenantId: 'tenant-worker-idempotency-ttl',
-    model: 'deepseek/deepseek-chat-v3.1',
+    model: 'deepseek/deepseek-v3.2',
     query: 'aynı key ama ttl sonrası yeni job',
     idempotencyKey: 'idempo-ttl',
     maxActiveJobsPerTenant: 3,
@@ -195,7 +195,7 @@ test('enqueueResearchJob expires idempotency key after TTL window', async () => 
 
   const second = enqueueResearchJob({
     tenantId: 'tenant-worker-idempotency-ttl',
-    model: 'deepseek/deepseek-chat-v3.1',
+    model: 'deepseek/deepseek-v3.2',
     query: 'aynı key ama ttl sonrası yeni job',
     idempotencyKey: 'idempo-ttl',
     maxActiveJobsPerTenant: 3,
@@ -217,7 +217,7 @@ test('enqueueResearchJob enforces maxActiveJobsPerTenant limit', async () => {
 
   const first = enqueueResearchJob({
     tenantId: 'tenant-worker-limit',
-    model: 'deepseek/deepseek-chat-v3.1',
+    model: 'deepseek/deepseek-v3.2',
     query: 'job-1',
     maxActiveJobsPerTenant: 1,
     idempotencyTtlSeconds: 3600,
@@ -227,7 +227,7 @@ test('enqueueResearchJob enforces maxActiveJobsPerTenant limit', async () => {
 
   const second = enqueueResearchJob({
     tenantId: 'tenant-worker-limit',
-    model: 'deepseek/deepseek-chat-v3.1',
+    model: 'deepseek/deepseek-v3.2',
     query: 'job-2',
     maxActiveJobsPerTenant: 1,
     idempotencyTtlSeconds: 3600,
@@ -253,7 +253,7 @@ test('cancelResearchJob keeps cancelled status even if runner finishes later', a
 
   const created = enqueueResearchJob({
     tenantId: 'tenant-worker-cancel',
-    model: 'deepseek/deepseek-chat-v3.1',
+    model: 'deepseek/deepseek-v3.2',
     query: 'uzun süren araştırma',
     maxActiveJobsPerTenant: 2,
     idempotencyTtlSeconds: 3600,
@@ -309,7 +309,7 @@ test('job timeout aborts long-running work and marks cancellation reason', async
 
   const created = enqueueResearchJob({
     tenantId: 'tenant-worker-timeout',
-    model: 'deepseek/deepseek-chat-v3.1',
+    model: 'deepseek/deepseek-v3.2',
     query: 'uzun görev',
     maxActiveJobsPerTenant: 2,
     idempotencyTtlSeconds: 3600,
@@ -337,7 +337,7 @@ test('job failure errors are redacted before being persisted', async () => {
 
   const created = enqueueResearchJob({
     tenantId: 'tenant-worker-redact',
-    model: 'deepseek/deepseek-chat-v3.1',
+    model: 'deepseek/deepseek-v3.2',
     query: 'hata üret',
     maxActiveJobsPerTenant: 2,
     idempotencyTtlSeconds: 3600,

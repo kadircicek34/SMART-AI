@@ -3,8 +3,8 @@ import { buildApp } from './app.js';
 
 const app = buildApp();
 
-await app.listen({ port: config.port, host: '0.0.0.0' });
-app.log.info(`API running on :${config.port}`);
+await app.listen({ port: config.port, host: config.host });
+app.log.info(`API running on ${config.host}:${config.port}`);
 
 const stop = async () => {
   await app.close();
