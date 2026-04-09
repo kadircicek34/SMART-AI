@@ -1,22 +1,25 @@
-# DELIVERY — SMART-AI v1.20 (Canary-backed Clear Request + Four-Eyes Incident Reopen)
+# DELIVERY — SMART-AI v1.21 (Tenant-scoped Operator Roster RBAC)
 
-## 2026-04-08 Teslim Özeti
+## 2026-04-09 Teslim Özeti
 
 ### Yapılanlar
-- Delivery incident workflow’a yeni `clear-request` aşaması eklendi.
-- Clear akışı canlı canary delivery + ikinci operatör onayı olmadan incident çözmeyecek şekilde fail-closed sertleştirildi.
-- Recovery için gereken hedef URL internal encrypted target material olarak saklandı; API/receipt yüzeyi redacted kaldı.
-- Dashboard incident paneli `Canary + Request` ve `Approve & Clear` aksiyonlarıyla güncellendi.
+- Security export recovery hattına yeni `GET/PUT/DELETE /v1/security/export/operator-policy` control plane'i eklendi.
+- Incident workflow içindeki `acknowledge`, `clear-request` ve `clear` approval adımları tenant-scoped operator roster ile action bazında yetkilendirildi.
+- Deployment default operator roster env'leri, validation ve audit telemetry eklendi; roster dışı admin recovery denemeleri fail-closed reddediliyor.
+- Yeni contract/unit testler ve dokümantasyon güncellemeleri ile operator RBAC yüzeyi production-grade teslim edildi.
 
 ### Doğrulama
 - `npm run typecheck` → PASS
-- `npx tsx --test tests/contract/security-export-deliveries.test.ts` → PASS (12/12)
-- `npm test` → PASS (187/187)
+- `npx tsx --test tests/contract/security-export-operator-policy.test.ts tests/contract/security-export-deliveries.test.ts tests/security/export-operator-policy.test.ts` → PASS (21/21)
+- `npm test` → PASS (196/196)
 - `npm audit --omit=dev` → PASS (0 vulnerability)
+- Operator policy smoke (`/health`, `GET/PUT /v1/security/export/operator-policy`) → PASS
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` → PASS
 
 ### Kalan riskler
-- Four-eyes kontrolü principal-name seviyesinde, tam approver RBAC henüz yok.
-- Shared backend / multi-instance incident state henüz uygulanmadı.
+- Operator roster bugün principal-name listesi seviyesinde; external IdP/group sync henüz yok.
+- Operator policy ve incident state hâlâ local file tabanlı; shared backend / multi-instance HA ihtiyacı sürüyor.
+- Break-glass / JIT approval modeli henüz uygulanmadı.
 
 ## 2026-04-07 Teslim Özeti
 - Security export delivery hattına **incident response control plane** eklendi: `GET /v1/security/export/delivery-incidents`, `POST /v1/security/export/delivery-incidents/:incidentId/acknowledge`, `POST /v1/security/export/delivery-incidents/:incidentId/clear`.

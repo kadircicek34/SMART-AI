@@ -46,6 +46,9 @@ export const SECURITY_AUDIT_EVENT_TYPES = [
   'security_export_delivery_previewed',
   'security_export_delivery_policy_updated',
   'security_export_delivery_policy_reset',
+  'security_export_operator_policy_updated',
+  'security_export_operator_policy_reset',
+  'security_export_operator_action_denied',
   'security_export_signing_rotated',
   'security_export_signing_policy_updated',
   'security_export_signing_maintenance_run'
@@ -235,6 +238,7 @@ function evaluateRisk(byType: Record<SecurityAuditEventType, number>): {
   score += byType.security_export_delivery_failed * 2;
   score += byType.security_export_delivery_blocked * 3;
   score += byType.security_export_delivery_dead_lettered * 4;
+  score += byType.security_export_operator_action_denied * 4;
 
   const flags: string[] = [];
 
@@ -302,6 +306,10 @@ function evaluateRisk(byType: Record<SecurityAuditEventType, number>): {
     flags.push('security_export_dead_letters_present');
   }
 
+  if (byType.security_export_operator_action_denied >= 3) {
+    flags.push('security_export_operator_policy_violations');
+  }
+
   let level: SecurityAuditSummary['riskLevel'] = 'low';
   if (score >= 35) {
     level = 'critical';
@@ -316,6 +324,10 @@ function evaluateRisk(byType: Record<SecurityAuditEventType, number>): {
   }
 
   if (flags.includes('privilege_escalation_attempts') && level === 'medium') {
+    level = 'high';
+  }
+
+  if (flags.includes('security_export_operator_policy_violations') && level === 'medium') {
     level = 'high';
   }
 

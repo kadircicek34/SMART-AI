@@ -36,6 +36,14 @@ import {
   setTenantSecurityExportDeliveryPolicy,
   type EffectiveSecurityExportDeliveryPolicy
 } from '../../security/export-delivery-policy.js';
+import {
+  evaluateSecurityExportOperatorAuthorization,
+  getEffectiveSecurityExportOperatorPolicy,
+  resetTenantSecurityExportOperatorPolicy,
+  setTenantSecurityExportOperatorPolicy,
+  type EffectiveSecurityExportOperatorPolicy,
+  type SecurityExportOperatorAction
+} from '../../security/export-operator-policy.js';
 
 const CHAIN_HASH_REGEX = /^[a-f0-9]{64}$/;
 const IDEMPOTENCY_KEY_ALLOWED = /^[A-Za-z0-9._:-]+$/;
@@ -179,6 +187,15 @@ const DELIVERY_INCIDENT_ACTION_BODY_SCHEMA = z.object({
 const DELIVERY_POLICY_BODY_SCHEMA = z.object({
   mode: z.enum(['inherit_remote_policy', 'disabled', 'allowlist_only']),
   allowedTargets: z.array(z.string().min(1)).max(128).optional().default([])
+});
+
+const OPERATOR_POLICY_BODY_SCHEMA = z.object({
+  mode: z.enum(['open_admins', 'roster_required']),
+  roster: z.object({
+    acknowledge: z.array(z.string().min(1)).max(128).optional().default([]),
+    clear_request: z.array(z.string().min(1)).max(128).optional().default([]),
+    clear_approve: z.array(z.string().min(1)).max(128).optional().default([])
+  })
 });
 
 const DELIVERY_PREVIEW_BODY_SCHEMA = z.object({
@@ -347,6 +364,54 @@ function rateLimitError(message: string, details?: unknown) {
   };
 }
 
+async function authorizeSecurityExportOperatorAction(options: {
+  tenantId: string;
+  req: { ip: string; url: string; requestContext?: { authPrincipalName?: string; requestId?: string } };
+  incidentId: string;
+  action: SecurityExportOperatorAction;
+}) {
+  const actor = options.req.requestContext?.authPrincipalName ?? 'unknown';
+  const decision = await evaluateSecurityExportOperatorAuthorization({
+    tenantId: options.tenantId,
+    action: options.action,
+    principalName: actor
+  });
+
+  if (decision.allowed) {
+    return {
+      allowed: true as const,
+      actor,
+      decision
+    };
+  }
+
+  recordSecurityExportOperatorActionDenied({
+    tenantId: options.tenantId,
+    req: options.req,
+    action: options.action,
+    actor,
+    incidentId: options.incidentId,
+    mode: decision.policy.mode,
+    reason: decision.reason
+  });
+
+  return {
+    allowed: false as const,
+    actor,
+    decision,
+    payload: permissionError(
+      `Principal ${actor || 'unknown'} is not authorized to ${options.action.replaceAll('_', ' ')} security export delivery incidents under the current operator policy.`,
+      {
+        operator_policy: toSecurityExportOperatorPolicyPayload(decision.policy),
+        action: options.action,
+        actor,
+        reason: decision.reason,
+        incident_id: options.incidentId
+      }
+    )
+  };
+}
+
 function verifyExportBundleForTenant(bundle: SecurityAuditExportBundle, tenantId: string) {
   const integrity = verifySecurityAuditIntegrity({
     events: bundle.data,
@@ -384,6 +449,20 @@ function toSecurityExportDeliveryPolicyPayload(policy: EffectiveSecurityExportDe
   };
 }
 
+function toSecurityExportOperatorPolicyPayload(policy: EffectiveSecurityExportOperatorPolicy) {
+  return {
+    object: 'security_export.operator_policy',
+    tenant_id: policy.tenantId,
+    source: policy.source,
+    policy_status: policy.policyStatus,
+    mode: policy.mode,
+    roster: policy.roster,
+    deployment_default_mode: policy.deploymentDefaultMode,
+    deployment_default_roster: policy.deploymentDefaultRoster,
+    updated_at: policy.updatedAt
+  };
+}
+
 function recordSecurityExportDeliveryPolicyAudit(params: {
   tenantId: string;
   req: { ip: string; url: string; requestContext?: { requestId?: string } };
@@ -398,6 +477,49 @@ function recordSecurityExportDeliveryPolicyAudit(params: {
     details: {
       path: params.req.url,
       ...Object.fromEntries(Object.entries(params.details ?? {}).filter(([, value]) => value !== undefined))
+    }
+  });
+}
+
+function recordSecurityExportOperatorPolicyAudit(params: {
+  tenantId: string;
+  req: { ip: string; url: string; requestContext?: { requestId?: string } };
+  type: 'security_export_operator_policy_updated' | 'security_export_operator_policy_reset';
+  details?: Record<string, string | number | boolean | null | undefined>;
+}) {
+  securityAuditLog.record({
+    tenant_id: params.tenantId,
+    type: params.type,
+    ip: params.req.ip,
+    request_id: params.req.requestContext?.requestId,
+    details: {
+      path: params.req.url,
+      ...Object.fromEntries(Object.entries(params.details ?? {}).filter(([, value]) => value !== undefined))
+    }
+  });
+}
+
+function recordSecurityExportOperatorActionDenied(params: {
+  tenantId: string;
+  req: { ip: string; url: string; requestContext?: { requestId?: string } };
+  action: SecurityExportOperatorAction;
+  actor: string;
+  incidentId: string;
+  mode: string;
+  reason: string;
+}) {
+  securityAuditLog.record({
+    tenant_id: params.tenantId,
+    type: 'security_export_operator_action_denied',
+    ip: params.req.ip,
+    request_id: params.req.requestContext?.requestId,
+    details: {
+      path: params.req.url,
+      action: params.action,
+      actor: params.actor,
+      incident_id: params.incidentId,
+      policy_mode: params.mode,
+      reason: params.reason
     }
   });
 }
@@ -746,6 +868,77 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
     };
   });
 
+  app.get('/v1/security/export/operator-policy', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    const policy = await getEffectiveSecurityExportOperatorPolicy(tenantId);
+    return toSecurityExportOperatorPolicyPayload(policy);
+  });
+
+  app.put('/v1/security/export/operator-policy', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    const parsed = OPERATOR_POLICY_BODY_SCHEMA.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return reply.status(400).send(invalidRequest('Invalid payload for security export operator policy.', parsed.error.flatten()));
+    }
+
+    const result = await setTenantSecurityExportOperatorPolicy(tenantId, parsed.data);
+    if (!result.ok) {
+      return reply.status(result.statusCode).send(
+        invalidRequest(result.reason, {
+          code: result.code
+        })
+      );
+    }
+
+    recordSecurityExportOperatorPolicyAudit({
+      tenantId,
+      req,
+      type: 'security_export_operator_policy_updated',
+      details: {
+        mode: result.policy.mode,
+        acknowledge_count: result.policy.roster.acknowledge.length,
+        clear_request_count: result.policy.roster.clear_request.length,
+        clear_approve_count: result.policy.roster.clear_approve.length
+      }
+    });
+
+    const policy = await getEffectiveSecurityExportOperatorPolicy(tenantId);
+    return toSecurityExportOperatorPolicyPayload(policy);
+  });
+
+  app.delete('/v1/security/export/operator-policy', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    const reset = await resetTenantSecurityExportOperatorPolicy(tenantId);
+    if (reset) {
+      recordSecurityExportOperatorPolicyAudit({
+        tenantId,
+        req,
+        type: 'security_export_operator_policy_reset',
+        details: {
+          reason: 'reset_to_deployment_defaults'
+        }
+      });
+    }
+
+    const policy = await getEffectiveSecurityExportOperatorPolicy(tenantId);
+    return {
+      reset,
+      ...toSecurityExportOperatorPolicyPayload(policy)
+    };
+  });
+
   app.get('/v1/security/export', async (req, reply) => {
     const tenantId = req.requestContext?.tenantId;
     if (!tenantId) {
@@ -1004,11 +1197,21 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
       return reply.status(400).send(invalidRequest('Invalid payload for delivery incident acknowledgement.', parsed.error.flatten()));
     }
 
+    const authorization = await authorizeSecurityExportOperatorAction({
+      tenantId,
+      req,
+      incidentId: params.data.incidentId,
+      action: 'acknowledge'
+    });
+    if (!authorization.allowed) {
+      return reply.status(403).send(authorization.payload);
+    }
+
     try {
       const incident = await acknowledgeSecurityExportDeliveryIncident({
         tenantId,
         incidentId: params.data.incidentId,
-        actor: req.requestContext?.authPrincipalName ?? 'unknown',
+        actor: authorization.actor,
         note: parsed.data.note,
         expectedRevision: parsed.data.revision
       });
@@ -1051,11 +1254,21 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
       return reply.status(400).send(invalidRequest('Invalid payload for delivery incident clear request.', parsed.error.flatten()));
     }
 
+    const authorization = await authorizeSecurityExportOperatorAction({
+      tenantId,
+      req,
+      incidentId: params.data.incidentId,
+      action: 'clear_request'
+    });
+    if (!authorization.allowed) {
+      return reply.status(403).send(authorization.payload);
+    }
+
     try {
       const incident = await requestSecurityExportDeliveryIncidentClear({
         tenantId,
         incidentId: params.data.incidentId,
-        actor: req.requestContext?.authPrincipalName ?? 'unknown',
+        actor: authorization.actor,
         note: parsed.data.note,
         expectedRevision: parsed.data.revision,
         requestId: req.requestContext?.requestId
@@ -1108,11 +1321,21 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
       return reply.status(400).send(invalidRequest('Invalid payload for delivery incident clear.', parsed.error.flatten()));
     }
 
+    const authorization = await authorizeSecurityExportOperatorAction({
+      tenantId,
+      req,
+      incidentId: params.data.incidentId,
+      action: 'clear_approve'
+    });
+    if (!authorization.allowed) {
+      return reply.status(403).send(authorization.payload);
+    }
+
     try {
       const incident = await clearSecurityExportDeliveryIncident({
         tenantId,
         incidentId: params.data.incidentId,
-        actor: req.requestContext?.authPrincipalName ?? 'unknown',
+        actor: authorization.actor,
         note: parsed.data.note,
         expectedRevision: parsed.data.revision
       });

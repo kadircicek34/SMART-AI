@@ -1,4 +1,26 @@
-# TEST REPORT — SMART-AI v1.20 (Canary-backed Clear Request + Four-Eyes Incident Reopen)
+# TEST REPORT — SMART-AI v1.21 (Tenant-scoped Operator Roster RBAC)
+
+## 2026-04-09 doğrulama özeti — tenant-scoped operator roster / RBAC control plane
+
+### Çalıştırılan komutlar
+1. `npm run typecheck` → PASS
+2. `npx tsx --test tests/contract/security-export-operator-policy.test.ts tests/contract/security-export-deliveries.test.ts tests/security/export-operator-policy.test.ts` → PASS (**21/21**)
+3. `npm test` → PASS (**196/196**)
+4. `npm audit --omit=dev` → PASS (0 vulnerability)
+5. `PORT=18083 APP_API_KEYS=smoke-admin-key node_modules/.bin/tsx api/server.ts` + `curl /health` + `GET/PUT /v1/security/export/operator-policy` smoke → PASS (`health.ok=true`, `get.mode=open_admins`, `put.mode=roster_required`)
+6. `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` → PASS
+
+### Yeni regresyon kanıtı
+- `GET /v1/security/export/operator-policy` deployment default effective policy'yi doğru source/status ile döndürüyor.
+- Tenant admin, `PUT /v1/security/export/operator-policy` ile explicit incident commander / recovery requester / recovery approver roster'ı kaydedebiliyor.
+- `roster_required` modunda eksik role listesi validation tarafından `400` ile reddediliyor.
+- Read-only credential operator policy mutasyonunda `403 permission_error` alıyor.
+- Delivery incident workflow, acknowledge / clear-request / clear approval adımlarında tenant operator roster'ı fail-closed enforce ediyor.
+- Operator authorization unit testleri `open_admins`, `roster_required`, role mismatch ve validation failure yollarını doğruluyor.
+
+### Fresh verification notu
+- Bu iterasyonda hem yeni operator-policy control plane'i hem de mevcut delivery incident workflow birlikte doğrulandı.
+- Tam regresyon paketi yeni operator RBAC değişikliğiyle birlikte tekrar yeşil geçti.
 
 ## 2026-04-08 doğrulama özeti — canary-backed clear request + four-eyes workflow
 

@@ -111,6 +111,12 @@
 - `SECURITY_EXPORT_DELIVERY_QUARANTINE_DEAD_LETTER_THRESHOLD` (aynı hedefte quarantine tetikleyen dead-letter eşiği, varsayılan: 2)
 - `SECURITY_EXPORT_DELIVERY_QUARANTINE_DURATION_MINUTES` (quarantine süresi, varsayılan: 60)
 - `SECURITY_EXPORT_DELIVERY_CLEAR_REQUEST_TTL_MINUTES` (canary-backed clear request geçerlilik süresi, varsayılan: 30)
+- `SECURITY_EXPORT_OPERATOR_POLICY_FILE` (varsayılan: `.data/security-export-operator-policies.json`)
+- `SECURITY_EXPORT_OPERATOR_POLICY_DEFAULT_MODE` (`open_admins|roster_required`, varsayılan: `open_admins`)
+- `SECURITY_EXPORT_OPERATOR_POLICY_DEFAULT_ACKNOWLEDGERS` (deployment varsayılan incident commander roster, CSV)
+- `SECURITY_EXPORT_OPERATOR_POLICY_DEFAULT_CLEAR_REQUESTERS` (deployment varsayılan recovery requester roster, CSV)
+- `SECURITY_EXPORT_OPERATOR_POLICY_DEFAULT_CLEAR_APPROVERS` (deployment varsayılan recovery approver roster, CSV)
+- `SECURITY_EXPORT_OPERATOR_POLICY_MAX_PRINCIPALS_PER_ROLE` (varsayılan: 32)
 - `SECURITY_EXPORT_SIGNING_MAX_VERIFY_KEYS` (varsayılan: 4)
 - `SECURITY_EXPORT_SIGNING_AUTO_ROTATE_ENABLED` (varsayılan: `true`)
 - `SECURITY_EXPORT_SIGNING_ROTATE_AFTER_HOURS` (varsayılan: `720`)
@@ -155,6 +161,9 @@
 - `GET /v1/security/export/delivery-policy` → effective delivery-egress policy (deployment/tenant source + mode + allowed target rules)
 - `PUT /v1/security/export/delivery-policy` → tenant delivery-egress policy güncelle (`inherit_remote_policy|allowlist_only|disabled`)
 - `DELETE /v1/security/export/delivery-policy` → delivery-egress policy reset → deployment defaults
+- `GET /v1/security/export/operator-policy` → effective incident operator roster policy (deployment/tenant source + role rosters)
+- `PUT /v1/security/export/operator-policy` → tenant incident operator roster policy güncelle (`open_admins|roster_required` + `acknowledge|clear_request|clear_approve` role listeleri)
+- `DELETE /v1/security/export/operator-policy` → incident operator roster policy reset → deployment defaults
 - `GET /v1/security/export/deliveries` → son export delivery receipt’lerini listele (`status=queued|retrying|succeeded|failed|blocked|dead_letter` filtreli)
 - `GET /v1/security/export/delivery-analytics` → delivery status breakdown + success rate + destination health/quarantine + timeline bucket’ları
 - `GET /v1/security/export/delivery-incidents` → active/resolved delivery incident kayıtlarını revision + owner metadata ile listele
@@ -204,9 +213,11 @@
 - `Idempotency-Key` aynı export isteğinin duplicate/replay flood’unu bastırır; tenant başına aktif async delivery sayısı ayrıca üst sınırla korunur.
 - `GET /v1/security/export/delivery-analytics` son pencere için success-rate, status dağılımı, incident timeline ve destination health verdict’lerini (`healthy|degraded|quarantined`) döndürür.
 - `GET /v1/security/export/delivery-incidents`, `POST /v1/security/export/delivery-incidents/:incidentId/acknowledge`, `POST /v1/security/export/delivery-incidents/:incidentId/clear-request`, `POST /v1/security/export/delivery-incidents/:incidentId/clear` ile operatör incident lifecycle’ını yönetebilir.
+- Yeni `operator-policy` control plane’i, incident acknowledge, clear-request ve clear approval adımlarını ayrı principal roster’larına bağlar; `roster_required` modunda explicit role listesi olmayan aksiyonlar fail-closed reddedilir.
 - Aynı tenant içindeki aynı destination tekrar tekrar terminal failure/dead-letter üretirse hedef otomatik quarantine durumuna girer; preview, sync delivery, async enqueue ve manual redrive akışları fail-closed bloke edilir.
 - Quarantine artık süre bitince sessizce kalkmaz; hedef operator acknowledgement + cooldown sonrası manual clear olmadan tekrar açılamaz.
 - Incident clear artık canlı canary delivery sonrası oluşturulan clear request ve ikinci operatör onayı gerektirir; request sahibi kendi talebini onaylayamaz.
+- Tenant operator roster açıldığında incident commander, recovery requester ve recovery approver rolleri ayrı ayrı yetkilendirilebilir; admin scope tek başına artık recovery zincirini bypass edemez.
 - Canary-backed clear request TTL ile sınırlandırılır; yeni failure veya stale policy durumu geldiğinde eski clear request geçersiz sayılır ve yeni canary gerekir.
 - Delivery target’ı `allowlist_only` modunda host+path eşleşmezse fail-closed bloke edilir; backward-compatible migration için `inherit_remote_policy` modu desteklenir.
 - Hedef hostname public DNS ile resolve edilir ve pinned address üzerinden bağlanılır; private/local/reserved ağlara egress fail-closed reddedilir.

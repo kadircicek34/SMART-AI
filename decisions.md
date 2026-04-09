@@ -1,5 +1,40 @@
 # DECISIONS — OpenRouter Agentic Intelligence API
 
+## 2026-04-09 — Tenant-scoped security export operator roster / RBAC control plane kararı
+### Problem
+Dünkü canary-backed clear request + four-eyes recovery akışı incident reopen riskini ciddi biçimde düşürdü; ancak production operasyonunda üç kritik boşluk kaldı:
+1. `tenant:admin` scope taşıyan herhangi bir admin, incident acknowledge, clear-request ve clear approval adımlarının tamamını başlatabiliyordu; görev ayrımı yoktu.
+2. Four-eyes modeli ikinci operatör gerektiriyordu ama bu ikinci operatörün hangi tenant içi role ait olduğu tanımlanmıyordu; least-privilege yerine geniş admin yüzeyi kalıyordu.
+3. Deployment seviyesinde ayrı incident commander / recovery requester / recovery approver roster'ı tanımlansa bile API'nin bunu zorunlu uygulayan ayrı bir control plane'i yoktu.
+
+### Seçenekler
+- A: Mevcut four-eyes modeli koruyup runbook/disiplin ile role ayrımını operasyona bırakmak
+- B: Sadece approval adımına tek bir allowlist ekleyip acknowledge ve clear-request akışını açık bırakmak
+- C: Tenant-scoped operator-policy control plane + action bazlı roster enforcement + audit telemetry paketini tek koşumda teslim etmek
+
+### Karar
+**C seçildi:**
+1. **Yeni özellik:** `GET/PUT/DELETE /v1/security/export/operator-policy` endpointleri eklendi. Tenant, incident operator policy'yi `open_admins` veya `roster_required` modunda yönetebiliyor; roster alanları `acknowledge`, `clear_request`, `clear_approve` olarak ayrıldı.
+2. **Ciddi güvenlik iyileştirmesi #1:** Delivery incident workflow artık acknowledge, clear-request ve clear approval aksiyonlarında action bazlı operator authorization çalıştırıyor. `roster_required` modunda explicit roster dışında kalan admin denemeleri fail-closed `403` ile reddediliyor.
+3. **Ciddi güvenlik iyileştirmesi #2:** Yetkisiz operator aksiyonları yeni audit event ile kaydediliyor (`security_export_operator_action_denied`), policy update/reset değişiklikleri ayrıca audit feed'e yazılıyor. Böylece denied recovery denemeleri görünür ve incelenebilir hale geldi.
+4. **Ciddi güvenlik iyileştirmesi #3:** Deployment default roster env'leri, principal üst sınırı ve validation katmanı eklendi. Backward-compatible geçiş için varsayılan mod `open_admins`; fakat deployment default roster env'leri doluysa effective posture otomatik `roster_required` oluyor.
+5. **DX / kalite iyileştirmesi:** Ayrı contract test dosyası, operator authorization unit testleri ve dokümantasyon/env örnekleri güncellendi; tenant operator RBAC değişikliği regression güveniyle teslim edildi.
+
+### Gerekçe
+- Four-eyes recovery modeli role separation olmadan hâlâ geniş admin yüzeyine dayanıyordu.
+- Incident commander, recovery requester ve recovery approver rollerini API seviyesinde ayırmak, operasyon disiplini yerine enforce edilen güvenlik kuralı üretir.
+- Backward-compatible default sayesinde mevcut deployment'lar kırılmadan ilerlerken, roster tanımlayan kurulumlar aynı gün daha sert posture'a geçebilir.
+
+### Etki
+- Tenant içindeki incident recovery zinciri artık action bazlı explicit operator roster ile kontrol edilebiliyor.
+- Ayrı rol atanmamış admin kullanıcılar recovery adımlarını by-pass edemiyor.
+- Audit feed denied operator aksiyonlarını ve policy mutasyonlarını kanıt olarak tutuyor.
+
+### Bilinçli Olarak Ertelenenler
+- Operator roster'ı external IdP/group sync ile besleme
+- Shared backend / multi-instance distributed operator policy store
+- Recovery approval için JIT approval token veya time-bound delegated approval modeli
+
 ## 2026-04-08 — Canary-backed incident clear request + four-eyes approval kararı
 ### Problem
 Dünkü incident ack/manual clear paketi quarantine hedeflerini fail-closed tuttu; ancak production operasyonunda üç kritik boşluk kaldı:

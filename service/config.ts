@@ -213,6 +213,9 @@ export const config = {
     securityExportDeliveryPolicyFile:
       process.env.SECURITY_EXPORT_DELIVERY_POLICY_FILE ??
       path.resolve(process.cwd(), '.data', 'security-export-delivery-policies.json'),
+    securityExportOperatorPolicyFile:
+      process.env.SECURITY_EXPORT_OPERATOR_POLICY_FILE ??
+      path.resolve(process.cwd(), '.data', 'security-export-operator-policies.json'),
     securityExportSigningStoreFile:
       process.env.SECURITY_EXPORT_SIGNING_STORE_FILE ??
       path.resolve(process.cwd(), '.data', 'security-export-signing-keys.json')
@@ -300,6 +303,16 @@ export const config = {
       | 'allowlist_only',
     exportDeliveryPolicyDefaultAllowedTargets: parseCsv(process.env.SECURITY_EXPORT_DELIVERY_POLICY_DEFAULT_ALLOWED_TARGETS),
     exportDeliveryPolicyMaxAllowedTargets: Number(process.env.SECURITY_EXPORT_DELIVERY_POLICY_MAX_ALLOWED_TARGETS ?? 32),
+    exportOperatorPolicyDefaultMode: ((process.env.SECURITY_EXPORT_OPERATOR_POLICY_DEFAULT_MODE ?? '').trim().toLowerCase() ||
+      (parseCsv(process.env.SECURITY_EXPORT_OPERATOR_POLICY_DEFAULT_ACKNOWLEDGERS).length > 0 ||
+      parseCsv(process.env.SECURITY_EXPORT_OPERATOR_POLICY_DEFAULT_CLEAR_REQUESTERS).length > 0 ||
+      parseCsv(process.env.SECURITY_EXPORT_OPERATOR_POLICY_DEFAULT_CLEAR_APPROVERS).length > 0
+        ? 'roster_required'
+        : 'open_admins')) as 'open_admins' | 'roster_required',
+    exportOperatorPolicyDefaultAcknowledgers: parseCsv(process.env.SECURITY_EXPORT_OPERATOR_POLICY_DEFAULT_ACKNOWLEDGERS),
+    exportOperatorPolicyDefaultClearRequesters: parseCsv(process.env.SECURITY_EXPORT_OPERATOR_POLICY_DEFAULT_CLEAR_REQUESTERS),
+    exportOperatorPolicyDefaultClearApprovers: parseCsv(process.env.SECURITY_EXPORT_OPERATOR_POLICY_DEFAULT_CLEAR_APPROVERS),
+    exportOperatorPolicyMaxPrincipalsPerRole: Number(process.env.SECURITY_EXPORT_OPERATOR_POLICY_MAX_PRINCIPALS_PER_ROLE ?? 32),
     exportSigningMaxVerifyKeys: Number(process.env.SECURITY_EXPORT_SIGNING_MAX_VERIFY_KEYS ?? 4),
     exportSigningAutoRotateEnabled: (process.env.SECURITY_EXPORT_SIGNING_AUTO_ROTATE_ENABLED ?? 'true').toLowerCase() === 'true',
     exportSigningRotateAfterHours: Number(process.env.SECURITY_EXPORT_SIGNING_ROTATE_AFTER_HOURS ?? 720),

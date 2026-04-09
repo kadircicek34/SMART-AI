@@ -1,4 +1,22 @@
-# SECURITY REPORT — SMART-AI v1.20
+# SECURITY REPORT — SMART-AI v1.21
+
+## 2026-04-09 Güvenlik sertleştirmesi — tenant-scoped operator roster / RBAC control plane
+
+### Bu koşumda kapatılan riskler
+1. **Geniş admin recovery yüzeyi daraltıldı:** Incident acknowledge, clear-request ve clear approval adımları artık action bazlı explicit roster ile kontrol edilebiliyor.
+2. **Least-privilege eksikliği kapatıldı:** Incident commander, recovery requester ve recovery approver rolleri tenant bazında ayrıldı; `roster_required` modunda ayrı rol atanmayan admin aksiyonları fail-closed reddediliyor.
+3. **Denied recovery denemeleri görünür oldu:** Yetkisiz operator aksiyonları `security_export_operator_action_denied` audit event'i ile kaydediliyor.
+4. **Unsafe config drift daraltıldı:** Deployment default roster env'leri, principal üst sınırı ve input validation ile yanlış/eksik operator policy girdileri persisted olmadan bloklanıyor.
+
+### Kontroller
+- Contract testler operator policy CRUD, validation, read-only deny ve incident workflow enforcement senaryolarını doğruladı.
+- Unit testler operator authorization karar mantığını (`open_admins`, `roster_required`, role match/mismatch) doğruladı.
+- `npm audit --omit=dev` sonucu: `0 vulnerability`.
+
+### Kalan riskler
+- Operator roster bugün principal-name listesi seviyesinde; external IdP/group sync ve merkezi directory entegrasyonu henüz yok.
+- Operator policy store hâlâ local file tabanlı; multi-instance shared backend ihtiyacı sürüyor.
+- Break-glass / JIT delegated approval modeli henüz yok.
 
 ## 2026-04-08 Güvenlik sertleştirmesi — canary-backed clear request + four-eyes incident reopen
 

@@ -40,6 +40,9 @@ before(async () => {
   process.env.APP_API_KEY_DEFINITIONS = JSON.stringify([
     { name: 'tenant-admin', key: 'test-admin-key', scopes: ['tenant:admin'] },
     { name: 'tenant-approver', key: 'test-approver-key', scopes: ['tenant:admin'] },
+    { name: 'incident-commander', key: 'test-incident-commander-key', scopes: ['tenant:admin'] },
+    { name: 'recovery-requester', key: 'test-recovery-requester-key', scopes: ['tenant:admin'] },
+    { name: 'recovery-approver', key: 'test-recovery-approver-key', scopes: ['tenant:admin'] },
     { name: 'tenant-read', key: 'test-read-key', scopes: ['tenant:read'] }
   ]);
   process.env.KEY_STORE_FILE = `/tmp/smart-ai-test-keys-security-export-deliveries-${process.pid}.json`;
@@ -48,7 +51,9 @@ before(async () => {
   process.env.RAG_REMOTE_POLICY_FILE = `/tmp/smart-ai-test-rag-remote-policy-security-export-deliveries-${process.pid}.json`;
   process.env.SECURITY_EXPORT_DELIVERY_STORE_FILE = `/tmp/smart-ai-test-security-export-deliveries-${process.pid}.json`;
   process.env.SECURITY_EXPORT_DELIVERY_POLICY_FILE = `/tmp/smart-ai-test-security-export-delivery-policy-${process.pid}.json`;
+  process.env.SECURITY_EXPORT_OPERATOR_POLICY_FILE = `/tmp/smart-ai-test-security-export-operator-policy-${process.pid}.json`;
   process.env.SECURITY_EXPORT_DELIVERY_POLICY_DEFAULT_MODE = 'disabled';
+  process.env.SECURITY_EXPORT_OPERATOR_POLICY_DEFAULT_MODE = 'open_admins';
   process.env.SECURITY_EXPORT_SIGNING_STORE_FILE = `/tmp/smart-ai-test-security-export-signing-deliveries-${process.pid}.json`;
   process.env.SECURITY_EXPORT_SIGNING_MAX_VERIFY_KEYS = '2';
   process.env.OPENROUTER_ALLOWED_MODELS = 'deepseek/deepseek-chat-v3.1,openai/gpt-4o-mini';
@@ -150,6 +155,31 @@ async function allowRemoteHost(tenantId: string, allowedHosts = ['siem.example.c
     payload: {
       mode: 'allowlist_only',
       allowedHosts
+    }
+  });
+
+  assert.equal(policyRes.statusCode, 200);
+}
+
+async function allowOperatorRoster(
+  tenantId: string,
+  roster = {
+    acknowledge: ['incident-commander'],
+    clear_request: ['recovery-requester'],
+    clear_approve: ['recovery-approver']
+  }
+) {
+  const policyRes = await app.inject({
+    method: 'PUT',
+    url: '/v1/security/export/operator-policy',
+    headers: {
+      authorization: 'Bearer test-admin-key',
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json'
+    },
+    payload: {
+      mode: 'roster_required',
+      roster
     }
   });
 
@@ -1055,6 +1085,186 @@ test('delivery incident clear now requires a fresh canary-backed clear request a
   assert.ok(ackEvents.data.some((event: any) => event.type === 'security_export_delivery_incident_acknowledged'));
   assert.ok(ackEvents.data.some((event: any) => event.type === 'security_export_delivery_incident_clear_requested'));
   assert.ok(ackEvents.data.some((event: any) => event.type === 'security_export_delivery_incident_cleared'));
+});
+
+test('delivery incident workflow enforces tenant operator roster for acknowledge, clear request and clear approval', async () => {
+  const tenantId = 'tenant-security-delivery-operator-roster';
+  const session = await createAdminSession(tenantId);
+  await allowDeliveryTarget(tenantId);
+  await allowOperatorRoster(tenantId);
+
+  deliveryPrivate.setTransportForTests(async () => ({
+    statusCode: 503,
+    bodyText: 'upstream unavailable',
+    bodyTruncated: false,
+    durationMs: 15,
+    contentType: 'text/plain'
+  }));
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/security/export/deliveries',
+      headers: {
+        authorization: `Bearer ${session.token}`,
+        'x-tenant-id': tenantId,
+        'content-type': 'application/json',
+        origin: 'https://dashboard.example.com'
+      },
+      payload: {
+        destinationUrl: 'https://siem.example.com/hooks/operator-roster',
+        mode: 'sync',
+        windowHours: 24,
+        limit: 50
+      }
+    });
+
+    assert.equal(res.statusCode, 502);
+  }
+
+  const incidentsRes = await app.inject({
+    method: 'GET',
+    url: '/v1/security/export/delivery-incidents?status=active&limit=5',
+    headers: {
+      authorization: 'Bearer test-admin-key',
+      'x-tenant-id': tenantId
+    }
+  });
+
+  assert.equal(incidentsRes.statusCode, 200);
+  const incident = incidentsRes.json().data[0];
+  const incidentId = incident.incident_id;
+
+  const ackDeniedRes = await app.inject({
+    method: 'POST',
+    url: `/v1/security/export/delivery-incidents/${incidentId}/acknowledge`,
+    headers: {
+      authorization: 'Bearer test-admin-key',
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      note: 'Tenant admin is not on the incident commander roster.',
+      revision: incident.revision
+    }
+  });
+
+  assert.equal(ackDeniedRes.statusCode, 403);
+  assert.equal(ackDeniedRes.json().error.type, 'permission_error');
+
+  const ackAllowedRes = await app.inject({
+    method: 'POST',
+    url: `/v1/security/export/delivery-incidents/${incidentId}/acknowledge`,
+    headers: {
+      authorization: 'Bearer test-incident-commander-key',
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      note: 'Incident commander accepted ownership and started destination triage.',
+      revision: incident.revision
+    }
+  });
+
+  assert.equal(ackAllowedRes.statusCode, 200);
+  const acknowledged = ackAllowedRes.json().data;
+  assert.equal(acknowledged.acknowledged_by, 'incident-commander');
+
+  Date.now = () => originalDateNow() + 61 * 60 * 1000;
+  deliveryPrivate.setTransportForTests(async () => ({
+    statusCode: 202,
+    bodyText: 'accepted',
+    bodyTruncated: false,
+    durationMs: 10,
+    contentType: 'text/plain'
+  }));
+
+  const clearRequestDeniedRes = await app.inject({
+    method: 'POST',
+    url: `/v1/security/export/delivery-incidents/${incidentId}/clear-request`,
+    headers: {
+      authorization: 'Bearer test-incident-commander-key',
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      note: 'Commander should not be able to request reopening without recovery role.',
+      revision: acknowledged.revision
+    }
+  });
+
+  assert.equal(clearRequestDeniedRes.statusCode, 403);
+
+  const clearRequestAllowedRes = await app.inject({
+    method: 'POST',
+    url: `/v1/security/export/delivery-incidents/${incidentId}/clear-request`,
+    headers: {
+      authorization: 'Bearer test-recovery-requester-key',
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      note: 'Recovery operator verified live canary delivery and requests reopen approval.',
+      revision: acknowledged.revision
+    }
+  });
+
+  assert.equal(clearRequestAllowedRes.statusCode, 200);
+  const clearRequested = clearRequestAllowedRes.json().data;
+  assert.equal(clearRequested.clear_request.requested_by, 'recovery-requester');
+
+  const clearDeniedRes = await app.inject({
+    method: 'POST',
+    url: `/v1/security/export/delivery-incidents/${incidentId}/clear`,
+    headers: {
+      authorization: 'Bearer test-incident-commander-key',
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      note: 'Commander is not authorized to approve reopen.',
+      revision: clearRequested.revision
+    }
+  });
+
+  assert.equal(clearDeniedRes.statusCode, 403);
+
+  const clearAllowedRes = await app.inject({
+    method: 'POST',
+    url: `/v1/security/export/delivery-incidents/${incidentId}/clear`,
+    headers: {
+      authorization: 'Bearer test-recovery-approver-key',
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      note: 'Recovery approver reviewed canary evidence and approves reopening.',
+      revision: clearRequested.revision
+    }
+  });
+
+  assert.equal(clearAllowedRes.statusCode, 200);
+  assert.equal(clearAllowedRes.json().data.cleared_by, 'recovery-approver');
+
+  const eventsRes = await app.inject({
+    method: 'GET',
+    url: '/v1/security/events?limit=30',
+    headers: {
+      authorization: 'Bearer test-admin-key',
+      'x-tenant-id': tenantId
+    }
+  });
+
+  assert.equal(eventsRes.statusCode, 200);
+  const events = eventsRes.json();
+  assert.ok(events.data.some((event: any) => event.type === 'security_export_operator_action_denied'));
+  assert.ok(events.data.some((event: any) => event.type === 'security_export_delivery_incident_cleared'));
 });
 
 test('delivery incident clear requests expire and force a new canary before second-operator clear', async () => {

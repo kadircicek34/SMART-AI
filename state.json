@@ -1,20 +1,25 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "Canary-backed incident clear request + four-eyes approval workflow production-grade olarak teslim edildi",
+  "current_task": "Tenant-scoped security export operator roster / RBAC control plane production-grade olarak teslim edildi",
   "next_actions": [
-    "Incident/quarantine state'ini queue/session/audit ile birlikte gerçek shared backend'e taşı",
-    "Four-eyes clear approval için tenant içi approver RBAC ve ayrı operator roster ekle",
-    "Clear sonrası staged reopen/canary ramp-up policy'si ekle",
+    "Operator roster'ı external IdP/group sync ile besle",
+    "Operator policy ve incident state'i gerçek shared backend'e taşı",
+    "Recovery approval için break-glass / JIT delegated approval modeli ekle",
     "Export delivery için merkezi egress proxy / VPC-level outbound enforcement tasarla ve uygula"
   ],
   "risks": [
-    "Delivery incident/quarantine state hâlâ local delivery store'dan türetiliyor; multi-instance HA için shared incident backend gerekecek",
-    "Four-eyes onayı bugün principal-name seviyesinde uygulanıyor; tenant içi ayrı operator/role directory henüz yok",
-    "Delivery queue/audit/policy/session/signing persistence hâlâ local file tabanlı; multi-instance HA için shared backend gerekecek",
+    "Operator roster bugün principal-name listesi seviyesinde; external IdP/group directory entegrasyonu henüz yok",
+    "Operator policy, incident, queue, audit ve session persistence hâlâ local file tabanlı; multi-instance HA için shared backend gerekecek",
+    "Break-glass / JIT delegated approval akışı henüz uygulanmadı",
     "Export delivery için merkezi egress proxy / VPC-level outbound control henüz yok"
   ],
   "decisions": [
+    {
+      "date": "2026-04-09",
+      "decision": "Security export delivery incident akışına tenant-scoped operator roster / RBAC control plane ekle",
+      "reason": "Acknowledge, clear-request ve clear approval adımlarını ayrı operator rollerine bağlayıp geniş tenant admin yüzeyini least-privilege fail-closed posture'a indirmek"
+    },
     {
       "date": "2026-04-08",
       "decision": "Delivery incident reopen akışını canlı canary-backed clear request + four-eyes approval modeline yükselt",
@@ -74,9 +79,10 @@
     "service/config.ts",
     "service/api/routes/security-events.ts",
     "service/security/audit-log.ts",
-    "service/security/export-delivery.ts",
-    "service/web/assets/dashboard.js",
-    "service/tests/contract/security-export-deliveries.test.ts"
+    "service/security/export-operator-policy.ts",
+    "service/tests/contract/security-export-deliveries.test.ts",
+    "service/tests/contract/security-export-operator-policy.test.ts",
+    "service/tests/security/export-operator-policy.test.ts"
   ],
-  "updated_at": "2026-04-08T07:00:00+03:00"
+  "updated_at": "2026-04-09T07:00:00+03:00"
 }
