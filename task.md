@@ -1,5 +1,15 @@
 # TASKS — OpenRouter Agentic Intelligence API
 
+## v1.22 Delta (Tenant-scoped Break-glass / JIT Delegated Approval) — Tamamlandı
+- [x] Yeni özellik: `POST /v1/security/export/operator-delegations`, `GET /v1/security/export/operator-delegations`, `POST /v1/security/export/operator-delegations/:grantId/revoke` endpointleri eklendi
+- [x] Güvenlik: incident authorize zinciri roster yetkisi yoksa yalnızca eşleşen aktif delegation grant ile ilerliyor
+- [x] Güvenlik: delegation grant'leri tenant + incident + action + delegated operator + TTL scope'u ile daraltıldı
+- [x] Güvenlik: self-delegation reject, inactive incident için fail-closed `404` ve tek kullanımlık consume modeli eklendi
+- [x] Audit telemetry: `security_export_operator_delegation_issued|consumed|revoked` ve `security_export_break_glass_activity` event tipleri eklendi
+- [x] Dashboard incidents paneline delegation görünürlüğü ve revoke aksiyonları eklendi
+- [x] Contract + unit testleri: delegation lifecycle, revoke, expiry, self-delegation ve authorization consume regresyonları yazıldı
+- [x] Fresh verification: typecheck + focused tests + full test + audit + smoke + delivery-gate akışı tamamlandı
+
 ## v1.20 Delta (Canary-backed Clear Request + Four-Eyes Incident Reopen) — Tamamlandı
 - [x] Yeni özellik: `POST /v1/security/export/delivery-incidents/:incidentId/clear-request` endpointi ve dashboard aksiyonu eklendi
 - [x] Güvenlik: incident clear artık pending clear request + ikinci operatör onayı olmadan çalışmıyor

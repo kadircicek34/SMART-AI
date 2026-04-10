@@ -24,6 +24,7 @@ import {
   SecurityExportDeliveryIncidentError,
   deliverSecurityAuditExport,
   getSecurityExportDeliveryAnalytics,
+  getSecurityExportDeliveryIncident,
   enqueueSecurityAuditExportDelivery,
   listSecurityExportDeliveryIncidents,
   listSecurityExportDeliveries,
@@ -44,6 +45,15 @@ import {
   type EffectiveSecurityExportOperatorPolicy,
   type SecurityExportOperatorAction
 } from '../../security/export-operator-policy.js';
+import {
+  createSecurityExportOperatorDelegation,
+  consumeSecurityExportOperatorDelegation,
+  findActiveSecurityExportOperatorDelegation,
+  listSecurityExportOperatorDelegations,
+  revokeSecurityExportOperatorDelegation,
+  type SecurityExportOperatorDelegation,
+  type SecurityExportOperatorDelegationStatus
+} from '../../security/export-operator-delegation.js';
 
 const CHAIN_HASH_REGEX = /^[a-f0-9]{64}$/;
 const IDEMPOTENCY_KEY_ALLOWED = /^[A-Za-z0-9._:-]+$/;
@@ -196,6 +206,47 @@ const OPERATOR_POLICY_BODY_SCHEMA = z.object({
     clear_request: z.array(z.string().min(1)).max(128).optional().default([]),
     clear_approve: z.array(z.string().min(1)).max(128).optional().default([])
   })
+});
+
+const OPERATOR_DELEGATION_LIST_QUERY_SCHEMA = z.object({
+  limit: z
+    .union([z.string(), z.number()])
+    .optional()
+    .transform((value) => {
+      if (value === undefined) return 20;
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return 20;
+      return parsed;
+    })
+    .refine((value) => value >= 1 && value <= 100, { message: 'limit must be between 1 and 100' }),
+  status: z.enum(['active', 'consumed', 'revoked', 'expired']).optional()
+});
+
+const OPERATOR_DELEGATION_PARAMS_SCHEMA = z.object({
+  grantId: z.string().uuid()
+});
+
+const OPERATOR_DELEGATION_BODY_SCHEMA = z.object({
+  incidentId: z.string().uuid(),
+  action: z.enum(['acknowledge', 'clear_request', 'clear_approve']),
+  delegatePrincipal: z.string().trim().min(1).max(128),
+  justification: z.string().trim().min(8).max(280),
+  ttlMinutes: z
+    .union([z.string(), z.number()])
+    .optional()
+    .transform((value) => {
+      if (value === undefined) return config.security.exportOperatorDelegationDefaultTtlMinutes;
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return config.security.exportOperatorDelegationDefaultTtlMinutes;
+      return parsed;
+    })
+    .refine((value) => value >= 1 && value <= config.security.exportOperatorDelegationMaxTtlMinutes, {
+      message: `ttlMinutes must be between 1 and ${config.security.exportOperatorDelegationMaxTtlMinutes}`
+    })
+});
+
+const OPERATOR_DELEGATION_REVOKE_BODY_SCHEMA = z.object({
+  reason: z.string().trim().min(8).max(280)
 });
 
 const DELIVERY_PREVIEW_BODY_SCHEMA = z.object({
@@ -381,7 +432,25 @@ async function authorizeSecurityExportOperatorAction(options: {
     return {
       allowed: true as const,
       actor,
-      decision
+      decision,
+      authorizationMode: 'operator_policy' as const,
+      delegationGrant: null as SecurityExportOperatorDelegation | null
+    };
+  }
+
+  const delegationGrant = await findActiveSecurityExportOperatorDelegation({
+    tenantId: options.tenantId,
+    incidentId: options.incidentId,
+    action: options.action,
+    delegatePrincipal: actor
+  });
+  if (delegationGrant) {
+    return {
+      allowed: true as const,
+      actor,
+      decision,
+      authorizationMode: 'delegated_grant' as const,
+      delegationGrant
     };
   }
 
@@ -399,6 +468,8 @@ async function authorizeSecurityExportOperatorAction(options: {
     allowed: false as const,
     actor,
     decision,
+    authorizationMode: 'denied' as const,
+    delegationGrant: null as SecurityExportOperatorDelegation | null,
     payload: permissionError(
       `Principal ${actor || 'unknown'} is not authorized to ${options.action.replaceAll('_', ' ')} security export delivery incidents under the current operator policy.`,
       {
@@ -410,6 +481,76 @@ async function authorizeSecurityExportOperatorAction(options: {
       }
     )
   };
+}
+
+async function authorizeSecurityExportOperatorDelegationWrite(options: {
+  tenantId: string;
+  req: { ip: string; url: string; requestContext?: { authPrincipalName?: string; requestId?: string } };
+  incidentId: string;
+}) {
+  const actor = options.req.requestContext?.authPrincipalName ?? 'unknown';
+  const decision = await evaluateSecurityExportOperatorAuthorization({
+    tenantId: options.tenantId,
+    action: 'clear_approve',
+    principalName: actor
+  });
+
+  if (decision.allowed) {
+    return {
+      allowed: true as const,
+      actor,
+      decision
+    };
+  }
+
+  recordSecurityExportOperatorActionDenied({
+    tenantId: options.tenantId,
+    req: options.req,
+    action: 'clear_approve',
+    actor,
+    incidentId: options.incidentId,
+    mode: decision.policy.mode,
+    reason: decision.reason
+  });
+
+  return {
+    allowed: false as const,
+    actor,
+    decision,
+    payload: permissionError(
+      `Principal ${actor || 'unknown'} is not authorized to manage break-glass operator delegations under the current operator policy.`,
+      {
+        operator_policy: toSecurityExportOperatorPolicyPayload(decision.policy),
+        action: 'clear_approve',
+        actor,
+        reason: decision.reason,
+        incident_id: options.incidentId
+      }
+    )
+  };
+}
+
+async function consumeSecurityExportOperatorDelegationIfNeeded(options: {
+  tenantId: string;
+  incidentId: string;
+  action: SecurityExportOperatorAction;
+  actor: string;
+  authorization: {
+    authorizationMode: 'operator_policy' | 'delegated_grant' | 'denied';
+    delegationGrant: SecurityExportOperatorDelegation | null;
+  };
+}) {
+  if (options.authorization.authorizationMode !== 'delegated_grant' || !options.authorization.delegationGrant) {
+    return { ok: true as const, grant: null as SecurityExportOperatorDelegation | null };
+  }
+
+  return consumeSecurityExportOperatorDelegation({
+    tenantId: options.tenantId,
+    grantId: options.authorization.delegationGrant.grant_id,
+    incidentId: options.incidentId,
+    action: options.action,
+    actor: options.actor
+  });
 }
 
 function verifyExportBundleForTenant(bundle: SecurityAuditExportBundle, tenantId: string) {
@@ -460,6 +601,27 @@ function toSecurityExportOperatorPolicyPayload(policy: EffectiveSecurityExportOp
     deployment_default_mode: policy.deploymentDefaultMode,
     deployment_default_roster: policy.deploymentDefaultRoster,
     updated_at: policy.updatedAt
+  };
+}
+
+function toSecurityExportOperatorDelegationPayload(grant: SecurityExportOperatorDelegation) {
+  return {
+    object: 'security_export.operator_delegation',
+    tenant_id: grant.tenant_id,
+    grant_id: grant.grant_id,
+    incident_id: grant.incident_id,
+    action: grant.action,
+    delegate_principal: grant.delegate_principal,
+    issued_by: grant.issued_by,
+    issued_at: grant.issued_at,
+    expires_at: grant.expires_at,
+    justification: grant.justification,
+    status: grant.status,
+    consumed_at: grant.consumed_at,
+    consumed_by: grant.consumed_by,
+    revoked_at: grant.revoked_at,
+    revoked_by: grant.revoked_by,
+    revoke_reason: grant.revoke_reason
   };
 }
 
@@ -520,6 +682,36 @@ function recordSecurityExportOperatorActionDenied(params: {
       incident_id: params.incidentId,
       policy_mode: params.mode,
       reason: params.reason
+    }
+  });
+}
+
+function recordSecurityExportOperatorDelegationAudit(params: {
+  tenantId: string;
+  req: { ip: string; url: string; requestContext?: { requestId?: string } };
+  type:
+    | 'security_export_operator_delegation_issued'
+    | 'security_export_operator_delegation_consumed'
+    | 'security_export_operator_delegation_revoked';
+  grant: SecurityExportOperatorDelegation;
+}) {
+  securityAuditLog.record({
+    tenant_id: params.tenantId,
+    type: params.type,
+    ip: params.req.ip,
+    request_id: params.req.requestContext?.requestId,
+    details: {
+      path: params.req.url,
+      grant_id: params.grant.grant_id,
+      incident_id: params.grant.incident_id,
+      action: params.grant.action,
+      delegate_principal: params.grant.delegate_principal,
+      issued_by: params.grant.issued_by,
+      issued_at: params.grant.issued_at,
+      expires_at: params.grant.expires_at,
+      status: params.grant.status,
+      consumed_by: params.grant.consumed_by,
+      revoked_by: params.grant.revoked_by
     }
   });
 }
@@ -939,6 +1131,143 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
     };
   });
 
+  app.get('/v1/security/export/operator-delegations', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    const parsed = OPERATOR_DELEGATION_LIST_QUERY_SCHEMA.safeParse(req.query);
+    if (!parsed.success) {
+      return reply.status(400).send(invalidRequest('Invalid query for security export operator delegations.', parsed.error.flatten()));
+    }
+
+    const delegations = await listSecurityExportOperatorDelegations(tenantId, {
+      limit: parsed.data.limit,
+      status: parsed.data.status as SecurityExportOperatorDelegationStatus | undefined
+    });
+
+    return {
+      object: 'list',
+      tenant_id: tenantId,
+      data: delegations.map((grant) => toSecurityExportOperatorDelegationPayload(grant))
+    };
+  });
+
+  app.post('/v1/security/export/operator-delegations', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    const parsed = OPERATOR_DELEGATION_BODY_SCHEMA.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return reply.status(400).send(invalidRequest('Invalid payload for security export operator delegation.', parsed.error.flatten()));
+    }
+
+    const incident = getSecurityExportDeliveryIncident(tenantId, parsed.data.incidentId);
+    if (!incident || incident.status !== 'active') {
+      return reply.status(404).send(
+        invalidRequest('Security export delivery incident not found or no longer active for delegation.', {
+          incident_id: parsed.data.incidentId
+        })
+      );
+    }
+
+    const authorization = await authorizeSecurityExportOperatorDelegationWrite({
+      tenantId,
+      req,
+      incidentId: parsed.data.incidentId
+    });
+    if (!authorization.allowed) {
+      return reply.status(403).send(authorization.payload);
+    }
+
+    const result = await createSecurityExportOperatorDelegation({
+      tenantId,
+      incidentId: parsed.data.incidentId,
+      action: parsed.data.action,
+      delegatePrincipal: parsed.data.delegatePrincipal,
+      actor: authorization.actor,
+      justification: parsed.data.justification,
+      ttlMinutes: parsed.data.ttlMinutes
+    });
+
+    if (!result.ok) {
+      const details = {
+        code: result.code,
+        incident_id: parsed.data.incidentId,
+        action: parsed.data.action,
+        delegate_principal: parsed.data.delegatePrincipal
+      };
+      return reply.status(result.statusCode).send(result.statusCode === 400 ? invalidRequest(result.reason, details) : apiError(result.reason, details));
+    }
+
+    recordSecurityExportOperatorDelegationAudit({
+      tenantId,
+      req,
+      type: 'security_export_operator_delegation_issued',
+      grant: result.grant
+    });
+
+    return {
+      object: 'security_export_operator_delegation',
+      tenant_id: tenantId,
+      data: toSecurityExportOperatorDelegationPayload(result.grant)
+    };
+  });
+
+  app.post('/v1/security/export/operator-delegations/:grantId/revoke', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    const params = OPERATOR_DELEGATION_PARAMS_SCHEMA.safeParse(req.params ?? {});
+    if (!params.success) {
+      return reply.status(400).send(invalidRequest('Invalid operator delegation id.', params.error.flatten()));
+    }
+
+    const parsed = OPERATOR_DELEGATION_REVOKE_BODY_SCHEMA.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return reply.status(400).send(invalidRequest('Invalid payload for operator delegation revoke.', parsed.error.flatten()));
+    }
+
+    const delegations = await listSecurityExportOperatorDelegations(tenantId, { limit: 200 });
+    const existing = delegations.find((grant) => grant.grant_id === params.data.grantId) ?? null;
+    const authorization = await authorizeSecurityExportOperatorDelegationWrite({
+      tenantId,
+      req,
+      incidentId: existing?.incident_id ?? '00000000-0000-4000-8000-000000000000'
+    });
+    if (!authorization.allowed) {
+      return reply.status(403).send(authorization.payload);
+    }
+
+    const result = await revokeSecurityExportOperatorDelegation({
+      tenantId,
+      grantId: params.data.grantId,
+      actor: authorization.actor,
+      reason: parsed.data.reason
+    });
+    if (!result.ok) {
+      return reply.status(result.statusCode).send(apiError(result.reason, { code: result.code, grant_id: params.data.grantId }));
+    }
+
+    recordSecurityExportOperatorDelegationAudit({
+      tenantId,
+      req,
+      type: 'security_export_operator_delegation_revoked',
+      grant: result.grant
+    });
+
+    return {
+      object: 'security_export_operator_delegation',
+      tenant_id: tenantId,
+      data: toSecurityExportOperatorDelegationPayload(result.grant)
+    };
+  });
+
   app.get('/v1/security/export', async (req, reply) => {
     const tenantId = req.requestContext?.tenantId;
     if (!tenantId) {
@@ -1216,6 +1545,25 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
         expectedRevision: parsed.data.revision
       });
 
+      const consumed = await consumeSecurityExportOperatorDelegationIfNeeded({
+        tenantId,
+        incidentId: params.data.incidentId,
+        action: 'acknowledge',
+        actor: authorization.actor,
+        authorization
+      });
+      if (!consumed.ok) {
+        return reply.status(consumed.statusCode).send(apiError(consumed.reason, { code: consumed.code, incident }));
+      }
+      if (consumed.grant) {
+        recordSecurityExportOperatorDelegationAudit({
+          tenantId,
+          req,
+          type: 'security_export_operator_delegation_consumed',
+          grant: consumed.grant
+        });
+      }
+
       return {
         object: 'security_export_delivery_incident',
         tenant_id: tenantId,
@@ -1273,6 +1621,25 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
         expectedRevision: parsed.data.revision,
         requestId: req.requestContext?.requestId
       });
+
+      const consumed = await consumeSecurityExportOperatorDelegationIfNeeded({
+        tenantId,
+        incidentId: params.data.incidentId,
+        action: 'clear_request',
+        actor: authorization.actor,
+        authorization
+      });
+      if (!consumed.ok) {
+        return reply.status(consumed.statusCode).send(apiError(consumed.reason, { code: consumed.code, incident }));
+      }
+      if (consumed.grant) {
+        recordSecurityExportOperatorDelegationAudit({
+          tenantId,
+          req,
+          type: 'security_export_operator_delegation_consumed',
+          grant: consumed.grant
+        });
+      }
 
       return {
         object: 'security_export_delivery_incident',
@@ -1339,6 +1706,25 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
         note: parsed.data.note,
         expectedRevision: parsed.data.revision
       });
+
+      const consumed = await consumeSecurityExportOperatorDelegationIfNeeded({
+        tenantId,
+        incidentId: params.data.incidentId,
+        action: 'clear_approve',
+        actor: authorization.actor,
+        authorization
+      });
+      if (!consumed.ok) {
+        return reply.status(consumed.statusCode).send(apiError(consumed.reason, { code: consumed.code, incident }));
+      }
+      if (consumed.grant) {
+        recordSecurityExportOperatorDelegationAudit({
+          tenantId,
+          req,
+          type: 'security_export_operator_delegation_consumed',
+          grant: consumed.grant
+        });
+      }
 
       return {
         object: 'security_export_delivery_incident',

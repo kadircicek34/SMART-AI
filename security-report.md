@@ -1,4 +1,23 @@
-# SECURITY REPORT — SMART-AI v1.21
+# SECURITY REPORT — SMART-AI v1.22
+
+## 2026-04-10 Güvenlik sertleştirmesi — tenant-scoped break-glass / JIT delegated approval
+
+### Bu koşumda kapatılan riskler
+1. **Roster deadlock riski daraltıldı:** `roster_required` posture'u korunurken incident/action scoped geçici delegation ile kontrollü acil durum istisnası eklendi.
+2. **Kalıcı yetki genişlemesi riski kapatıldı:** Delegation grant'leri TTL, tenant, incident, action ve delegated operator ile daraltıldı; başarılı kullanımda tek kullanımlık consume edilerek replay penceresi kapatıldı.
+3. **Unsafe delegation issuance kapatıldı:** Self-delegation reddediliyor; aktif olmayan ya da bulunmayan incident için delegation create fail-closed `404` dönüyor.
+4. **Break-glass audit körlüğü kapatıldı:** Delegation issue/consume/revoke ve break-glass activity olayları ayrı audit event tipleriyle kaydediliyor.
+
+### Kontroller
+- Contract testler delegation create/list/revoke ve inactive-incident fail-closed davranışını doğruladı.
+- Unit testler delegation lifecycle, expiry, tek kullanımlık consume ve self-delegation reject senaryolarını doğruladı.
+- Dashboard smoke doğrulaması delegation görünürlüğünün canlı UI yüzeyinde yer aldığını kanıtladı.
+- `npm audit --omit=dev` sonucu: `0 vulnerability`.
+
+### Kalan riskler
+- Delegation ve operator roster bugün principal-name listesi seviyesinde; external IdP/group sync henüz yok.
+- Delegation, incident ve operator policy store hâlâ local file tabanlı; multi-instance shared backend ihtiyacı sürüyor.
+- Delegation issuance bugün tek admin aksiyonu ile yapılıyor; ikinci approver veya step-up approval modeli henüz yok.
 
 ## 2026-04-09 Güvenlik sertleştirmesi — tenant-scoped operator roster / RBAC control plane
 

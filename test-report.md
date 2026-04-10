@@ -1,4 +1,25 @@
-# TEST REPORT — SMART-AI v1.21 (Tenant-scoped Operator Roster RBAC)
+# TEST REPORT — SMART-AI v1.22 (Tenant-scoped Break-glass / JIT Delegated Approval)
+
+## 2026-04-10 doğrulama özeti — tenant-scoped break-glass / JIT delegated approval
+
+### Çalıştırılan komutlar
+1. `npm run typecheck` → PASS
+2. `npx tsx --test tests/contract/security-export-operator-delegations.test.ts tests/security/export-operator-delegation.test.ts` → PASS (**4/4**)
+3. `npm test` → PASS (**201/201**)
+4. `npm audit --omit=dev` → PASS (0 vulnerability)
+5. `PORT=3210 APP_API_KEYS=smoke-admin-key node_modules/.bin/tsx api/server.ts` + `curl /health` + `GET /v1/security/export/operator-delegations` + `GET /ui/dashboard` smoke → PASS (`{"health":true,"delegationCount":0,"dashboardHasDelegations":true}`)
+6. `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` → PASS
+
+### Yeni regresyon kanıtı
+- `POST /v1/security/export/operator-delegations` active incident yoksa fail-closed `404` dönüyor ve invalid payload path'i doğru `400 invalid_request_error` yüzeyiyle ayrılıyor.
+- Tenant admin, incident/action scoped delegation grant issue edebiliyor; grant listesi `GET /v1/security/export/operator-delegations` ile status/TTL metadata'sı birlikte dönüyor.
+- `POST /v1/security/export/operator-delegations/:grantId/revoke` revoke edilmiş grant'i tekrar kullanılamaz hale getiriyor ve revoke audit izi bırakıyor.
+- Unit testler delegation create/find/consume/revoke akışını, self-delegation reject davranışını, expiry ve tek kullanımlık consume semantiğini doğruluyor.
+- Dashboard `/ui/dashboard` delegation tablosu ve aksiyonları yeni API kontratıyla hizalı biçimde render ediliyor.
+
+### Fresh verification notu
+- Delegation control plane, incident authorization zincirine bağlı tek kullanımlık consume modeliyle birlikte doğrulandı.
+- Tam regresyon paketi ve delivery gate yeni break-glass güvenlik yüzeyi ile tekrar yeşil geçti.
 
 ## 2026-04-09 doğrulama özeti — tenant-scoped operator roster / RBAC control plane
 

@@ -107,6 +107,13 @@ function setAdminControlsEnabled(enabled) {
     'securityDeliveryLimit',
     'previewSecurityDelivery',
     'deliverSecurityExport',
+    'issueSecurityDelegation',
+    'refreshSecurityDelegations',
+    'securityDelegationIncidentId',
+    'securityDelegationAction',
+    'securityDelegationDelegatePrincipal',
+    'securityDelegationTtlMinutes',
+    'securityDelegationJustification',
     'saveSecuritySigningPolicy',
     'rotateSecuritySigningKey',
     'previewSecuritySigningMaintenance',
@@ -425,6 +432,48 @@ function renderSecurityDeliveryIncidentsTable(destinations = []) {
       <td>${escapeHtml(clearAfter)}</td>
       <td>${escapeHtml(entry?.latest_completed_at ? new Date(entry.latest_completed_at).toLocaleString('tr-TR') : '—')}</td>
       <td>${actions}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+}
+
+function renderSecurityDelegationsTable(grants = []) {
+  const tbody = document.getElementById('securityDelegationsTableBody');
+  tbody.innerHTML = '';
+
+  if (!grants.length) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="6">Aktif veya geçmiş delegation grant yok</td>';
+    tbody.appendChild(tr);
+    return;
+  }
+
+  for (const grant of grants) {
+    const tr = document.createElement('tr');
+    const expiresAtMs = Date.parse(grant.expires_at ?? '');
+    const expiresLabel = Number.isFinite(expiresAtMs) ? new Date(expiresAtMs).toLocaleString('tr-TR') : '—';
+    const statusBits = [grant.status ?? 'unknown'];
+    if ((grant.status ?? '') === 'active' && Number.isFinite(expiresAtMs) && expiresAtMs <= Date.now()) {
+      statusBits.push('expired-local');
+    }
+    if (grant.consumed_by) {
+      statusBits.push(`used:${grant.consumed_by}`);
+    }
+    if (grant.revoked_by) {
+      statusBits.push(`revoked:${grant.revoked_by}`);
+    }
+    const note = grant.revoke_reason ?? grant.justification ?? '—';
+    const actionHtml =
+      grant.status === 'active'
+        ? `<button class="secondary compact revoke-security-delegation-btn" data-grant-id="${escapeHtml(grant.grant_id)}">Revoke</button>`
+        : '<span class="muted">—</span>';
+    tr.innerHTML = `
+      <td>${escapeHtml(String(grant.grant_id ?? '').slice(0, 8))}…</td>
+      <td>${escapeHtml(grant.incident_id ? `${grant.incident_id.slice(0, 8)}…` : '—')}<br /><span class="muted">${escapeHtml(grant.action ?? '—')}</span></td>
+      <td>${escapeHtml(grant.delegate_principal ?? '—')}</td>
+      <td>${escapeHtml(grant.issued_by ?? '—')}<br /><span class="muted">${escapeHtml(new Date(grant.issued_at ?? Date.now()).toLocaleString('tr-TR'))}</span></td>
+      <td>${escapeHtml(expiresLabel)}<br /><span class="muted">${escapeHtml(statusBits.join(' | '))}</span></td>
+      <td>${escapeHtml(String(note).slice(0, 160))}<br />${actionHtml}</td>
     `;
     tbody.appendChild(tr);
   }
@@ -950,6 +999,77 @@ async function loadSecurityDeliveryAnalytics(settings) {
   return analytics;
 }
 
+async function loadSecurityDelegations(settings) {
+  await maybeRefreshSession(settings);
+
+  const response = await safeFetchJson(`${settings.baseUrl}/v1/security/export/operator-delegations?limit=20`, {
+    headers: authHeaders(settings)
+  });
+
+  const grants = Array.isArray(response?.data) ? response.data : [];
+  const counts = grants.reduce(
+    (acc, grant) => {
+      const status = grant?.status ?? 'unknown';
+      acc[status] = (acc[status] ?? 0) + 1;
+      return acc;
+    },
+    { active: 0, consumed: 0, revoked: 0, expired: 0 }
+  );
+  document.getElementById('securityDelegationSummary').textContent =
+    `active=${counts.active ?? 0}, consumed=${counts.consumed ?? 0}, revoked=${counts.revoked ?? 0}, expired=${counts.expired ?? 0}. ` +
+    'Break-glass grantler tek incident + tek action + TTL bazlı ve başarılı kullanımda tek seferlik consume edilir.';
+  renderSecurityDelegationsTable(grants);
+  return grants;
+}
+
+async function issueSecurityDelegation(settings) {
+  await maybeRefreshSession(settings);
+
+  const payload = {
+    incidentId: document.getElementById('securityDelegationIncidentId').value.trim(),
+    action: document.getElementById('securityDelegationAction').value,
+    delegatePrincipal: document.getElementById('securityDelegationDelegatePrincipal').value.trim(),
+    ttlMinutes: parsePositiveInteger(document.getElementById('securityDelegationTtlMinutes').value, 30, { min: 1, max: 1440 }),
+    justification: document.getElementById('securityDelegationJustification').value.trim()
+  };
+
+  const response = await safeFetchJson(`${settings.baseUrl}/v1/security/export/operator-delegations`, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(settings),
+      origin: window.location.origin
+    },
+    body: JSON.stringify(payload)
+  });
+
+  const grant = response?.data ?? {};
+  log(
+    `Security delegation issued. grant=${String(grant.grant_id ?? '').slice(0, 8)}…, incident=${String(grant.incident_id ?? '').slice(0, 8)}…, action=${grant.action ?? 'unknown'}, delegate=${grant.delegate_principal ?? 'unknown'}`
+  );
+  await loadSecurityDelegations(settings);
+  return response;
+}
+
+async function revokeSecurityDelegation(settings, grantId, reason) {
+  await maybeRefreshSession(settings);
+
+  const response = await safeFetchJson(`${settings.baseUrl}/v1/security/export/operator-delegations/${encodeURIComponent(grantId)}/revoke`, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(settings),
+      origin: window.location.origin
+    },
+    body: JSON.stringify({ reason })
+  });
+
+  const grant = response?.data ?? {};
+  log(
+    `Security delegation revoked. grant=${String(grant.grant_id ?? grantId).slice(0, 8)}…, delegate=${grant.delegate_principal ?? 'unknown'}, incident=${String(grant.incident_id ?? '').slice(0, 8)}…`
+  );
+  await loadSecurityDelegations(settings);
+  return response;
+}
+
 async function redriveSecurityDelivery(settings, deliveryId) {
   await maybeRefreshSession(settings);
 
@@ -1145,6 +1265,7 @@ async function loadDashboard(settings) {
     await loadSecuritySigningKeys(settings);
     await loadSecurityDeliveries(settings);
     await loadSecurityDeliveryAnalytics(settings);
+    await loadSecurityDelegations(settings);
     await loadUiSessions(settings);
   }
   log('Dashboard güncellendi.');
@@ -1217,12 +1338,14 @@ async function signOut(settings) {
     document.getElementById('securityDeliveryPreviewSummary').textContent = 'Önizleme yapılmadı.';
     document.getElementById('securityDeliverySummary').textContent = '—';
     document.getElementById('securityDeliveryAnalyticsSummary').textContent = '—';
+    document.getElementById('securityDelegationSummary').textContent = '—';
     document.getElementById('securitySigningSummary').textContent = '—';
     document.getElementById('securitySigningMaintenanceSummary').textContent = '—';
     document.getElementById('securitySigningMetric').textContent = '—';
     renderUiSessionsTable([]);
     renderSecurityDeliveriesTable([]);
     renderSecurityDeliveryIncidentsTable([]);
+    renderSecurityDelegationsTable([]);
     renderSecuritySigningTable([]);
     renderSecuritySigningMaintenanceTable([]);
   }
@@ -1247,12 +1370,14 @@ async function init() {
   document.getElementById('securityDeliveryPreviewSummary').textContent = 'Önizleme yapılmadı.';
   document.getElementById('securityDeliverySummary').textContent = '—';
   document.getElementById('securityDeliveryAnalyticsSummary').textContent = '—';
+  document.getElementById('securityDelegationSummary').textContent = '—';
   document.getElementById('securitySigningSummary').textContent = '—';
   document.getElementById('securitySigningMaintenanceSummary').textContent = '—';
   document.getElementById('securitySigningMetric').textContent = '—';
   renderUiSessionsTable([]);
   renderSecurityDeliveriesTable([]);
   renderSecurityDeliveryIncidentsTable([]);
+  renderSecurityDelegationsTable([]);
   renderSecuritySigningTable([]);
   renderSecuritySigningMaintenanceTable([]);
 
@@ -1413,6 +1538,65 @@ async function init() {
         await clearSecurityDeliveryIncident(next, incidentId, revision);
         setStatus('Security export delivery incident second-operator clear tamamlandı.');
       }
+    } catch (error) {
+      setStatus(String(error), true);
+      log(`Hata: ${String(error)}`);
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  document.getElementById('refreshSecurityDelegations').addEventListener('click', async () => {
+    const next = readSettingsForm();
+    setSettings(next);
+
+    try {
+      await loadSecurityDelegations(next);
+      setStatus('Security delegation listesi yenilendi.');
+    } catch (error) {
+      setStatus(String(error), true);
+      log(`Hata: ${String(error)}`);
+    }
+  });
+
+  document.getElementById('issueSecurityDelegation').addEventListener('click', async () => {
+    const next = readSettingsForm();
+    setSettings(next);
+
+    try {
+      await issueSecurityDelegation(next);
+      setStatus('Security break-glass delegation grant oluşturuldu.');
+    } catch (error) {
+      setStatus(String(error), true);
+      log(`Hata: ${String(error)}`);
+    }
+  });
+
+  document.getElementById('securityDelegationsTableBody').addEventListener('click', async (event) => {
+    const button = event.target?.closest?.('.revoke-security-delegation-btn');
+    if (!button) {
+      return;
+    }
+
+    const grantId = button.dataset.grantId;
+    if (!grantId) {
+      return;
+    }
+
+    const reason = window.prompt(
+      'Delegation revoke nedeni girin (en az 8 karakter):',
+      'Primary operator geri döndü, break-glass delegation kapatılıyor.'
+    );
+    if (!reason) {
+      return;
+    }
+
+    const next = readSettingsForm();
+    setSettings(next);
+    button.disabled = true;
+    try {
+      await revokeSecurityDelegation(next, grantId, reason);
+      setStatus('Security delegation grant revoke edildi.');
     } catch (error) {
       setStatus(String(error), true);
       log(`Hata: ${String(error)}`);

@@ -226,6 +226,9 @@ export const config = {
     securityExportOperatorPolicyFile:
       process.env.SECURITY_EXPORT_OPERATOR_POLICY_FILE ??
       path.resolve(process.cwd(), '.data', 'security-export-operator-policies.json'),
+    securityExportOperatorDelegationFile:
+      process.env.SECURITY_EXPORT_OPERATOR_DELEGATION_FILE ??
+      path.resolve(process.cwd(), '.data', 'security-export-operator-delegations.json'),
     securityExportSigningStoreFile:
       process.env.SECURITY_EXPORT_SIGNING_STORE_FILE ??
       path.resolve(process.cwd(), '.data', 'security-export-signing-keys.json'),
@@ -325,6 +328,9 @@ export const config = {
     exportOperatorPolicyDefaultClearRequesters: parseCsv(process.env.SECURITY_EXPORT_OPERATOR_POLICY_DEFAULT_CLEAR_REQUESTERS),
     exportOperatorPolicyDefaultClearApprovers: parseCsv(process.env.SECURITY_EXPORT_OPERATOR_POLICY_DEFAULT_CLEAR_APPROVERS),
     exportOperatorPolicyMaxPrincipalsPerRole: Number(process.env.SECURITY_EXPORT_OPERATOR_POLICY_MAX_PRINCIPALS_PER_ROLE ?? 32),
+    exportOperatorDelegationDefaultTtlMinutes: Number(process.env.SECURITY_EXPORT_OPERATOR_DELEGATION_DEFAULT_TTL_MINUTES ?? 30),
+    exportOperatorDelegationMaxTtlMinutes: Number(process.env.SECURITY_EXPORT_OPERATOR_DELEGATION_MAX_TTL_MINUTES ?? 120),
+    exportOperatorDelegationMaxActivePerTenant: Number(process.env.SECURITY_EXPORT_OPERATOR_DELEGATION_MAX_ACTIVE_PER_TENANT ?? 8),
     exportSigningMaxVerifyKeys: Number(process.env.SECURITY_EXPORT_SIGNING_MAX_VERIFY_KEYS ?? 4),
     exportSigningAutoRotateEnabled: (process.env.SECURITY_EXPORT_SIGNING_AUTO_ROTATE_ENABLED ?? 'true').toLowerCase() === 'true',
     exportSigningRotateAfterHours: Number(process.env.SECURITY_EXPORT_SIGNING_ROTATE_AFTER_HOURS ?? 720),

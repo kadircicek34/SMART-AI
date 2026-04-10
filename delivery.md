@@ -1,4 +1,26 @@
-# DELIVERY — SMART-AI v1.21 (Tenant-scoped Operator Roster RBAC)
+# DELIVERY — SMART-AI v1.22 (Tenant-scoped Break-glass / JIT Delegated Approval)
+
+## 2026-04-10 Teslim Özeti
+
+### Yapılanlar
+- Security export recovery hattına yeni `POST/GET /v1/security/export/operator-delegations` ve `POST /v1/security/export/operator-delegations/:grantId/revoke` control plane'i eklendi.
+- Incident workflow içindeki `acknowledge`, `clear-request` ve `clear` authorization zinciri, roster yetkisi yoksa aktif delegation grant ile ilerleyecek şekilde genişletildi.
+- Delegation grant'leri tenant/incident/action/delegated-operator/TTL scope'u, self-delegation reject ve tek kullanımlık consume modeli ile sertleştirildi.
+- Dashboard delegation tablosu, revoke aksiyonu, README/env dokümantasyonu ve audit telemetry production-grade break-glass görünürlüğüyle güncellendi.
+- Delegation create error handling fail-closed `404` + `invalid_request_error` ayrımıyla sertleştirildi.
+
+### Doğrulama
+- `npm run typecheck` → PASS
+- `npx tsx --test tests/contract/security-export-operator-delegations.test.ts tests/security/export-operator-delegation.test.ts` → PASS (4/4)
+- `npm test` → PASS (201/201)
+- `npm audit --omit=dev` → PASS (0 vulnerability)
+- Delegation smoke (`/health`, `GET /v1/security/export/operator-delegations`, `/ui/dashboard`) → PASS
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` → PASS
+
+### Kalan riskler
+- Delegation ve operator roster bugün principal-name listesi seviyesinde; external IdP/group sync henüz yok.
+- Delegation, incident ve operator policy state hâlâ local file tabanlı; shared backend / multi-instance HA ihtiyacı sürüyor.
+- Delegation issuance bugün tek admin onayı ile yapılıyor; ikinci approver / step-up approval modeli henüz uygulanmadı.
 
 ## 2026-04-09 Teslim Özeti
 

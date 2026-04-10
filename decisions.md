@@ -1,5 +1,40 @@
 # DECISIONS — OpenRouter Agentic Intelligence API
 
+## 2026-04-10 — Tenant-scoped break-glass / JIT delegated operator approval kararı
+### Problem
+Dünkü tenant-scoped operator roster / RBAC control plane geniş admin yüzeyini kapattı; ancak production incident operasyonunda üç kritik boşluk kaldı:
+1. `roster_required` posture'u güvenliği yükseltti ama roster dışındaki gerçek acil durum operatörleri için kontrollü, dar kapsamlı bir istisna yolu yoktu; bu da incident anında operasyonel deadlock riski doğuruyordu.
+2. Geçici yetki vermek için tek seçenek tenant policy'yi gevşetmek veya geniş admin erişimi vermekti; incident, action ve TTL ile sınırlı tek kullanımlık delegation modeli bulunmuyordu.
+3. Dashboard/API tarafında delegation issue/list/revoke görünürlüğü ve delegation kullanımına dair ayrı audit telemetry olmadığı için break-glass kararları kanıt zincirinde izlenemiyordu.
+
+### Seçenekler
+- A: Sıkı roster modelini koruyup gerçek acil durumlarda runbook/manual override ile ilerlemek
+- B: Incident sırasında tenant operator policy'yi geçici olarak `open_admins` moduna çekmek
+- C: Tenant-scoped, incident-scoped, action-scoped, TTL bazlı ve tek kullanımlık JIT delegated approval control plane'ini eklemek
+
+### Karar
+**C seçildi:**
+1. **Yeni özellik:** `POST /v1/security/export/operator-delegations`, `GET /v1/security/export/operator-delegations` ve `POST /v1/security/export/operator-delegations/:grantId/revoke` endpointleri eklendi. Dashboard delegation tablosu ve aksiyonları ile tenant admin, belirli incident ve action için geçici operator delegation issue/revoke yapabiliyor.
+2. **Ciddi güvenlik iyileştirmesi #1:** Delegation grant'leri tenant, incident, action, delegated operator ve TTL ile daraltıldı; self-delegation reddediliyor, aktif olmayan veya bulunamayan incident için create isteği fail-closed `404` dönüyor.
+3. **Ciddi güvenlik iyileştirmesi #2:** Delivery incident authorization zinciri artık roster yetkisi yoksa yalnızca eşleşen aktif delegation grant ile ilerliyor; başarılı `acknowledge`, `clear_request` veya `clear` sonrasında grant tek kullanımlık consume edilerek replay penceresi kapatılıyor.
+4. **Ciddi güvenlik iyileştirmesi #3:** Delegation issue, consume ve revoke olayları ayrı audit event tipleriyle kaydediliyor (`security_export_operator_delegation_issued|consumed|revoked`, `security_export_break_glass_activity`); break-glass kullanımı kanıt zincirinde görünür hale geliyor.
+5. **Ops / kalite iyileştirmesi:** API hata yüzeyi delegation create path'inde `invalidRequest(...)` ve `apiError(...)` ayrımıyla sertleştirildi; dashboard, README ve env dokümantasyonu yeni delegation posture'u ile güncellendi.
+
+### Gerekçe
+- Sıkı roster modeli güvenliydi ama operasyonel esneklik olmadan gerçek incident anında yanlış türde bir sertliğe dönüşebilirdi.
+- Policy'yi genişletmek yerine incident/action scoped delegation vermek least-privilege posture'u koruyup acil durum işleyişini açar.
+- Tek kullanımlık consume modeli ve audit telemetry, break-glass yetkisini kalıcı yetki genişlemesine dönüştürmeden yönetilebilir kılar.
+
+### Etki
+- Tenant admin, operator policy'yi gevşetmeden belirli incident aksiyonu için geçici yetki verebiliyor.
+- Roster dışı ama yetkilendirilmiş acil durum operatörü yalnızca scope edilmiş delegation ile işlem yapabiliyor.
+- Break-glass issuance, kullanım ve revoke akışları dashboard + API + audit feed üzerinden uçtan uca izlenebiliyor.
+
+### Bilinçli Olarak Ertelenenler
+- Delegation roster ve principal çözümlemesini external IdP/group sync ile besleme
+- Delegation/incident store'u shared backend'e taşıma ve multi-instance coordination sağlama
+- Delegation issuance için ikinci approver veya kriptografik step-up approval modeli
+
 ## 2026-04-09 — Tenant-scoped security export operator roster / RBAC control plane kararı
 ### Problem
 Dünkü canary-backed clear request + four-eyes recovery akışı incident reopen riskini ciddi biçimde düşürdü; ancak production operasyonunda üç kritik boşluk kaldı:

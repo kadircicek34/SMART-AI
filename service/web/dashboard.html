@@ -332,6 +332,54 @@
       </section>
 
       <section class="card">
+        <h2>Operator Delegations</h2>
+        <div class="grid-2">
+          <label>
+            Incident ID
+            <input id="securityDelegationIncidentId" type="text" placeholder="e328e332-fb56-4b5c-a240-12259ec00ca2" />
+          </label>
+          <label>
+            Action
+            <select id="securityDelegationAction">
+              <option value="acknowledge">acknowledge</option>
+              <option value="clear_request">clear_request</option>
+              <option value="clear_approve">clear_approve</option>
+            </select>
+          </label>
+          <label>
+            Delegate Principal
+            <input id="securityDelegationDelegatePrincipal" type="text" placeholder="night-shift" />
+          </label>
+          <label>
+            TTL (dakika)
+            <input id="securityDelegationTtlMinutes" type="number" min="1" max="120" value="30" />
+          </label>
+        </div>
+        <label>
+          Justification
+          <textarea id="securityDelegationJustification" rows="3" placeholder="Primary operator unavailable, temporary break-glass handoff."></textarea>
+        </label>
+        <div class="actions">
+          <button id="issueSecurityDelegation">Delegation Grant Oluştur</button>
+          <button id="refreshSecurityDelegations" class="secondary">Listeyi Yenile</button>
+        </div>
+        <p id="securityDelegationSummary" class="muted">Delegation listesi yüklenmedi.</p>
+        <table>
+          <thead>
+            <tr>
+              <th>Grant</th>
+              <th>Incident / Action</th>
+              <th>Delegate</th>
+              <th>Issuer</th>
+              <th>Expires / Status</th>
+              <th>Not / Aksiyon</th>
+            </tr>
+          </thead>
+          <tbody id="securityDelegationsTableBody"></tbody>
+        </table>
+      </section>
+
+      <section class="card">
         <h2>Aktif UI Oturumları</h2>
         <p class="muted">Admin oturumları bu tenant içindeki aktif dashboard/chat oturumlarını görebilir ve gerekirse mevcut oturumu düşürmeden diğerlerini kapatabilir.</p>
         <table>

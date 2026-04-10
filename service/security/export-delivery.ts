@@ -3053,6 +3053,10 @@ export function listSecurityExportDeliveryIncidents(
   return deliveryStore.listIncidents(tenantId, opts);
 }
 
+export function getSecurityExportDeliveryIncident(tenantId: string, incidentId: string): SecurityExportDeliveryIncident | null {
+  return deliveryStore.getIncident(tenantId, incidentId);
+}
+
 export async function acknowledgeSecurityExportDeliveryIncident(options: {
   tenantId: string;
   incidentId: string;

@@ -48,6 +48,9 @@ export const SECURITY_AUDIT_EVENT_TYPES = [
   'security_export_delivery_policy_reset',
   'security_export_operator_policy_updated',
   'security_export_operator_policy_reset',
+  'security_export_operator_delegation_issued',
+  'security_export_operator_delegation_consumed',
+  'security_export_operator_delegation_revoked',
   'security_export_operator_action_denied',
   'security_export_signing_rotated',
   'security_export_signing_policy_updated',
@@ -238,6 +241,8 @@ function evaluateRisk(byType: Record<SecurityAuditEventType, number>): {
   score += byType.security_export_delivery_failed * 2;
   score += byType.security_export_delivery_blocked * 3;
   score += byType.security_export_delivery_dead_lettered * 4;
+  score += byType.security_export_operator_delegation_issued;
+  score += byType.security_export_operator_delegation_consumed * 2;
   score += byType.security_export_operator_action_denied * 4;
 
   const flags: string[] = [];
@@ -304,6 +309,10 @@ function evaluateRisk(byType: Record<SecurityAuditEventType, number>): {
 
   if (byType.security_export_delivery_dead_lettered >= 1) {
     flags.push('security_export_dead_letters_present');
+  }
+
+  if (byType.security_export_operator_delegation_consumed >= 2) {
+    flags.push('security_export_break_glass_activity');
   }
 
   if (byType.security_export_operator_action_denied >= 3) {
