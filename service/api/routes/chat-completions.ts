@@ -2,8 +2,9 @@ import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { config } from '../../config.js';
-import { runOrchestrator } from '../../orchestrator/run.js';
+import { chatWithOpenRouter } from '../../llm/openrouter-client.js';
 import { autoCaptureUserMemory } from '../../memory/service.js';
+import { runOrchestrator } from '../../orchestrator/run.js';
 import { getTenantOpenRouterKey } from '../../security/key-store.js';
 import { resolveTenantModel } from '../../security/model-policy.js';
 import { securityAuditLog } from '../../security/audit-log.js';
@@ -31,6 +32,35 @@ function chunkText(value: string, size = 180): string[] {
 
 async function writeStreamChunk(reply: any, payload: object) {
   reply.raw.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+function isStructuredDecisionMachineRequest(messages: Array<{ role: string; content: string }>): boolean {
+  const merged = messages
+    .map((message) => message.content || '')
+    .join('\n')
+    .toLowerCase();
+
+  if (!merged) return false;
+
+  const hasDecisionTags = merged.includes('<decision>') || merged.includes('</decision>');
+  const hasStrictFormattingHint =
+    merged.includes('output format (strictly follow)') ||
+    merged.includes('must use xml tags <reasoning> and <decision>') ||
+    merged.includes('json decision array') ||
+    merged.includes('output structured json');
+  const hasTradingDecisionSchemaHints =
+    merged.includes('position_size_usd') &&
+    (merged.includes('open_long') || merged.includes('open_short')) &&
+    merged.includes('close_long');
+
+  return hasDecisionTags && hasStrictFormattingHint && hasTradingDecisionSchemaHints;
+}
+
+function toOpenRouterMessages(messages: Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string }>) {
+  return messages.flatMap((message) => {
+    if (message.role === 'tool') return [];
+    return [{ role: message.role, content: message.content }];
+  });
 }
 
 export async function registerChatCompletionsRoute(app: FastifyInstance) {
@@ -83,15 +113,65 @@ export async function registerChatCompletionsRoute(app: FastifyInstance) {
     const selectedModel = modelResolution.model;
     const openRouterApiKey = (await getTenantOpenRouterKey(tenantId)) ?? config.openRouter.globalApiKey ?? undefined;
 
-    const out = await runOrchestrator({
-      tenantId,
-      model: selectedModel,
-      openRouterApiKey,
-      messages: input.messages,
-      temperature: input.temperature,
-      maxTokens: input.max_tokens,
-      stream: input.stream
-    });
+    const passthroughRequested = isStructuredDecisionMachineRequest(input.messages);
+    const passthroughEnabled = passthroughRequested && Boolean(openRouterApiKey);
+
+    if (passthroughRequested && !openRouterApiKey) {
+      req.log.warn({ tenantId }, 'structured decision passthrough requested but openrouter key missing; falling back to orchestrator');
+    }
+
+    const out = passthroughEnabled
+      ? await (async () => {
+          const completion = await chatWithOpenRouter({
+            apiKey: openRouterApiKey!,
+            model: selectedModel,
+            messages: toOpenRouterMessages(input.messages),
+            temperature: input.temperature,
+            maxTokens: input.max_tokens
+          });
+
+          return {
+            text: completion.text,
+            finishReason: 'stop' as const,
+            model: completion.model,
+            usage: {
+              promptTokens: completion.usage.promptTokens,
+              completionTokens: completion.usage.completionTokens,
+              totalTokens: completion.usage.totalTokens
+            },
+            toolResults: [],
+            plan: {
+              objective: 'passthrough-structured-decision',
+              tools: [],
+              reasoning: 'Bypassed orchestrator for strict structured decision compatibility.',
+              stages: [{ id: 'direct', title: 'Direct model passthrough', tools: [], status: 'done' as const }]
+            },
+            verification: {
+              evidence: {
+                sufficient: true,
+                confidence: 1,
+                reason: 'Passthrough mode',
+                suggestedTool: undefined
+              },
+              simplicity: {
+                score: 1,
+                level: 'clean' as const,
+                reasons: [],
+                threshold: config.verifier.minSimplicityScore,
+                belowThreshold: false
+              }
+            }
+          };
+        })()
+      : await runOrchestrator({
+          tenantId,
+          model: selectedModel,
+          openRouterApiKey,
+          messages: input.messages,
+          temperature: input.temperature,
+          maxTokens: input.max_tokens,
+          stream: input.stream
+        });
 
     const latestUserMessage = [...input.messages].reverse().find((message) => message.role === 'user')?.content;
     if (latestUserMessage) {
@@ -167,6 +247,8 @@ export async function registerChatCompletionsRoute(app: FastifyInstance) {
         selected_model: selectedModel,
         model_policy_source: modelResolution.policy.source,
         used_default_model: modelResolution.usedDefault,
+        execution_mode: passthroughEnabled ? 'passthrough_structured_decision' : 'orchestrated',
+        passthrough_requested: passthroughRequested,
         plan: out.plan,
         tool_count: out.toolResults.length,
         verification: {
