@@ -49,8 +49,53 @@ function stripTrailingSourcesSection(value: string): string {
     .trim();
 }
 
-function sanitizeAssistantAnswer(value: string): string {
+function normalizeInternalMarker(line: string): string {
+  return line
+    .trim()
+    .replace(/^#{1,6}\s+/, '')
+    .replace(/^[-*]\s+/, '')
+    .replace(/^\*\*([^*]+):\*\*\s*/, '$1: ')
+    .replace(/^\*\*([^*]+)\*\*:\s*/, '$1: ')
+    .replace(/^\*\*(.+?)\*\*:?$/, '$1')
+    .trim();
+}
+
+function isInternalAuditStart(line: string): boolean {
+  const trimmed = normalizeInternalMarker(line);
+  if (!trimmed) {
+    return false;
+  }
+
+  return [
+    /^\[LLM synthesis fallback reason:[^\]]*\]$/i,
+    /^Plan:\s*(?:[a-z_][a-z0-9_\/-]*)(?:\s*,\s*[a-z_][a-z0-9_\/-]*)*\s*$/i,
+    /^Verifier:\s*.+$/i,
+    /^Source preference:\s*(?:include sources|no source list)\s*$/i,
+    /^Evidence(?: \(internal use only\))?:\s*$/i,
+    /^Tool:\s*[a-z_][a-z0-9_:-]*\s*$/i,
+    /^Summary:\s*$/i,
+    /^Citations:\s*.*$/i,
+    /^-{3,}\s*$/
+  ].some((pattern) => pattern.test(trimmed));
+}
+
+function stripTrailingInternalAuditBlock(value: string): string {
   const normalized = value.replace(/\r\n/g, '\n').trim();
+  if (!normalized) {
+    return '';
+  }
+
+  const lines = normalized.split('\n');
+  const markerIndex = lines.findIndex((line) => isInternalAuditStart(line));
+  if (markerIndex <= 0) {
+    return normalized;
+  }
+
+  return lines.slice(0, markerIndex).join('\n').trim();
+}
+
+function sanitizeAssistantAnswer(value: string): string {
+  const normalized = stripTrailingInternalAuditBlock(value);
   if (!normalized) {
     return '';
   }
@@ -58,20 +103,10 @@ function sanitizeAssistantAnswer(value: string): string {
   const cleaned = normalized
     .split('\n')
     .filter((line) => {
-      const trimmed = line.trim();
+      const trimmed = normalizeInternalMarker(line);
       if (!trimmed) return true;
 
-      return ![
-        /^\[LLM synthesis fallback reason:[^\]]*\]$/i,
-        /^Plan:\s*(?:[a-z_][a-z0-9_\/-]*)(?:\s*,\s*[a-z_][a-z0-9_\/-]*)*\s*$/i,
-        /^Verifier:\s*.+$/i,
-        /^Source preference:\s*(?:include sources|no source list)\s*$/i,
-        /^Evidence(?: \(internal use only\))?:\s*$/i,
-        /^Tool:\s*[a-z_][a-z0-9_:-]*\s*$/i,
-        /^Summary:\s*$/i,
-        /^Citations:\s*.*$/i,
-        /^-{3,}\s*$/
-      ].some((pattern) => pattern.test(trimmed));
+      return !isInternalAuditStart(trimmed);
     })
     .join('\n')
     .replace(/\n{3,}/g, '\n\n')
@@ -195,5 +230,7 @@ export const __private__ = {
   userExplicitlyAskedForSources,
   shouldAttachSources,
   stripTrailingSourcesSection,
+  stripTrailingInternalAuditBlock,
+  isInternalAuditStart,
   sanitizeAssistantAnswer
 };
