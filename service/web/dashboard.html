@@ -333,6 +333,7 @@
 
       <section class="card">
         <h2>Operator Delegations</h2>
+        <p class="muted">Break-glass delegation isteği önce pending approval olarak açılır. Aktivasyon için ikinci operatör approve adımı ve taze dashboard oturumu veya direkt API key step-up gerekir.</p>
         <div class="grid-2">
           <label>
             Incident ID
@@ -360,7 +361,7 @@
           <textarea id="securityDelegationJustification" rows="3" placeholder="Primary operator unavailable, temporary break-glass handoff."></textarea>
         </label>
         <div class="actions">
-          <button id="issueSecurityDelegation">Delegation Grant Oluştur</button>
+          <button id="issueSecurityDelegation">Delegation İsteği Oluştur</button>
           <button id="refreshSecurityDelegations" class="secondary">Listeyi Yenile</button>
         </div>
         <p id="securityDelegationSummary" class="muted">Delegation listesi yüklenmedi.</p>
@@ -370,8 +371,8 @@
               <th>Grant</th>
               <th>Incident / Action</th>
               <th>Delegate</th>
-              <th>Issuer</th>
-              <th>Expires / Status</th>
+              <th>Requester / Approver</th>
+              <th>Deadline / Status</th>
               <th>Not / Aksiyon</th>
             </tr>
           </thead>

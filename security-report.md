@@ -1,4 +1,23 @@
-# SECURITY REPORT — SMART-AI v1.22
+# SECURITY REPORT — SMART-AI v1.23
+
+## 2026-04-11 Güvenlik sertleştirmesi — two-person delegation approval + fresh session step-up
+
+### Bu koşumda kapatılan riskler
+1. **Tek imzalı delegation issuance riski kapatıldı:** Delegation create artık doğrudan aktif grant üretmiyor; ikinci operatör approve etmeden grant aktive olmuyor.
+2. **Eski dashboard oturumu ile hassas mutasyon riski daraltıldı:** Delegation create/approve/revoke akışlarında fresh UI session step-up zorunlu hale geldi; taze olmayan oturumlar fail-closed reddediliyor.
+3. **Approval audit körlüğü kapatıldı:** `security_export_operator_delegation_requested` event’i ve yeni delegation alanları ile requester, approver, approval deadline ve approval note zinciri görünür oldu.
+4. **Approval replay/stale request riski daraltıldı:** Pending delegation request’leri approval TTL ile sınırlandı; süre dolunca `approval_expired` statüsüne materialize oluyor ve sonradan aktive edilemiyor.
+
+### Kontroller
+- Contract testler stale UI session step-up reject, pending approval listing, second approver activation ve delegated incident recovery akışını doğruladı.
+- Unit testler self-approval reject, delegate self-activation reject, approval expiry ve active expiry davranışlarını doğruladı.
+- Dashboard smoke doğrulaması pending approval endpoint’i ve step-up kopyasının canlı UI yüzeyinde yer aldığını kanıtladı.
+- `npm audit --omit=dev` sonucu: `0 vulnerability`.
+
+### Kalan riskler
+- Delegation ve operator roster bugün principal-name listesi seviyesinde; external IdP/group sync henüz yok.
+- Step-up doğrulaması şu an UI session yaşı + API key güvenine dayanıyor; WebAuthn veya harici kimlik sağlayıcı re-auth entegrasyonu henüz yok.
+- Delegation, incident, operator policy, audit ve session state hâlâ local file tabanlı; multi-instance shared backend ihtiyacı sürüyor.
 
 ## 2026-04-10 Güvenlik sertleştirmesi — tenant-scoped break-glass / JIT delegated approval
 

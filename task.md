@@ -1,5 +1,16 @@
 # TASKS — OpenRouter Agentic Intelligence API
 
+## v1.23 Delta (Two-Person Delegation Approval + Fresh Session Step-Up) — Tamamlandı
+- [x] Yeni özellik: `POST /v1/security/export/operator-delegations/:grantId/approve` endpointi eklendi
+- [x] Güvenlik: delegation create artık `pending_approval` request üretiyor, approval sonrası grant `active` oluyor
+- [x] Güvenlik: requester self-approve ve delegate self-activate denemeleri fail-closed reddediliyor
+- [x] Güvenlik: pending approval TTL + `approval_expired` materialization + approval note zorunluluğu eklendi
+- [x] Güvenlik: delegation create/approve/revoke mutasyonları için fresh UI session step-up enforcement eklendi
+- [x] Audit telemetry: `security_export_operator_delegation_requested` event tipi ve requester/approver metadata’sı eklendi
+- [x] Dashboard delegation paneline pending approval görünürlüğü, approve aksiyonu ve step-up açıklaması eklendi
+- [x] Contract + unit testleri: stale session step-up, pending listing, second approval, self-approval reject, approval expiry ve delegated recovery workflow senaryoları yazıldı
+- [x] Fresh verification: typecheck + focused tests + full test + audit + smoke + delivery-gate akışı tamamlandı
+
 ## v1.22 Delta (Tenant-scoped Break-glass / JIT Delegated Approval) — Tamamlandı
 - [x] Yeni özellik: `POST /v1/security/export/operator-delegations`, `GET /v1/security/export/operator-delegations`, `POST /v1/security/export/operator-delegations/:grantId/revoke` endpointleri eklendi
 - [x] Güvenlik: incident authorize zinciri roster yetkisi yoksa yalnızca eşleşen aktif delegation grant ile ilerliyor

@@ -1,5 +1,40 @@
 # DECISIONS — OpenRouter Agentic Intelligence API
 
+## 2026-04-11 — Delegation issuance için two-person approval + fresh-session step-up kararı
+### Problem
+Dünkü tenant-scoped delegation modeli roster deadlock riskini açtı ama issuance tarafında üç kritik güvenlik açığı bıraktı:
+1. Delegation grant'i tek admin aksiyonu ile anında `active` oluyordu; ikinci bir operatör onayı olmadan break-glass yetki üretilmesi separation-of-duties ilkesini deliyordu.
+2. Dashboard üzerinden eski bir UI oturumu ile delegation create/revoke yapılabiliyordu; hassas delegation mutasyonları için taze re-authentication / step-up zorlaması yoktu.
+3. Dashboard ve API yüzeyinde pending approval yaşam döngüsü, approval expiry görünürlüğü ve request/approve audit zinciri bulunmadığı için delegation issuance kararları yeterince izlenebilir değildi.
+
+### Seçenekler
+- A: Mevcut active delegation issuance modelini koruyup operasyon disiplinine güvenmek
+- B: Sadece create sırasında ikinci operator roster check eklemek ama ayrı approval nesnesi oluşturmamak
+- C: Delegation issuance akışını `pending_approval -> active` yaşam döngüsüne çevirmek, ayrı approve endpoint'i eklemek ve UI session freshness step-up zorlamak
+
+### Karar
+**C seçildi:**
+1. **Yeni özellik:** `POST /v1/security/export/operator-delegations` artık doğrudan aktif grant değil, `pending_approval` request üretiyor. Yeni `POST /v1/security/export/operator-delegations/:grantId/approve` endpoint'i ikinci operatör onayı ile grant'i aktive ediyor.
+2. **Ciddi güvenlik iyileştirmesi #1:** Delegation approval two-person enforced hale getirildi. Requester kendi talebini, delegate principal ise kendi grant'ini approve edemiyor; approval note zorunlu tutuluyor ve approval TTL dolarsa request fail-closed `approval_expired` statüsüne materialize ediliyor.
+3. **Ciddi güvenlik iyileştirmesi #2:** Delegation create/approve/revoke mutasyonlarında `ui_session` auth için fresh-session step-up eklendi. Taze olmayan dashboard oturumu `403 permission_error` alıyor; doğrudan API key ile gelen admin akışı desteklenmeye devam ediyor.
+4. **Ciddi güvenlik iyileştirmesi #3:** Audit zinciri `security_export_operator_delegation_requested|issued|consumed|revoked` event setiyle genişletildi; dashboard delegation tablosu pending approval, approval deadline, requester/approver ve approval note görünürlüğü kazandı.
+5. **Kalite / operasyon iyileştirmesi:** Delegation store yeni statüler (`pending_approval`, `approval_expired`) ve alanlarla (`requested_by`, `requested_at`, `approved_by`, `approved_at`, `approval_expires_at`, `approval_note`) genişletildi; focused contract + unit testler step-up, second approval, expiry ve delegated recovery workflow senaryolarını kapsayacak şekilde yenilendi.
+
+### Gerekçe
+- Break-glass delegation'ın kendisi güvenlik istisnası olduğu için issuance akışı tek imza ile aktif grant üretmemeliydi.
+- UI session freshness step-up olmadan uzun süre açık kalmış dashboard oturumları delegation issuance yüzeyinde gereksiz risk oluşturuyordu.
+- Pending approval yaşam döngüsü ve audit telemetry, delegation kararını görünür ve geri izlenebilir hale getirerek production incident operasyonunu daha güvenli yapıyor.
+
+### Etki
+- Delegation issuance artık gerçek two-person approval modeline geçti; request ve approval adımları ayrıldı.
+- Dashboard kullanıcıları hassas delegation mutasyonlarında taze session veya doğrudan API key step-up kullanmak zorunda.
+- Break-glass delegation lifecycle'ı pending, approval-expired, active, consumed ve revoked durumlarıyla operasyonel olarak izlenebilir hale geldi.
+
+### Bilinçli Olarak Ertelenenler
+- Delegation/operator roster principal çözümlemesini external IdP/group sync ile besleme
+- UI session freshness yerine WebAuthn/cryptographic re-auth step-up ekleme
+- Delegation/incident/policy/audit/session state'ini gerçek shared backend'e taşıma
+
 ## 2026-04-10 — Tenant-scoped break-glass / JIT delegated operator approval kararı
 ### Problem
 Dünkü tenant-scoped operator roster / RBAC control plane geniş admin yüzeyini kapattı; ancak production incident operasyonunda üç kritik boşluk kaldı:

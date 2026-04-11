@@ -8,7 +8,14 @@ import {
   type SecurityExportOperatorAction
 } from './export-operator-policy.js';
 
-export const SECURITY_EXPORT_OPERATOR_DELEGATION_STATUSES = ['active', 'consumed', 'revoked', 'expired'] as const;
+export const SECURITY_EXPORT_OPERATOR_DELEGATION_STATUSES = [
+  'pending_approval',
+  'active',
+  'consumed',
+  'revoked',
+  'expired',
+  'approval_expired'
+] as const;
 
 export type SecurityExportOperatorDelegationStatus = (typeof SECURITY_EXPORT_OPERATOR_DELEGATION_STATUSES)[number];
 
@@ -18,11 +25,18 @@ export type SecurityExportOperatorDelegation = {
   incident_id: string;
   action: SecurityExportOperatorAction;
   delegate_principal: string;
-  issued_by: string;
-  issued_at: string;
-  expires_at: string;
+  requested_by: string;
+  requested_at: string;
+  requested_ttl_minutes: number;
+  approval_expires_at: string;
   justification: string;
   status: SecurityExportOperatorDelegationStatus;
+  issued_by: string | null;
+  issued_at: string | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  approval_note: string | null;
+  expires_at: string | null;
   consumed_at: string | null;
   consumed_by: string | null;
   revoked_at: string | null;
@@ -42,6 +56,13 @@ type CreateSecurityExportOperatorDelegationInput = {
   actor: string;
   justification: string;
   ttlMinutes?: number;
+};
+
+type ApproveSecurityExportOperatorDelegationInput = {
+  tenantId: string;
+  grantId: string;
+  actor: string;
+  note: string;
 };
 
 type MutateSecurityExportOperatorDelegationInput = {
@@ -77,6 +98,12 @@ function sanitizeString(value: string | undefined, maxLength: number): string {
     .slice(0, maxLength);
 }
 
+function normalizeIsoDate(value: string | undefined): string | null {
+  const normalized = sanitizeString(value, 64);
+  const parsed = Date.parse(normalized);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+}
+
 function isAction(value: string): value is SecurityExportOperatorAction {
   return SECURITY_EXPORT_OPERATOR_POLICY_ACTIONS.includes(value as SecurityExportOperatorAction);
 }
@@ -110,6 +137,10 @@ function getMaxTtlMinutes(): number {
   return Math.max(getDefaultTtlMinutes(), Math.trunc(config.security.exportOperatorDelegationMaxTtlMinutes));
 }
 
+function getApprovalTtlMinutes(): number {
+  return Math.max(1, Math.trunc(config.security.exportOperatorDelegationApprovalTtlMinutes));
+}
+
 function resolveTtlMinutes(value: number | undefined): number {
   const fallback = getDefaultTtlMinutes();
   const configuredMax = getMaxTtlMinutes();
@@ -126,15 +157,31 @@ function getMaxActivePerTenant(): number {
   return Math.max(1, Math.trunc(config.security.exportOperatorDelegationMaxActivePerTenant));
 }
 
+function getMaxPendingPerTenant(): number {
+  return Math.max(1, Math.trunc(config.security.exportOperatorDelegationMaxPendingPerTenant));
+}
+
 function materializeGrantStatus(
   grant: SecurityExportOperatorDelegation,
   now = Date.now()
 ): SecurityExportOperatorDelegation {
+  if (grant.status === 'pending_approval') {
+    const approvalExpiresAtMs = Date.parse(grant.approval_expires_at);
+    if (Number.isFinite(approvalExpiresAtMs) && approvalExpiresAtMs <= now) {
+      return {
+        ...grant,
+        status: 'approval_expired'
+      };
+    }
+
+    return grant;
+  }
+
   if (grant.status !== 'active') {
     return grant;
   }
 
-  const expiresAtMs = Date.parse(grant.expires_at);
+  const expiresAtMs = Date.parse(grant.expires_at ?? '');
   if (!Number.isFinite(expiresAtMs) || expiresAtMs > now) {
     return grant;
   }
@@ -146,7 +193,7 @@ function materializeGrantStatus(
 }
 
 function sortGrants(grants: SecurityExportOperatorDelegation[]): SecurityExportOperatorDelegation[] {
-  return [...grants].sort((left, right) => Date.parse(right.issued_at) - Date.parse(left.issued_at));
+  return [...grants].sort((left, right) => Date.parse(right.requested_at) - Date.parse(left.requested_at));
 }
 
 function sanitizeStoredGrant(value: unknown): SecurityExportOperatorDelegation | null {
@@ -154,13 +201,16 @@ function sanitizeStoredGrant(value: unknown): SecurityExportOperatorDelegation |
     return null;
   }
 
-  const candidate = value as Partial<SecurityExportOperatorDelegation>;
+  const candidate = value as Partial<SecurityExportOperatorDelegation> & {
+    requested_ttl_minutes?: number | string;
+  };
   const incidentId = normalizeIncidentId(candidate.incident_id);
   const action = normalizeAction(candidate.action);
   const delegatePrincipal = normalizePrincipal(candidate.delegate_principal);
-  const issuedBy = normalizePrincipal(candidate.issued_by);
-  const issuedAt = sanitizeString(candidate.issued_at, 64);
-  const expiresAt = sanitizeString(candidate.expires_at, 64);
+  const requestedBy = normalizePrincipal(candidate.requested_by);
+  const requestedAt = normalizeIsoDate(candidate.requested_at);
+  const approvalExpiresAt = normalizeIsoDate(candidate.approval_expires_at);
+  const requestedTtlMinutes = Math.trunc(Number(candidate.requested_ttl_minutes ?? 0));
   const status = sanitizeString(candidate.status, 32).toLowerCase();
 
   if (
@@ -169,13 +219,21 @@ function sanitizeStoredGrant(value: unknown): SecurityExportOperatorDelegation |
     !INCIDENT_ID_REGEX.test(incidentId) ||
     !action ||
     !PRINCIPAL_NAME_REGEX.test(delegatePrincipal) ||
-    !PRINCIPAL_NAME_REGEX.test(issuedBy) ||
-    !Number.isFinite(Date.parse(issuedAt)) ||
-    !Number.isFinite(Date.parse(expiresAt)) ||
+    !PRINCIPAL_NAME_REGEX.test(requestedBy) ||
+    !requestedAt ||
+    !approvalExpiresAt ||
+    !Number.isFinite(requestedTtlMinutes) ||
+    requestedTtlMinutes <= 0 ||
     !isStatus(status)
   ) {
     return null;
   }
+
+  const issuedBy = candidate.issued_by ? normalizePrincipal(candidate.issued_by) : null;
+  const issuedAt = normalizeIsoDate(candidate.issued_at ?? undefined);
+  const approvedBy = candidate.approved_by ? normalizePrincipal(candidate.approved_by) : null;
+  const approvedAt = normalizeIsoDate(candidate.approved_at ?? undefined);
+  const expiresAt = normalizeIsoDate(candidate.expires_at ?? undefined);
 
   return materializeGrantStatus({
     grant_id: sanitizeString(candidate.grant_id, 96),
@@ -183,18 +241,21 @@ function sanitizeStoredGrant(value: unknown): SecurityExportOperatorDelegation |
     incident_id: incidentId,
     action,
     delegate_principal: delegatePrincipal,
-    issued_by: issuedBy,
-    issued_at: new Date(Date.parse(issuedAt)).toISOString(),
-    expires_at: new Date(Date.parse(expiresAt)).toISOString(),
+    requested_by: requestedBy,
+    requested_at: requestedAt,
+    requested_ttl_minutes: requestedTtlMinutes,
+    approval_expires_at: approvalExpiresAt,
     justification: normalizeJustification(candidate.justification),
     status,
-    consumed_at: candidate.consumed_at && Number.isFinite(Date.parse(String(candidate.consumed_at)))
-      ? new Date(Date.parse(String(candidate.consumed_at))).toISOString()
-      : null,
+    issued_by: issuedBy && PRINCIPAL_NAME_REGEX.test(issuedBy) ? issuedBy : null,
+    issued_at: issuedAt,
+    approved_by: approvedBy && PRINCIPAL_NAME_REGEX.test(approvedBy) ? approvedBy : null,
+    approved_at: approvedAt,
+    approval_note: candidate.approval_note ? normalizeJustification(candidate.approval_note) : null,
+    expires_at: expiresAt,
+    consumed_at: normalizeIsoDate(candidate.consumed_at ?? undefined),
     consumed_by: candidate.consumed_by ? normalizePrincipal(candidate.consumed_by) : null,
-    revoked_at: candidate.revoked_at && Number.isFinite(Date.parse(String(candidate.revoked_at)))
-      ? new Date(Date.parse(String(candidate.revoked_at))).toISOString()
-      : null,
+    revoked_at: normalizeIsoDate(candidate.revoked_at ?? undefined),
     revoked_by: candidate.revoked_by ? normalizePrincipal(candidate.revoked_by) : null,
     revoke_reason: candidate.revoke_reason ? normalizeJustification(candidate.revoke_reason) : null
   });
@@ -213,7 +274,9 @@ function readStore(): SecurityExportOperatorDelegationFile {
       continue;
     }
 
-    tenants[tenantId] = values.map((entry) => sanitizeStoredGrant(entry)).filter((entry): entry is SecurityExportOperatorDelegation => Boolean(entry));
+    tenants[tenantId] = values
+      .map((entry) => sanitizeStoredGrant(entry))
+      .filter((entry): entry is SecurityExportOperatorDelegation => Boolean(entry));
   }
 
   return { tenants };
@@ -262,6 +325,15 @@ export async function listSecurityExportOperatorDelegations(
     .slice(0, limit);
 }
 
+export async function getSecurityExportOperatorDelegation(
+  tenantId: string,
+  grantId: string
+): Promise<SecurityExportOperatorDelegation | null> {
+  const store = readStore();
+  const grants = withMaterializedTenantGrants(store, tenantId);
+  return grants.find((grant) => grant.grant_id === sanitizeString(grantId, 96)) ?? null;
+}
+
 export async function findActiveSecurityExportOperatorDelegation(options: {
   tenantId: string;
   incidentId: string;
@@ -301,7 +373,7 @@ export async function createSecurityExportOperatorDelegation(
 
   const actor = normalizePrincipal(input.actor);
   if (!actor || !PRINCIPAL_NAME_REGEX.test(actor)) {
-    return errorResult('Delegation issuer principal is invalid.', 'issuer_invalid', 400);
+    return errorResult('Delegation requester principal is invalid.', 'requester_invalid', 400);
   }
 
   const delegatePrincipal = normalizePrincipal(input.delegatePrincipal);
@@ -310,7 +382,7 @@ export async function createSecurityExportOperatorDelegation(
   }
 
   if (actor === delegatePrincipal) {
-    return errorResult('Delegation issuer cannot grant break-glass access to the same principal.', 'delegate_principal_conflict', 400);
+    return errorResult('Delegation requester cannot grant break-glass access to the same principal.', 'delegate_principal_conflict', 400);
   }
 
   const justification = normalizeJustification(input.justification);
@@ -332,33 +404,51 @@ export async function createSecurityExportOperatorDelegation(
   const store = readStore();
   const grants = withMaterializedTenantGrants(store, input.tenantId);
   const activeGrants = grants.filter((grant) => grant.status === 'active');
+  const pendingGrants = grants.filter((grant) => grant.status === 'pending_approval');
 
   if (activeGrants.length >= getMaxActivePerTenant()) {
     return errorResult('Too many active operator delegations for this tenant.', 'delegation_limit_exceeded', 429);
   }
 
-  const duplicate = activeGrants.find(
+  if (pendingGrants.length >= getMaxPendingPerTenant()) {
+    return errorResult('Too many pending operator delegation approvals for this tenant.', 'delegation_pending_limit_exceeded', 429);
+  }
+
+  const duplicate = grants.find(
     (grant) =>
+      (grant.status === 'active' || grant.status === 'pending_approval') &&
       grant.incident_id === incidentId &&
       grant.action === input.action &&
       grant.delegate_principal === delegatePrincipal
   );
   if (duplicate) {
-    return errorResult('A matching operator delegation is already active for this incident/action/principal.', 'delegation_already_active', 409);
+    return errorResult(
+      'A matching operator delegation is already active or awaiting approval for this incident/action/principal.',
+      'delegation_already_exists',
+      409
+    );
   }
 
-  const issuedAt = new Date().toISOString();
+  const requestedAt = new Date().toISOString();
+  const approvalExpiresAt = new Date(Date.now() + getApprovalTtlMinutes() * 60 * 1000).toISOString();
   const grant: SecurityExportOperatorDelegation = {
     grant_id: crypto.randomUUID(),
     tenant_id: sanitizeString(input.tenantId, 128),
     incident_id: incidentId,
     action: input.action,
     delegate_principal: delegatePrincipal,
-    issued_by: actor,
-    issued_at: issuedAt,
-    expires_at: new Date(Date.now() + ttlMinutes * 60 * 1000).toISOString(),
+    requested_by: actor,
+    requested_at: requestedAt,
+    requested_ttl_minutes: ttlMinutes,
+    approval_expires_at: approvalExpiresAt,
     justification,
-    status: 'active',
+    status: 'pending_approval',
+    issued_by: null,
+    issued_at: null,
+    approved_by: null,
+    approved_at: null,
+    approval_note: null,
+    expires_at: null,
     consumed_at: null,
     consumed_by: null,
     revoked_at: null,
@@ -373,6 +463,77 @@ export async function createSecurityExportOperatorDelegation(
   return {
     ok: true,
     grant
+  };
+}
+
+export async function approveSecurityExportOperatorDelegation(
+  input: ApproveSecurityExportOperatorDelegationInput
+): Promise<
+  | { ok: true; grant: SecurityExportOperatorDelegation }
+  | SecurityExportOperatorDelegationErrorResult
+> {
+  const actor = normalizePrincipal(input.actor);
+  if (!actor || !PRINCIPAL_NAME_REGEX.test(actor)) {
+    return errorResult('Delegation approver principal is invalid.', 'approver_invalid', 400);
+  }
+
+  const note = normalizeJustification(input.note);
+  if (note.length < 8) {
+    return errorResult('Delegation approval note must be at least 8 characters.', 'approval_note_too_short', 400);
+  }
+
+  const store = readStore();
+  const grants = withMaterializedTenantGrants(store, input.tenantId);
+  const index = grants.findIndex((grant) => grant.grant_id === sanitizeString(input.grantId, 96));
+
+  if (index < 0) {
+    return errorResult('Operator delegation not found.', 'delegation_not_found', 404);
+  }
+
+  const current = grants[index];
+  if (!current || current.status !== 'pending_approval') {
+    return errorResult('Only pending operator delegations can be approved.', 'delegation_not_pending', 409);
+  }
+
+  if (current.requested_by === actor) {
+    return errorResult('Delegation requester cannot approve the same break-glass request.', 'approver_conflict', 409);
+  }
+
+  if (current.delegate_principal === actor) {
+    return errorResult('Delegation target principal cannot approve the same break-glass request.', 'delegate_principal_conflict', 409);
+  }
+
+  const duplicateActive = grants.find(
+    (grant) =>
+      grant.grant_id !== current.grant_id &&
+      grant.status === 'active' &&
+      grant.incident_id === current.incident_id &&
+      grant.action === current.action &&
+      grant.delegate_principal === current.delegate_principal
+  );
+  if (duplicateActive) {
+    return errorResult('A matching operator delegation is already active for this incident/action/principal.', 'delegation_already_active', 409);
+  }
+
+  const issuedAt = new Date().toISOString();
+  const updated: SecurityExportOperatorDelegation = {
+    ...current,
+    status: 'active',
+    issued_by: actor,
+    issued_at: issuedAt,
+    approved_by: actor,
+    approved_at: issuedAt,
+    approval_note: note,
+    expires_at: new Date(Date.now() + current.requested_ttl_minutes * 60 * 1000).toISOString()
+  };
+
+  grants[index] = updated;
+  store.tenants[input.tenantId] = sortGrants(grants);
+  await writeStore(store);
+
+  return {
+    ok: true,
+    grant: updated
   };
 }
 
@@ -429,9 +590,13 @@ export async function revokeSecurityExportOperatorDelegation(
     return errorResult('Delegation revoke reason must be at least 8 characters.', 'revoke_reason_too_short', 400);
   }
 
+  const actor = normalizePrincipal(input.actor);
+  if (!actor || !PRINCIPAL_NAME_REGEX.test(actor)) {
+    return errorResult('Delegation revoker principal is invalid.', 'revoker_invalid', 400);
+  }
+
   const store = readStore();
   const grants = withMaterializedTenantGrants(store, input.tenantId);
-  const actor = normalizePrincipal(input.actor);
   const index = grants.findIndex((grant) => grant.grant_id === sanitizeString(input.grantId, 96));
 
   if (index < 0) {
@@ -439,8 +604,8 @@ export async function revokeSecurityExportOperatorDelegation(
   }
 
   const current = grants[index];
-  if (!current || current.status !== 'active') {
-    return errorResult('Only active operator delegations can be revoked.', 'delegation_inactive', 409);
+  if (!current || (current.status !== 'active' && current.status !== 'pending_approval')) {
+    return errorResult('Only active or pending operator delegations can be revoked.', 'delegation_inactive', 409);
   }
 
   const updated: SecurityExportOperatorDelegation = {

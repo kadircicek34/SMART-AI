@@ -45,6 +45,7 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - **Resilient Security Export Delivery Queue** (`POST /v1/security/export/deliveries` with `mode=async`) + encrypted retry payload store + backoff/dead-letter lifecycle + Idempotency-Key dedupe + Ed25519 delivery headers
 - **Security Export Delivery Incident Workflow** (`GET /v1/security/export/delivery-incidents`, `POST /v1/security/export/delivery-incidents/:incidentId/{acknowledge|clear-request|clear}`) + operator ack + live canary-backed clear request + four-eyes clear approval + revision/audit trail
 - **Security Export Operator Roster RBAC** (`GET/PUT/DELETE /v1/security/export/operator-policy`) + tenant-scoped incident commander / recovery requester / recovery approver ayrımı + fail-closed explicit roster enforcement
+- **Two-Person Security Export Delegation Approval** (`POST /v1/security/export/operator-delegations`, `POST /v1/security/export/operator-delegations/:grantId/approve`) + pending approval lifecycle + fresh-session step-up + delegated recovery audit trail
 - **Security Export Delivery Analytics + Auto-Quarantine** (`GET /v1/security/export/delivery-analytics`) + destination health verdictleri + repeated-failure quarantine + fail-closed preview/enqueue/redrive guard + clearable/unacked incident visibility
 - **Header abuse guard** (Authorization / tenant header boyut limitleri + UI oversized key koruması)
 - **UI session lifecycle hardening** (`/ui/session` introspection + `/ui/session/refresh` token rotation + idle-timeout + session cap eviction + unsafe `/v1/*` writes için Origin binding)
@@ -340,6 +341,9 @@ Security export delivery hattı production-grade operasyon için dört ek güven
 - aynı tenant içindeki aynı destination tekrar tekrar terminal failure/dead-letter üretirse hedef otomatik quarantine durumuna girer; preview, sync delivery, async enqueue ve manual redrive akışları fail-closed bloke edilir.
 - `GET /v1/security/export/delivery-incidents`, `POST /v1/security/export/delivery-incidents/:incidentId/acknowledge`, `POST /v1/security/export/delivery-incidents/:incidentId/clear` ile quarantine incident’ları operator ownership + revision guard + zorunlu açıklama modeliyle yönetilir; süre dolsa bile manual clear olmadan hedef tekrar açılmaz.
 - `GET/PUT/DELETE /v1/security/export/operator-policy` ile tenant bazlı operator roster yönetilir; `roster_required` modunda acknowledge, clear-request ve clear approval adımları ayrı principal listelerine bağlanır ve yetkisiz admin denemeleri audit event ile fail-closed reddedilir.
+- `POST /v1/security/export/operator-delegations` artık doğrudan aktif grant yerine `pending_approval` request üretir; `POST /v1/security/export/operator-delegations/:grantId/approve` ikinci operatör onayı ile grant'i aktive eder.
+- Delegation create/approve/revoke mutasyonlarında dashboard oturumu için fresh-session step-up zorunludur; taze olmayan UI session fail-closed reddedilir, API key admin akışı desteklenir.
+- Pending delegation request'leri approval TTL ile sınırlandırılır; requester kendi talebini, delegate principal ise kendi grant'ini approve edemez.
 
 ## Auth Context Introspection
 ```bash

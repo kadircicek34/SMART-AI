@@ -1,4 +1,26 @@
-# DELIVERY — SMART-AI v1.22 (Tenant-scoped Break-glass / JIT Delegated Approval)
+# DELIVERY — SMART-AI v1.23 (Two-Person Delegation Approval + Fresh Session Step-Up)
+
+## 2026-04-11 Teslim Özeti
+
+### Yapılanlar
+- Security export delegation issuance akışı `pending_approval -> active` yaşam döngüsüne yükseltildi; yeni `POST /v1/security/export/operator-delegations/:grantId/approve` endpoint'i eklendi.
+- Delegation store yeni status ve metadata alanlarıyla sertleştirildi: `pending_approval`, `approval_expired`, `requested_by`, `requested_at`, `approved_by`, `approved_at`, `approval_expires_at`, `approval_note`.
+- Create/approve/revoke delegation mutasyonlarına fresh-session step-up eklendi; taze olmayan dashboard oturumları fail-closed `403 permission_error` alıyor, API key admin akışı korunuyor.
+- Dashboard delegation paneli pending approval görünürlüğü, approve/revoke aksiyonları, requester/approver bilgisi ve step-up açıklamasıyla güncellendi.
+- Audit ve test yüzeyi production-grade hale getirildi: `security_export_operator_delegation_requested` audit event’i, focused contract/unit testler ve delegated recovery workflow kanıtı eklendi.
+
+### Doğrulama
+- `npm run typecheck` → PASS
+- `npx tsx --test tests/security/export-operator-delegation.test.ts tests/contract/security-export-operator-delegations.test.ts` → PASS (4/4)
+- `npm test` → PASS (201/201)
+- `npm audit --omit=dev` → PASS (0 vulnerability)
+- Smoke (`/health`, `GET /v1/security/export/operator-delegations?status=pending_approval`, `/ui/dashboard`) → PASS
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` → PASS
+
+### Kalan riskler
+- Delegation ve operator roster bugün principal-name listesi seviyesinde; external IdP/group sync henüz yok.
+- Step-up doğrulaması şu an UI session tazeliği + API key modeline dayanıyor; WebAuthn/IdP re-auth entegrasyonu henüz yok.
+- Delegation, incident, operator policy, audit ve session state hâlâ local file tabanlı; shared backend / multi-instance HA ihtiyacı sürüyor.
 
 ## 2026-04-10 Teslim Özeti
 

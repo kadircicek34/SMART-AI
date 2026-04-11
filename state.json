@@ -1,20 +1,25 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "Tenant-scoped break-glass / JIT delegated approval production-grade olarak teslim edildi",
+  "current_task": "Two-person delegation approval + fresh-session step-up production-grade olarak teslim edildi",
   "next_actions": [
     "Delegation ve operator roster'ı external IdP/group sync ile besle",
-    "Delegation, operator policy ve incident state'i gerçek shared backend'e taşı",
-    "Delegation issuance için ikinci approver / step-up approval modeli ekle",
+    "Delegation mutasyonları için WebAuthn veya harici IdP re-auth tabanlı step-up katmanı ekle",
+    "Delegation, operator policy, incident, audit ve session state'ini gerçek shared backend'e taşı",
     "Export delivery için merkezi egress proxy / VPC-level outbound enforcement tasarla ve uygula"
   ],
   "risks": [
     "Delegation ve operator roster bugün principal-name listesi seviyesinde; external IdP/group directory entegrasyonu henüz yok",
+    "Delegation step-up doğrulaması şu an UI session yaşı + API key güvenine dayanıyor; WebAuthn veya harici kimlik sağlayıcı re-auth entegrasyonu henüz yok",
     "Delegation, operator policy, incident, queue, audit ve session persistence hâlâ local file tabanlı; multi-instance HA için shared backend gerekecek",
-    "Delegation issuance bugün tek admin onayıyla çalışıyor; ikinci approver / step-up approval modeli henüz yok",
     "Export delivery için merkezi egress proxy / VPC-level outbound control henüz yok"
   ],
   "decisions": [
+    {
+      "date": "2026-04-11",
+      "decision": "Security export delegation issuance akışını two-person approval + fresh-session step-up modeline yükselt",
+      "reason": "Break-glass delegation'ın tek admin aksiyonu ile anında aktif hale gelmesini durdurmak, dashboard delegation mutasyonlarında taze re-authentication zorlamak ve approval lifecycle'ı auditlenebilir hale getirmek"
+    },
     {
       "date": "2026-04-10",
       "decision": "Security export delivery incident akışına tenant-scoped break-glass / JIT delegated approval control plane ekle",
@@ -84,16 +89,11 @@
     "service/config.ts",
     "service/api/routes/security-events.ts",
     "service/security/audit-log.ts",
-    "service/security/export-operator-policy.ts",
-    "service/tests/contract/security-export-deliveries.test.ts",
-    "service/tests/contract/security-export-operator-policy.test.ts",
-    "service/tests/security/export-operator-policy.test.ts",
-    "service/security/export-delivery.ts",
     "service/security/export-operator-delegation.ts",
     "service/web/assets/dashboard.js",
     "service/web/dashboard.html",
     "service/tests/contract/security-export-operator-delegations.test.ts",
     "service/tests/security/export-operator-delegation.test.ts"
   ],
-  "updated_at": "2026-04-10T07:00:00+03:00"
+  "updated_at": "2026-04-11T07:00:00+03:00"
 }

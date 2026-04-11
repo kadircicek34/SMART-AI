@@ -48,6 +48,7 @@ export const SECURITY_AUDIT_EVENT_TYPES = [
   'security_export_delivery_policy_reset',
   'security_export_operator_policy_updated',
   'security_export_operator_policy_reset',
+  'security_export_operator_delegation_requested',
   'security_export_operator_delegation_issued',
   'security_export_operator_delegation_consumed',
   'security_export_operator_delegation_revoked',
@@ -241,6 +242,7 @@ function evaluateRisk(byType: Record<SecurityAuditEventType, number>): {
   score += byType.security_export_delivery_failed * 2;
   score += byType.security_export_delivery_blocked * 3;
   score += byType.security_export_delivery_dead_lettered * 4;
+  score += byType.security_export_operator_delegation_requested;
   score += byType.security_export_operator_delegation_issued;
   score += byType.security_export_operator_delegation_consumed * 2;
   score += byType.security_export_operator_action_denied * 4;

@@ -1,4 +1,26 @@
-# TEST REPORT — SMART-AI v1.22 (Tenant-scoped Break-glass / JIT Delegated Approval)
+# TEST REPORT — SMART-AI v1.23 (Two-Person Delegation Approval + Fresh Session Step-Up)
+
+## 2026-04-11 doğrulama özeti — two-person delegation approval + fresh session step-up
+
+### Çalıştırılan komutlar
+1. `npm run typecheck` → PASS
+2. `npx tsx --test tests/security/export-operator-delegation.test.ts tests/contract/security-export-operator-delegations.test.ts` → PASS (**4/4**)
+3. `npm test` → PASS (**201/201**)
+4. `npm audit --omit=dev` → PASS (0 vulnerability)
+5. `PORT=3210 MASTER_KEY_BASE64=<generated> APP_API_KEY_DEFINITIONS=<smoke-admin> node_modules/.bin/tsx api/server.ts` + `curl /health` + `GET /v1/security/export/operator-delegations?status=pending_approval` + `GET /ui/dashboard` smoke → PASS (`{"health":true,"delegationObject":"list","delegationCount":0,"dashboardHasStepUpCopy":true}`)
+6. `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/.openclaw/workspace-yazilimci/projects/SMART-AI` → PASS
+
+### Yeni regresyon kanıtı
+- `POST /v1/security/export/operator-delegations` artık `pending_approval` grant üretiyor; `GET /v1/security/export/operator-delegations?status=pending_approval` yeni lifecycle statüsünü doğru döndürüyor.
+- `POST /v1/security/export/operator-delegations/:grantId/approve` ikinci operatör approval note ile grant'i `active` duruma taşıyor; requester self-approve ve delegate self-activate denemeleri fail-closed reddediliyor.
+- Taze olmayan `ui_session` ile delegation create isteği `403 permission_error` alıyor; step-up payload'ı max age ve session age telemetry'si döndürüyor.
+- Approval TTL dolan pending request `approval_expired`, aktif grant TTL dolan grant `expired` statüsüne materialize ediliyor.
+- Delegated incident recovery workflow contract testi, approved clear-request ve clear-approve delegation'larının gerçek incident authorize zincirinde consume edildiğini doğruluyor.
+- Dashboard `/ui/dashboard` delegation paneli pending approval, requester/approver, approval deadline, approve/revoke aksiyonları ve step-up açıklaması ile yeni API kontratıyla hizalandı.
+
+### Fresh verification notu
+- Two-person approval, UI step-up ve delegated recovery zinciri birlikte focused contract + unit suite ile doğrulandı.
+- Tam regresyon paketi, smoke ve delivery gate yeni delegation issuance güvenlik modeli ile tekrar yeşil geçti.
 
 ## 2026-04-10 doğrulama özeti — tenant-scoped break-glass / JIT delegated approval
 

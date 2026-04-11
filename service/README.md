@@ -131,6 +131,9 @@
 - `SECURITY_EXPORT_OPERATOR_DELEGATION_DEFAULT_TTL_MINUTES` (varsayılan: `30`)
 - `SECURITY_EXPORT_OPERATOR_DELEGATION_MAX_TTL_MINUTES` (varsayılan: `120`)
 - `SECURITY_EXPORT_OPERATOR_DELEGATION_MAX_ACTIVE_PER_TENANT` (varsayılan: `8`)
+- `SECURITY_EXPORT_OPERATOR_DELEGATION_MAX_PENDING_PER_TENANT` (varsayılan: `8`)
+- `SECURITY_EXPORT_OPERATOR_DELEGATION_APPROVAL_TTL_MINUTES` (varsayılan: `30`)
+- `SECURITY_EXPORT_OPERATOR_DELEGATION_STEP_UP_MAX_AGE_SECONDS` (varsayılan: `900`)
 - `SECURITY_EXPORT_SIGNING_MAX_VERIFY_KEYS` (varsayılan: 4)
 - `SECURITY_EXPORT_SIGNING_AUTO_ROTATE_ENABLED` (varsayılan: `true`)
 - `SECURITY_EXPORT_SIGNING_ROTATE_AFTER_HOURS` (varsayılan: `720`)
@@ -178,9 +181,10 @@
 - `GET /v1/security/export/operator-policy` → effective incident operator roster policy (deployment/tenant source + role rosters)
 - `PUT /v1/security/export/operator-policy` → tenant incident operator roster policy güncelle (`open_admins|roster_required` + `acknowledge|clear_request|clear_approve` role listeleri)
 - `DELETE /v1/security/export/operator-policy` → incident operator roster policy reset → deployment defaults
-- `GET /v1/security/export/operator-delegations` → tenant break-glass delegation grantlerini listele (`status=active|consumed|revoked|expired`)
-- `POST /v1/security/export/operator-delegations` → tek incident + tek action + TTL scoped break-glass delegation grant oluştur
-- `POST /v1/security/export/operator-delegations/:grantId/revoke` → aktif grant’i revoke et ve delegation penceresini kapat
+- `GET /v1/security/export/operator-delegations` → tenant delegation request/grant kayıtlarını listele (`status=pending_approval|active|consumed|revoked|expired|approval_expired`)
+- `POST /v1/security/export/operator-delegations` → tek incident + tek action + TTL scoped break-glass delegation request oluştur (`pending_approval`)
+- `POST /v1/security/export/operator-delegations/:grantId/approve` → ikinci operatör approval note ile pending delegation request'i aktive et
+- `POST /v1/security/export/operator-delegations/:grantId/revoke` → pending veya aktif delegation kaydını revoke et ve delegation penceresini kapat
 - `GET /v1/security/export/deliveries` → son export delivery receipt’lerini listele (`status=queued|retrying|succeeded|failed|blocked|dead_letter` filtreli)
 - `GET /v1/security/export/delivery-analytics` → delivery status breakdown + success rate + destination health/quarantine + timeline bucket’ları
 - `GET /v1/security/export/delivery-incidents` → active/resolved delivery incident kayıtlarını revision + owner metadata ile listele
@@ -231,8 +235,10 @@
 - `GET /v1/security/export/delivery-analytics` son pencere için success-rate, status dağılımı, incident timeline ve destination health verdict’lerini (`healthy|degraded|quarantined`) döndürür.
 - `GET /v1/security/export/delivery-incidents`, `POST /v1/security/export/delivery-incidents/:incidentId/acknowledge`, `POST /v1/security/export/delivery-incidents/:incidentId/clear-request`, `POST /v1/security/export/delivery-incidents/:incidentId/clear` ile operatör incident lifecycle’ını yönetebilir.
 - Yeni `operator-policy` control plane’i, incident acknowledge, clear-request ve clear approval adımlarını ayrı principal roster’larına bağlar; `roster_required` modunda explicit role listesi olmayan aksiyonlar fail-closed reddedilir.
-- Yeni `operator-delegations` control plane’i ile roster dışı operatöre tenant + incident + action + TTL scoped break-glass grant verilebilir; self-delegation yasaktır, grant sayısı tenant başına sınırlandırılır ve başarılı kullanımda grant tek seferlik consume edilir.
-- Delegation grant yaşam döngüsü `active|consumed|revoked|expired` olarak izlenir; issue/revoke/consume audit eventleri security export audit zincirine yazılır.
+- Yeni `operator-delegations` control plane’i ile roster dışı operatöre tenant + incident + action + TTL scoped break-glass delegation request açılabilir; kayıt önce `pending_approval` olur, ikinci operatör approve ettikten sonra `active` grant'e dönüşür.
+- Requester kendi talebini, delegate principal ise kendi grant'ini approve edemez; approval note zorunludur ve pending approval süresi dolarsa kayıt `approval_expired` durumuna düşer.
+- Delegation create/approve/revoke mutasyonlarında dashboard oturumu için fresh-session step-up uygulanır; taze olmayan UI session fail-closed reddedilir, doğrudan API key admin akışı desteklenir.
+- Delegation yaşam döngüsü `pending_approval|active|consumed|revoked|expired|approval_expired` olarak izlenir; request/approve/revoke/consume audit eventleri security export audit zincirine yazılır.
 - Aynı tenant içindeki aynı destination tekrar tekrar terminal failure/dead-letter üretirse hedef otomatik quarantine durumuna girer; preview, sync delivery, async enqueue ve manual redrive akışları fail-closed bloke edilir.
 - Quarantine artık süre bitince sessizce kalkmaz; hedef operator acknowledgement + cooldown sonrası manual clear olmadan tekrar açılamaz.
 - Incident clear artık canlı canary delivery sonrası oluşturulan clear request ve ikinci operatör onayı gerektirir; request sahibi kendi talebini onaylayamaz.

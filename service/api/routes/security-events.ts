@@ -46,14 +46,17 @@ import {
   type SecurityExportOperatorAction
 } from '../../security/export-operator-policy.js';
 import {
+  approveSecurityExportOperatorDelegation,
   createSecurityExportOperatorDelegation,
   consumeSecurityExportOperatorDelegation,
   findActiveSecurityExportOperatorDelegation,
+  getSecurityExportOperatorDelegation,
   listSecurityExportOperatorDelegations,
   revokeSecurityExportOperatorDelegation,
   type SecurityExportOperatorDelegation,
   type SecurityExportOperatorDelegationStatus
 } from '../../security/export-operator-delegation.js';
+import { uiSessionStore } from '../../security/ui-session-store.js';
 
 const CHAIN_HASH_REGEX = /^[a-f0-9]{64}$/;
 const IDEMPOTENCY_KEY_ALLOWED = /^[A-Za-z0-9._:-]+$/;
@@ -219,7 +222,7 @@ const OPERATOR_DELEGATION_LIST_QUERY_SCHEMA = z.object({
       return parsed;
     })
     .refine((value) => value >= 1 && value <= 100, { message: 'limit must be between 1 and 100' }),
-  status: z.enum(['active', 'consumed', 'revoked', 'expired']).optional()
+  status: z.enum(['pending_approval', 'active', 'consumed', 'revoked', 'expired', 'approval_expired']).optional()
 });
 
 const OPERATOR_DELEGATION_PARAMS_SCHEMA = z.object({
@@ -243,6 +246,10 @@ const OPERATOR_DELEGATION_BODY_SCHEMA = z.object({
     .refine((value) => value >= 1 && value <= config.security.exportOperatorDelegationMaxTtlMinutes, {
       message: `ttlMinutes must be between 1 and ${config.security.exportOperatorDelegationMaxTtlMinutes}`
     })
+});
+
+const OPERATOR_DELEGATION_APPROVE_BODY_SCHEMA = z.object({
+  note: z.string().trim().min(8).max(280)
 });
 
 const OPERATOR_DELEGATION_REVOKE_BODY_SCHEMA = z.object({
@@ -530,6 +537,80 @@ async function authorizeSecurityExportOperatorDelegationWrite(options: {
   };
 }
 
+function evaluateSecurityExportOperatorDelegationStepUp(req: {
+  headers: Record<string, unknown>;
+  requestContext?: {
+    authMode?: 'api_key' | 'ui_session';
+    authApiKey?: string;
+    authPrincipalName?: string;
+  };
+}) {
+  const maxAgeSeconds = Math.max(0, Math.trunc(config.security.exportOperatorDelegationStepUpMaxAgeSeconds));
+  if (maxAgeSeconds <= 0) {
+    return {
+      allowed: true as const,
+      assurance: 'disabled' as const
+    };
+  }
+
+  if (req.requestContext?.authMode === 'api_key') {
+    return {
+      allowed: true as const,
+      assurance: 'api_key' as const
+    };
+  }
+
+  const token = req.requestContext?.authApiKey ?? '';
+  if (!token) {
+    return {
+      allowed: false as const,
+      statusCode: 401,
+      payload: authError()
+    };
+  }
+
+  const resolution = uiSessionStore.resolve(token, {
+    touch: false,
+    userAgent: normalizeHeaderValue(req.headers['user-agent']) ?? undefined,
+    maxIdleSeconds: config.uiSession.maxIdleSeconds
+  });
+
+  if (!resolution.session) {
+    return {
+      allowed: false as const,
+      statusCode: 401,
+      payload: authError()
+    };
+  }
+
+  const sessionAgeSeconds = Math.max(0, Math.floor((Date.now() - resolution.session.createdAt) / 1000));
+  if (sessionAgeSeconds <= maxAgeSeconds) {
+    return {
+      allowed: true as const,
+      assurance: 'fresh_ui_session' as const,
+      sessionAgeSeconds
+    };
+  }
+
+  return {
+    allowed: false as const,
+    statusCode: 403,
+    payload: permissionError(
+      'Break-glass delegation changes require a fresh UI session re-authentication or direct API key credential.',
+      {
+        step_up: {
+          required: true,
+          reason: 'ui_session_too_old',
+          actor: req.requestContext?.authPrincipalName ?? 'unknown',
+          max_age_seconds: maxAgeSeconds,
+          session_age_seconds: sessionAgeSeconds,
+          created_at: new Date(resolution.session.createdAt).toISOString()
+        }
+      }
+    )
+  };
+}
+
 async function consumeSecurityExportOperatorDelegationIfNeeded(options: {
   tenantId: string;
   incidentId: string;
@@ -612,8 +693,15 @@ function toSecurityExportOperatorDelegationPayload(grant: SecurityExportOperator
     incident_id: grant.incident_id,
     action: grant.action,
     delegate_principal: grant.delegate_principal,
+    requested_by: grant.requested_by,
+    requested_at: grant.requested_at,
+    requested_ttl_minutes: grant.requested_ttl_minutes,
+    approval_expires_at: grant.approval_expires_at,
     issued_by: grant.issued_by,
     issued_at: grant.issued_at,
+    approved_by: grant.approved_by,
+    approved_at: grant.approved_at,
+    approval_note: grant.approval_note,
     expires_at: grant.expires_at,
     justification: grant.justification,
     status: grant.status,
@@ -690,6 +778,7 @@ function recordSecurityExportOperatorDelegationAudit(params: {
   tenantId: string;
   req: { ip: string; url: string; requestContext?: { requestId?: string } };
   type:
+    | 'security_export_operator_delegation_requested'
     | 'security_export_operator_delegation_issued'
     | 'security_export_operator_delegation_consumed'
     | 'security_export_operator_delegation_revoked';
@@ -706,8 +795,13 @@ function recordSecurityExportOperatorDelegationAudit(params: {
       incident_id: params.grant.incident_id,
       action: params.grant.action,
       delegate_principal: params.grant.delegate_principal,
+      requested_by: params.grant.requested_by,
+      requested_at: params.grant.requested_at,
+      approval_expires_at: params.grant.approval_expires_at,
       issued_by: params.grant.issued_by,
       issued_at: params.grant.issued_at,
+      approved_by: params.grant.approved_by,
+      approved_at: params.grant.approved_at,
       expires_at: params.grant.expires_at,
       status: params.grant.status,
       consumed_by: params.grant.consumed_by,
@@ -1183,6 +1277,11 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
       return reply.status(403).send(authorization.payload);
     }
 
+    const stepUp = evaluateSecurityExportOperatorDelegationStepUp(req);
+    if (!stepUp.allowed) {
+      return reply.status(stepUp.statusCode).send(stepUp.payload);
+    }
+
     const result = await createSecurityExportOperatorDelegation({
       tenantId,
       incidentId: parsed.data.incidentId,
@@ -1206,12 +1305,82 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
     recordSecurityExportOperatorDelegationAudit({
       tenantId,
       req,
+      type: 'security_export_operator_delegation_requested',
+      grant: result.grant
+    });
+
+    return {
+      object: 'security_export.operator_delegation',
+      tenant_id: tenantId,
+      data: toSecurityExportOperatorDelegationPayload(result.grant)
+    };
+  });
+
+  app.post('/v1/security/export/operator-delegations/:grantId/approve', async (req, reply) => {
+    const tenantId = req.requestContext?.tenantId;
+    if (!tenantId) {
+      return reply.status(401).send(authError());
+    }
+
+    const params = OPERATOR_DELEGATION_PARAMS_SCHEMA.safeParse(req.params ?? {});
+    if (!params.success) {
+      return reply.status(400).send(invalidRequest('Invalid operator delegation id.', params.error.flatten()));
+    }
+
+    const parsed = OPERATOR_DELEGATION_APPROVE_BODY_SCHEMA.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return reply.status(400).send(invalidRequest('Invalid payload for operator delegation approval.', parsed.error.flatten()));
+    }
+
+    const existing = await getSecurityExportOperatorDelegation(tenantId, params.data.grantId);
+    const authorization = await authorizeSecurityExportOperatorDelegationWrite({
+      tenantId,
+      req,
+      incidentId: existing?.incident_id ?? '00000000-0000-4000-8000-000000000000'
+    });
+    if (!authorization.allowed) {
+      return reply.status(403).send(authorization.payload);
+    }
+
+    const stepUp = evaluateSecurityExportOperatorDelegationStepUp(req);
+    if (!stepUp.allowed) {
+      return reply.status(stepUp.statusCode).send(stepUp.payload);
+    }
+
+    if (!existing) {
+      return reply.status(404).send(apiError('Operator delegation not found.', { code: 'delegation_not_found', grant_id: params.data.grantId }));
+    }
+
+    const incident = getSecurityExportDeliveryIncident(tenantId, existing.incident_id);
+    if (!incident || incident.status !== 'active') {
+      return reply.status(409).send(
+        apiError('Security export delivery incident is no longer active for delegation approval.', {
+          code: 'incident_inactive',
+          incident_id: existing.incident_id,
+          grant_id: params.data.grantId
+        })
+      );
+    }
+
+    const result = await approveSecurityExportOperatorDelegation({
+      tenantId,
+      grantId: params.data.grantId,
+      actor: authorization.actor,
+      note: parsed.data.note
+    });
+    if (!result.ok) {
+      return reply.status(result.statusCode).send(apiError(result.reason, { code: result.code, grant_id: params.data.grantId }));
+    }
+
+    recordSecurityExportOperatorDelegationAudit({
+      tenantId,
+      req,
       type: 'security_export_operator_delegation_issued',
       grant: result.grant
     });
 
     return {
-      object: 'security_export_operator_delegation',
+      object: 'security_export.operator_delegation',
       tenant_id: tenantId,
       data: toSecurityExportOperatorDelegationPayload(result.grant)
     };
@@ -1233,8 +1402,7 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
       return reply.status(400).send(invalidRequest('Invalid payload for operator delegation revoke.', parsed.error.flatten()));
     }
 
-    const delegations = await listSecurityExportOperatorDelegations(tenantId, { limit: 200 });
-    const existing = delegations.find((grant) => grant.grant_id === params.data.grantId) ?? null;
+    const existing = await getSecurityExportOperatorDelegation(tenantId, params.data.grantId);
     const authorization = await authorizeSecurityExportOperatorDelegationWrite({
       tenantId,
       req,
@@ -1242,6 +1410,11 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
     });
     if (!authorization.allowed) {
       return reply.status(403).send(authorization.payload);
+    }
+
+    const stepUp = evaluateSecurityExportOperatorDelegationStepUp(req);
+    if (!stepUp.allowed) {
+      return reply.status(stepUp.statusCode).send(stepUp.payload);
     }
 
     const result = await revokeSecurityExportOperatorDelegation({
@@ -1262,7 +1435,7 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
     });
 
     return {
-      object: 'security_export_operator_delegation',
+      object: 'security_export.operator_delegation',
       tenant_id: tenantId,
       data: toSecurityExportOperatorDelegationPayload(result.grant)
     };

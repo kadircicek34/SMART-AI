@@ -450,11 +450,19 @@ function renderSecurityDelegationsTable(grants = []) {
 
   for (const grant of grants) {
     const tr = document.createElement('tr');
-    const expiresAtMs = Date.parse(grant.expires_at ?? '');
-    const expiresLabel = Number.isFinite(expiresAtMs) ? new Date(expiresAtMs).toLocaleString('tr-TR') : '—';
+    const pending = (grant.status ?? '') === 'pending_approval';
+    const deadlineIso = pending ? grant.approval_expires_at : grant.expires_at;
+    const deadlineMs = Date.parse(deadlineIso ?? '');
+    const deadlineLabel = Number.isFinite(deadlineMs) ? new Date(deadlineMs).toLocaleString('tr-TR') : '—';
     const statusBits = [grant.status ?? 'unknown'];
-    if ((grant.status ?? '') === 'active' && Number.isFinite(expiresAtMs) && expiresAtMs <= Date.now()) {
+    if (pending && Number.isFinite(deadlineMs) && deadlineMs <= Date.now()) {
+      statusBits.push('approval-expired-local');
+    }
+    if ((grant.status ?? '') === 'active' && Number.isFinite(deadlineMs) && deadlineMs <= Date.now()) {
       statusBits.push('expired-local');
+    }
+    if (grant.approved_by) {
+      statusBits.push(`approved:${grant.approved_by}`);
     }
     if (grant.consumed_by) {
       statusBits.push(`used:${grant.consumed_by}`);
@@ -462,17 +470,26 @@ function renderSecurityDelegationsTable(grants = []) {
     if (grant.revoked_by) {
       statusBits.push(`revoked:${grant.revoked_by}`);
     }
-    const note = grant.revoke_reason ?? grant.justification ?? '—';
+    const note = grant.revoke_reason ?? grant.approval_note ?? grant.justification ?? '—';
     const actionHtml =
-      grant.status === 'active'
-        ? `<button class="secondary compact revoke-security-delegation-btn" data-grant-id="${escapeHtml(grant.grant_id)}">Revoke</button>`
-        : '<span class="muted">—</span>';
+      grant.status === 'pending_approval'
+        ? `<button class="secondary compact approve-security-delegation-btn" data-grant-id="${escapeHtml(grant.grant_id)}">Approve</button> <button class="secondary compact revoke-security-delegation-btn" data-grant-id="${escapeHtml(grant.grant_id)}">Revoke</button>`
+        : grant.status === 'active'
+          ? `<button class="secondary compact revoke-security-delegation-btn" data-grant-id="${escapeHtml(grant.grant_id)}">Revoke</button>`
+          : '<span class="muted">—</span>';
+    const issuerLabel = pending ? (grant.requested_by ?? '—') : (grant.issued_by ?? grant.requested_by ?? '—');
+    const issuerTime = pending ? grant.requested_at : grant.issued_at ?? grant.requested_at;
+    const issuerMeta = pending
+      ? 'requester'
+      : grant.approved_by
+        ? `approver=${grant.approved_by}`
+        : 'approved';
     tr.innerHTML = `
       <td>${escapeHtml(String(grant.grant_id ?? '').slice(0, 8))}…</td>
       <td>${escapeHtml(grant.incident_id ? `${grant.incident_id.slice(0, 8)}…` : '—')}<br /><span class="muted">${escapeHtml(grant.action ?? '—')}</span></td>
       <td>${escapeHtml(grant.delegate_principal ?? '—')}</td>
-      <td>${escapeHtml(grant.issued_by ?? '—')}<br /><span class="muted">${escapeHtml(new Date(grant.issued_at ?? Date.now()).toLocaleString('tr-TR'))}</span></td>
-      <td>${escapeHtml(expiresLabel)}<br /><span class="muted">${escapeHtml(statusBits.join(' | '))}</span></td>
+      <td>${escapeHtml(issuerLabel)}<br /><span class="muted">${escapeHtml(new Date(issuerTime ?? Date.now()).toLocaleString('tr-TR'))} · ${escapeHtml(issuerMeta)}</span></td>
+      <td>${escapeHtml(deadlineLabel)}<br /><span class="muted">${escapeHtml(statusBits.join(' | '))}</span></td>
       <td>${escapeHtml(String(note).slice(0, 160))}<br />${actionHtml}</td>
     `;
     tbody.appendChild(tr);
@@ -1013,11 +1030,11 @@ async function loadSecurityDelegations(settings) {
       acc[status] = (acc[status] ?? 0) + 1;
       return acc;
     },
-    { active: 0, consumed: 0, revoked: 0, expired: 0 }
+    { pending_approval: 0, active: 0, consumed: 0, revoked: 0, expired: 0, approval_expired: 0 }
   );
   document.getElementById('securityDelegationSummary').textContent =
-    `active=${counts.active ?? 0}, consumed=${counts.consumed ?? 0}, revoked=${counts.revoked ?? 0}, expired=${counts.expired ?? 0}. ` +
-    'Break-glass grantler tek incident + tek action + TTL bazlı ve başarılı kullanımda tek seferlik consume edilir.';
+    `pending=${counts.pending_approval ?? 0}, active=${counts.active ?? 0}, consumed=${counts.consumed ?? 0}, revoked=${counts.revoked ?? 0}, expired=${counts.expired ?? 0}, approvalExpired=${counts.approval_expired ?? 0}. ` +
+    'Break-glass delegationlar artık ikinci operatör approve adımı ve taze UI session veya direkt API key step-up gerektirir.';
   renderSecurityDelegationsTable(grants);
   return grants;
 }
@@ -1044,7 +1061,27 @@ async function issueSecurityDelegation(settings) {
 
   const grant = response?.data ?? {};
   log(
-    `Security delegation issued. grant=${String(grant.grant_id ?? '').slice(0, 8)}…, incident=${String(grant.incident_id ?? '').slice(0, 8)}…, action=${grant.action ?? 'unknown'}, delegate=${grant.delegate_principal ?? 'unknown'}`
+    `Security delegation request created. grant=${String(grant.grant_id ?? '').slice(0, 8)}…, incident=${String(grant.incident_id ?? '').slice(0, 8)}…, action=${grant.action ?? 'unknown'}, delegate=${grant.delegate_principal ?? 'unknown'}, status=${grant.status ?? 'pending_approval'}`
+  );
+  await loadSecurityDelegations(settings);
+  return response;
+}
+
+async function approveSecurityDelegation(settings, grantId, note) {
+  await maybeRefreshSession(settings);
+
+  const response = await safeFetchJson(`${settings.baseUrl}/v1/security/export/operator-delegations/${encodeURIComponent(grantId)}/approve`, {
+    method: 'POST',
+    headers: {
+      ...authHeaders(settings),
+      origin: window.location.origin
+    },
+    body: JSON.stringify({ note })
+  });
+
+  const grant = response?.data ?? {};
+  log(
+    `Security delegation approved. grant=${String(grant.grant_id ?? grantId).slice(0, 8)}…, approver=${grant.approved_by ?? grant.issued_by ?? 'unknown'}, delegate=${grant.delegate_principal ?? 'unknown'}, incident=${String(grant.incident_id ?? '').slice(0, 8)}…`
   );
   await loadSecurityDelegations(settings);
   return response;
@@ -1565,7 +1602,7 @@ async function init() {
 
     try {
       await issueSecurityDelegation(next);
-      setStatus('Security break-glass delegation grant oluşturuldu.');
+      setStatus('Security break-glass delegation isteği oluşturuldu ve approval bekliyor.');
     } catch (error) {
       setStatus(String(error), true);
       log(`Hata: ${String(error)}`);
@@ -1573,12 +1610,42 @@ async function init() {
   });
 
   document.getElementById('securityDelegationsTableBody').addEventListener('click', async (event) => {
-    const button = event.target?.closest?.('.revoke-security-delegation-btn');
-    if (!button) {
+    const approveButton = event.target?.closest?.('.approve-security-delegation-btn');
+    if (approveButton) {
+      const grantId = approveButton.dataset.grantId;
+      if (!grantId) {
+        return;
+      }
+
+      const note = window.prompt(
+        'Delegation approval notu girin (en az 8 karakter):',
+        'İkinci operatör onayı verildi, break-glass delegation aktive ediliyor.'
+      );
+      if (!note) {
+        return;
+      }
+
+      const next = readSettingsForm();
+      setSettings(next);
+      approveButton.disabled = true;
+      try {
+        await approveSecurityDelegation(next, grantId, note);
+        setStatus('Security delegation approve edildi ve grant aktive oldu.');
+      } catch (error) {
+        setStatus(String(error), true);
+        log(`Hata: ${String(error)}`);
+      } finally {
+        approveButton.disabled = false;
+      }
       return;
     }
 
-    const grantId = button.dataset.grantId;
+    const revokeButton = event.target?.closest?.('.revoke-security-delegation-btn');
+    if (!revokeButton) {
+      return;
+    }
+
+    const grantId = revokeButton.dataset.grantId;
     if (!grantId) {
       return;
     }
@@ -1593,7 +1660,7 @@ async function init() {
 
     const next = readSettingsForm();
     setSettings(next);
-    button.disabled = true;
+    revokeButton.disabled = true;
     try {
       await revokeSecurityDelegation(next, grantId, reason);
       setStatus('Security delegation grant revoke edildi.');
@@ -1601,7 +1668,7 @@ async function init() {
       setStatus(String(error), true);
       log(`Hata: ${String(error)}`);
     } finally {
-      button.disabled = false;
+      revokeButton.disabled = false;
     }
   });
 
