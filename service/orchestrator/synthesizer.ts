@@ -49,6 +49,37 @@ function stripTrailingSourcesSection(value: string): string {
     .trim();
 }
 
+function sanitizeAssistantAnswer(value: string): string {
+  const normalized = value.replace(/\r\n/g, '\n').trim();
+  if (!normalized) {
+    return '';
+  }
+
+  const cleaned = normalized
+    .split('\n')
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return true;
+
+      return ![
+        /^\[LLM synthesis fallback reason:[^\]]*\]$/i,
+        /^Plan:\s*(?:[a-z_][a-z0-9_\/-]*)(?:\s*,\s*[a-z_][a-z0-9_\/-]*)*\s*$/i,
+        /^Verifier:\s*.+$/i,
+        /^Source preference:\s*(?:include sources|no source list)\s*$/i,
+        /^Evidence(?: \(internal use only\))?:\s*$/i,
+        /^Tool:\s*[a-z_][a-z0-9_:-]*\s*$/i,
+        /^Summary:\s*$/i,
+        /^Citations:\s*.*$/i,
+        /^-{3,}\s*$/
+      ].some((pattern) => pattern.test(trimmed));
+    })
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  return cleaned;
+}
+
 function formatSources(citations: string[]): string {
   return `Kaynaklar:\n${citations.map((c) => `- ${c}`).join('\n')}`;
 }
@@ -97,7 +128,7 @@ export async function synthesizeAnswer(params: {
     const base = fallbackSynthesis(params);
     const text = includeSources && citations.length > 0 ? `${base}\n\n${formatSources(citations)}` : base;
     return {
-      text,
+      text: sanitizeAssistantAnswer(text),
       model: 'local-fallback',
       usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
     };
@@ -117,6 +148,7 @@ export async function synthesizeAnswer(params: {
             'Think internally with a Poetiq-like method: (1) Intent Mirror (2) Evidence Weave (3) Counter-check (4) Crisp Delivery.',
             'Final answer must read like a clean LLM assistant answer, not an audit log.',
             'Do not expose plan/tool internals unless explicitly requested.',
+            'Never repeat internal labels such as Plan, Verifier, Evidence, Tool, Summary, or Citations in the final answer.',
             'Do not include links/sources unless user explicitly asked for them.'
           ].join(' ')
         },
@@ -124,20 +156,21 @@ export async function synthesizeAnswer(params: {
           role: 'user',
           content: [
             `User Query: ${params.query}`,
-            `Plan: ${params.plan.tools.join(', ')}`,
-            `Verifier: ${params.verification.reason}`,
-            `Source preference: ${includeSources ? 'include sources' : 'no source list'}`,
             '',
-            'Evidence:',
+            'Evidence (internal use only):',
             evidence,
             '',
+            includeSources
+              ? 'User explicitly asked for sources. Add a short source list at the end.'
+              : 'Do not add a source list.',
             'Write final answer in Turkish unless query explicitly asks another language.'
           ].join('\n')
         }
       ]
     });
 
-    const normalized = includeSources ? completion.text.trim() : stripTrailingSourcesSection(completion.text);
+    const cleanedAnswer = sanitizeAssistantAnswer(completion.text);
+    const normalized = includeSources ? cleanedAnswer : stripTrailingSourcesSection(cleanedAnswer);
     const withSources = includeSources && citations.length > 0 ? `${normalized}\n\n${formatSources(citations)}` : normalized;
 
     return {
@@ -148,9 +181,10 @@ export async function synthesizeAnswer(params: {
   } catch (error) {
     const fallback = fallbackSynthesis(params);
     const fallbackWithSources = includeSources && citations.length > 0 ? `${fallback}\n\n${formatSources(citations)}` : fallback;
+    void error;
 
     return {
-      text: `${fallbackWithSources}\n\n[LLM synthesis fallback reason: ${error instanceof Error ? error.message : String(error)}]`,
+      text: sanitizeAssistantAnswer(fallbackWithSources),
       model: 'local-fallback',
       usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
     };
@@ -160,5 +194,6 @@ export async function synthesizeAnswer(params: {
 export const __private__ = {
   userExplicitlyAskedForSources,
   shouldAttachSources,
-  stripTrailingSourcesSection
+  stripTrailingSourcesSection,
+  sanitizeAssistantAnswer
 };
