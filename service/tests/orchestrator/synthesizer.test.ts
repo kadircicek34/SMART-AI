@@ -31,7 +31,7 @@ test('on_demand mode attaches sources only when explicitly requested', () => {
   assert.equal(notAsked, false);
 });
 
-test('synthesizer removes leaked internal audit lines from final answer', () => {
+test('synthesizer removes leaked trailing internal audit block from final answer', () => {
   const raw = [
     'BTC şu an güçlü görünüm koruyor.',
     '',
@@ -48,5 +48,11 @@ test('synthesizer removes leaked internal audit lines from final answer', () => 
 
   const cleaned = __private__.sanitizeAssistantAnswer(raw);
 
-  assert.equal(cleaned, 'BTC şu an güçlü görünüm koruyor.\n\nMomentum pozitif, hacim destekli.');
+  assert.equal(cleaned, 'BTC şu an güçlü görünüm koruyor.');
+});
+
+ test('synthesizer detects internal audit markers with markdown wrappers', () => {
+  assert.equal(__private__.isInternalAuditStart('## Evidence (internal use only):'), true);
+  assert.equal(__private__.isInternalAuditStart('- **Tool:** openbb_search'), true);
+  assert.equal(__private__.isInternalAuditStart('Normal kullanıcı yanıtı'), false);
 });
