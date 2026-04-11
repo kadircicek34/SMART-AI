@@ -30,3 +30,23 @@ test('on_demand mode attaches sources only when explicitly requested', () => {
   assert.equal(asked, true);
   assert.equal(notAsked, false);
 });
+
+test('synthesizer removes leaked internal audit lines from final answer', () => {
+  const raw = [
+    'BTC şu an güçlü görünüm koruyor.',
+    '',
+    'Plan: openbb_search, web_search',
+    'Verifier: evidence was sufficient',
+    'Evidence (internal use only):',
+    'Tool: openbb_search',
+    'Summary:',
+    'Momentum pozitif, hacim destekli.',
+    'Citations: https://example.com/a',
+    '',
+    '[LLM synthesis fallback reason: timeout]'
+  ].join('\n');
+
+  const cleaned = __private__.sanitizeAssistantAnswer(raw);
+
+  assert.equal(cleaned, 'BTC şu an güçlü görünüm koruyor.\n\nMomentum pozitif, hacim destekli.');
+});
