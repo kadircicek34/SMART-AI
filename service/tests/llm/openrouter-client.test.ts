@@ -98,3 +98,83 @@ test('chatWithOpenRouter does not retry on non-retryable failures', async () => 
     globalThis.fetch = originalFetch;
   }
 });
+
+test('chatWithOpenRouter preserves provider defaults when temperature and max tokens are omitted', async () => {
+  const originalFetch = globalThis.fetch;
+  let capturedBody: Record<string, unknown> | undefined;
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+    return new Response(
+      JSON.stringify({
+        model: 'deepseek/deepseek-v3.2',
+        choices: [{ message: { content: 'ok' } }],
+        usage: {
+          prompt_tokens: 1,
+          completion_tokens: 1,
+          total_tokens: 2
+        }
+      }),
+      {
+        status: 200,
+        headers: {
+          'content-type': 'application/json'
+        }
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    await chatWithOpenRouter({
+      apiKey: 'test-key',
+      model: 'deepseek/deepseek-v3.2',
+      messages: [{ role: 'user', content: 'hello' }]
+    });
+
+    assert.equal('temperature' in (capturedBody ?? {}), false);
+    assert.equal('max_tokens' in (capturedBody ?? {}), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('chatWithOpenRouter forwards explicit temperature and max tokens when provided', async () => {
+  const originalFetch = globalThis.fetch;
+  let capturedBody: Record<string, unknown> | undefined;
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+    return new Response(
+      JSON.stringify({
+        model: 'deepseek/deepseek-v3.2',
+        choices: [{ message: { content: 'ok' } }],
+        usage: {
+          prompt_tokens: 1,
+          completion_tokens: 1,
+          total_tokens: 2
+        }
+      }),
+      {
+        status: 200,
+        headers: {
+          'content-type': 'application/json'
+        }
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    await chatWithOpenRouter({
+      apiKey: 'test-key',
+      model: 'deepseek/deepseek-v3.2',
+      messages: [{ role: 'user', content: 'hello' }],
+      temperature: 0.7,
+      maxTokens: 900
+    });
+
+    assert.equal(capturedBody?.temperature, 0.7);
+    assert.equal(capturedBody?.max_tokens, 900);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

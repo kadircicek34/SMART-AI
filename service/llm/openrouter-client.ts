@@ -47,7 +47,6 @@ function calculateBackoffDelayMs(attempt: number): number {
   return capped + jitter;
 }
 
-
 export async function chatWithOpenRouter(params: {
   apiKey: string;
   model: string;
@@ -61,6 +60,20 @@ export async function chatWithOpenRouter(params: {
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     throwIfAborted(params.signal);
 
+    const payload: Record<string, unknown> = {
+      model: params.model,
+      messages: params.messages,
+      stream: false
+    };
+
+    if (params.temperature !== undefined) {
+      payload.temperature = params.temperature;
+    }
+
+    if (params.maxTokens !== undefined) {
+      payload.max_tokens = params.maxTokens;
+    }
+
     const response = await fetch(`${config.openRouter.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -69,13 +82,7 @@ export async function chatWithOpenRouter(params: {
         'http-referer': 'https://smart-ai.local',
         'x-title': 'SMART-AI'
       },
-      body: JSON.stringify({
-        model: params.model,
-        messages: params.messages,
-        temperature: params.temperature ?? 0.3,
-        max_tokens: params.maxTokens ?? 1200,
-        stream: false
-      }),
+      body: JSON.stringify(payload),
       signal: createTimeoutSignal(config.requestTimeoutMs, params.signal)
     });
 

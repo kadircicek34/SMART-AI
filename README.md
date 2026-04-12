@@ -25,6 +25,7 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - **Brave Search destekli web_search** (fallback: DuckDuckGo)
 - **Verifier kalite kapıları** (minimum citation + source diversity + failure-signal reliability kontrolü)
 - **Clean LLM answer mode** (kaynak listesi varsayılan olarak kapalı; sadece talep edilince eklenir)
+- **Hybrid quality routing** (gereksiz orkestrasyonu atlar, full-conversation direct mode ile ham model kalitesini korur; evidence olduğunda draft-as-quality-floor sentezi uygular)
 - **Loop guard** (tekrarlayan tool-pass kırıcı)
 - **Deep research budget/concurrency kontrolleri**
 - **Research job runtime hardening** (Idempotency-Key TTL + tenant active-job cap + AbortSignal destekli gerçek cancel/timeout + cancellation reason telemetry)

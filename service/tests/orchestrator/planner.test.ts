@@ -24,3 +24,25 @@ test('planner enables deep reasoning for strategy-heavy prompts', () => {
   assert.ok((plan.tools.length ?? 0) <= 6);
   assert.match(plan.reasoning, /Poetiq-plan/i);
 });
+
+test('planner keeps general writing prompts in direct mode without web search', () => {
+  const plan = planForQuery('Bana profesyonel ama samimi bir teşekkür mesajı yaz.');
+
+  assert.deepEqual(plan.tools, []);
+  assert.match(plan.reasoning, /Direct answer plan/i);
+});
+
+test('planner does not trigger deep research only because prompt has multiple sentences', () => {
+  const plan = planForQuery('Dün çok yoruldum. Bana motive edici kısa bir mesaj yaz.');
+
+  assert.equal(plan.tools.includes('deep_research'), false);
+  assert.equal(plan.tools.includes('web_search'), false);
+});
+
+test('planner adds web search only when freshness or explicit sources are requested', () => {
+  const fresh = planForQuery('OpenAI son model release notes özetini kaynaklarıyla ver.');
+  const timeless = planForQuery('Soyut sanat nedir, kısa anlat.');
+
+  assert.equal(fresh.tools.includes('web_search'), true);
+  assert.equal(timeless.tools.includes('web_search'), false);
+});

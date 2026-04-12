@@ -1,20 +1,28 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "Incident revision scoped delegation fail-closed olarak production-grade teslim edildi",
+  "current_task": "Response quality floor ve smart routing hattı production-grade olarak güçlendirildi",
   "next_actions": [
+    "Intent bazlı online routing telemetry ile hangi query türünün passthrough vs evidence mode aldığına dair kalite dashboardu ekle",
+    "Golden prompt benchmark seti ile raw model vs SMART-AI kalite regresyon CI kapısı ekle",
     "Delegation ve operator roster'ı external IdP/group sync ile besle",
     "Delegation mutasyonları için WebAuthn veya harici IdP re-auth tabanlı step-up katmanı ekle",
     "Delegation, operator policy, incident, audit ve session state'ini gerçek shared backend'e taşı",
     "Export delivery için merkezi egress proxy / VPC-level outbound enforcement tasarla ve uygula"
   ],
   "risks": [
+    "Hybrid direct/evidence routing kaliteyi ciddi yükseltir ancak latencyyi artırır; gerekirse ileride cached draft veya intent-level fast-path tuning yapılmalıdır",
     "Delegation ve operator roster bugün principal-name listesi seviyesinde; external IdP/group directory entegrasyonu henüz yok",
     "Delegation step-up doğrulaması şu an UI session yaşı + API key güvenine dayanıyor; WebAuthn veya harici kimlik sağlayıcı re-auth entegrasyonu henüz yok",
     "Delegation, operator policy, incident, queue, audit ve session persistence hâlâ local file tabanlı; multi-instance HA için shared backend gerekecek",
     "Export delivery için merkezi egress proxy / VPC-level outbound control henüz yok"
   ],
   "decisions": [
+    {
+      "date": "2026-04-12",
+      "decision": "Ham model kalitesini koruyan hybrid direct-answer + evidence-upgrade routing modeline geç",
+      "reason": "Her isteği zorla orkestrasyona sokmanın ham LLM kalitesini ve konuşma bağlamını bozmasını durdurmak; full conversation passthrough, selective tool routing ve draft-as-quality-floor sentezi ile SMART-AI cevabını modelin altında değil üstünde konumlamak"
+    },
     {
       "date": "2026-04-12",
       "decision": "Security export operator delegation modelini incident revision scoped fail-closed posture'a yükselt",
@@ -100,5 +108,5 @@
     "service/tests/contract/security-export-operator-delegations.test.ts",
     "service/tests/security/export-operator-delegation.test.ts"
   ],
-  "updated_at": "2026-04-12T07:11:00+03:00"
+  "updated_at": "2026-04-12T12:45:00+03:00"
 }

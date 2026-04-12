@@ -1,4 +1,4 @@
-import { planForQuery } from './planner.js';
+import { planForQuery, queryNeedsBroadEvidence } from './planner.js';
 import type { ToolName } from '../tools/types.js';
 import type { Plan } from './types.js';
 
@@ -43,34 +43,43 @@ function intentCoverageScore(query: string, plan: Plan): number {
   return score;
 }
 
-function evidenceReadinessScore(plan: Plan): number {
+function evidenceReadinessScore(query: string, plan: Plan): number {
+  const broadEvidenceNeeded = queryNeedsBroadEvidence(query);
   let score = 0;
-  if (plan.tools.includes('web_search')) score += 1.1;
-  if (plan.tools.includes('deep_research')) score += 1.4;
-  if (plan.tools.includes('rag_search') || plan.tools.includes('qmd_search')) score += 1.2;
-  if (plan.tools.includes('memory_search')) score += 0.8;
+  if (plan.tools.includes('web_search')) score += broadEvidenceNeeded ? 1.1 : 0.25;
+  if (plan.tools.includes('deep_research')) score += broadEvidenceNeeded ? 1.4 : 0.4;
+  if (plan.tools.includes('rag_search') || plan.tools.includes('qmd_search')) score += broadEvidenceNeeded ? 1.2 : 0.8;
+  if (plan.tools.includes('memory_search')) score += broadEvidenceNeeded ? 0.8 : 0.55;
   return score;
 }
 
-function clarityScore(plan: Plan): number {
+function clarityScore(query: string, plan: Plan): number {
+  const broadEvidenceNeeded = queryNeedsBroadEvidence(query);
   const toolCount = plan.tools.length;
-  if (toolCount >= 3 && toolCount <= 5) {
+
+  if (!broadEvidenceNeeded && toolCount === 0) {
+    return 1;
+  }
+
+  if (broadEvidenceNeeded && toolCount >= 2 && toolCount <= 4) {
     return 0.7;
   }
 
-  if (toolCount <= 2) {
-    return 0.2;
+  if (!broadEvidenceNeeded && toolCount <= 2) {
+    return 0.4;
   }
 
-  return -0.3;
+  return -0.6;
 }
 
-function costPenalty(plan: Plan): number {
-  return Math.max(0, plan.tools.length - 4) * 0.45;
+function costPenalty(query: string, plan: Plan): number {
+  const broadEvidenceNeeded = queryNeedsBroadEvidence(query);
+  const freeTools = broadEvidenceNeeded ? 4 : 2;
+  return Math.max(0, plan.tools.length - freeTools) * (broadEvidenceNeeded ? 0.55 : 1.1);
 }
 
 function scorePlan(query: string, plan: Plan): number {
-  return intentCoverageScore(query, plan) + evidenceReadinessScore(plan) + clarityScore(plan) - costPenalty(plan);
+  return intentCoverageScore(query, plan) + evidenceReadinessScore(query, plan) + clarityScore(query, plan) - costPenalty(query, plan);
 }
 
 function withTools(base: Plan, tools: ToolName[], label: string): Plan {
@@ -83,6 +92,16 @@ function withTools(base: Plan, tools: ToolName[], label: string): Plan {
 
 function generateCandidates(query: string): Plan[] {
   const base = planForQuery(query);
+  const broadEvidenceNeeded = queryNeedsBroadEvidence(query);
+
+  if (base.tools.length === 0) {
+    return [base];
+  }
+
+  if (!broadEvidenceNeeded) {
+    const conservativeTools = [...new Set(base.tools)].slice(0, 2);
+    return [base, withTools(base, conservativeTools, 'poetiq-direct-preserving')];
+  }
 
   const aggressiveTools = [
     ...new Set<ToolName>([

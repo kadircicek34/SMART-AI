@@ -35,19 +35,40 @@ const OPENBB_KEYWORDS = [
 ];
 
 const WIKI_KEYWORDS = ['who is', 'what is', 'history', 'nedir', 'kimdir', 'tarihçe', 'wikipedia'];
-const RESEARCH_KEYWORDS = ['deep', 'research', 'analyze', 'analysis', 'araştır', 'detay', 'karşılaştır'];
+const RESEARCH_KEYWORDS = ['deep', 'research', 'analyze', 'analysis', 'araştır', 'detay', 'karşılaştır', 'incele'];
 const STRATEGY_KEYWORDS = [
   'strategy',
   'strateji',
-  'nasıl',
-  'why',
-  'neden',
   'trade-off',
   'tasarım',
   'architecture',
   'mimari',
-  'adım adım',
-  'plan'
+  'adım adım plan',
+  'roadmap',
+  'yaklaşım'
+];
+const WEB_RESEARCH_KEYWORDS = [
+  'web search',
+  'internetten',
+  'webde',
+  'kaynak',
+  'source',
+  'sources',
+  'referans',
+  'citation',
+  'citations',
+  'link',
+  'haber',
+  'news',
+  'güncel',
+  'latest',
+  'current',
+  'today',
+  'bugün',
+  'son durum',
+  'recent',
+  'release notes',
+  'changelog'
 ];
 const RAG_KEYWORDS = [
   'docs',
@@ -55,15 +76,9 @@ const RAG_KEYWORDS = [
   'knowledge base',
   'kb',
   'rag',
-  'readme',
-  'api spec',
-  'contract',
-  'repo',
-  'codebase',
   'doküman',
   'döküman',
   'bilgi tabanı',
-  'projede',
   'internal'
 ];
 
@@ -90,8 +105,6 @@ const QMD_KEYWORDS = [
   'smart-ai',
   'project docs',
   'repo içinde',
-  'codebase',
-  'mimari',
   'task.md',
   'prd.md',
   'decisions.md',
@@ -101,7 +114,8 @@ const QMD_KEYWORDS = [
   'runbook',
   'hangi endpoint',
   'bu projede',
-  'local docs'
+  'local docs',
+  'readme'
 ];
 
 const MEVZUAT_KEYWORDS = [
@@ -196,7 +210,7 @@ function shouldUseRag(query: string): boolean {
   const normalized = query.toLowerCase();
   if (hasKeyword(normalized, RAG_KEYWORDS)) return true;
 
-  return /(bizim|internal|tenant|dok[uü]man|repo|code|sözleşme|spec)/i.test(query) && /\?/i.test(query);
+  return /(bizim|internal|tenant|dok[uü]man|bilgi taban[ıi]|rag)/i.test(query) && /\?/i.test(query);
 }
 
 function shouldUseMemory(query: string): boolean {
@@ -210,7 +224,7 @@ function shouldUseQmd(query: string): boolean {
   const normalized = query.toLowerCase();
   if (hasKeyword(normalized, QMD_KEYWORDS)) return true;
 
-  return /(projede|repository|repo|dok[üu]man|readme|roadmap|tasarım|architecture|endpoint|contract)/i.test(query);
+  return /(projede|repository|repo içinde|dok[üu]man|readme|roadmap|endpoint|contract|task\.md|prd\.md|decisions\.md|delivery\.md)/i.test(query);
 }
 
 function shouldUseMevzuatMcp(query: string): boolean {
@@ -243,11 +257,51 @@ function shouldUseOpenbb(query: string): boolean {
 
 function shouldUseDeepReasoning(query: string): boolean {
   const normalized = query.toLowerCase();
-  if (hasKeyword(normalized, STRATEGY_KEYWORDS)) return true;
+  if (hasKeyword(normalized, STRATEGY_KEYWORDS) || hasKeyword(normalized, RESEARCH_KEYWORDS)) return true;
 
-  const sentenceCount = query.split(/[.!?]+/).filter((part) => part.trim().length > 0).length;
   const asksComparison = /(karşılaştır|compare|trade.?off|artı|eksi|alternatif)/i.test(query);
-  return sentenceCount >= 2 || asksComparison;
+  const asksDeepAnalysis = /(detaylı analiz|deep research|derin analiz|değerlendir|tasarla|incele|design an approach)/i.test(query);
+  return asksComparison || asksDeepAnalysis;
+}
+
+export function queryNeedsBroadEvidence(query: string): boolean {
+  const normalized = query.toLowerCase();
+
+  return (
+    hasKeyword(normalized, RESEARCH_KEYWORDS) ||
+    hasKeyword(normalized, WEB_RESEARCH_KEYWORDS) ||
+    /(güncel|latest|current|today|bugün|şu an|recent|son durum|haber|news|kaynak|source|referans|citation|doğrula|verify|cross-check)/i.test(
+      query
+    ) ||
+    shouldUseMevzuatMcp(query) ||
+    shouldUseYargiMcp(query) ||
+    shouldUseBorsaMcp(query) ||
+    shouldUseOpenbb(query) ||
+    shouldUseRag(query) ||
+    shouldUseQmd(query) ||
+    shouldUseMemory(query)
+  );
+}
+
+export function shouldUseWebSearch(query: string, currentTools: ToolName[] = []): boolean {
+  const normalized = query.toLowerCase();
+
+  if (hasKeyword(normalized, WEB_RESEARCH_KEYWORDS)) return true;
+  if (/https?:\/\//i.test(query)) return true;
+
+  if (/(güncel|latest|current|today|bugün|şu an|recent|son durum|haber|news|release|changelog|istatistik|dataset|veri seti)/i.test(query)) {
+    return true;
+  }
+
+  if (
+    currentTools.some((tool) =>
+      ['financial_deep_search', 'openbb_search', 'mevzuat_mcp_search', 'yargi_mcp_search', 'borsa_mcp_search'].includes(tool)
+    ) && /(kaynak|source|referans|citation|doğrula|verify|karşılaştır|cross-check)/i.test(query)
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 export function planForQuery(query: string): Plan {
@@ -293,10 +347,9 @@ export function planForQuery(query: string): Plan {
     tools.push('borsa_mcp_search');
   }
 
-  const qLen = query.trim().length;
   const isSmallTalk = /^(selam|merhaba|hi|hello|hey|nasılsın|naber)[!.?\s]*$/i.test(query.trim());
 
-  if (!isSmallTalk && (qLen > 20 || tools.length === 0)) {
+  if (!isSmallTalk && shouldUseWebSearch(query, tools)) {
     tools.push('web_search');
   }
 
@@ -306,7 +359,7 @@ export function planForQuery(query: string): Plan {
   return {
     objective: query,
     tools: normalizedTools,
-    reasoning: `Poetiq-plan selected tools: ${normalizedTools.join(', ')}`,
+    reasoning: normalizedTools.length > 0 ? `Poetiq-plan selected tools: ${normalizedTools.join(', ')}` : 'Direct answer plan selected: no external evidence required.',
     stages: buildStages(normalizedTools)
   };
 }
