@@ -75,6 +75,7 @@ test('runOrchestrator uses intent router + direct model mode for simple prompts'
     assert.match(out.plan.reasoning, /intent-router/i);
     assert.match(out.plan.reasoning, /expert-persona/i);
     assert.equal(payloadMessages.some((message) => message.role === 'system' && /SMART-AI expert answer engine/i.test(message.content)), true);
+    assert.equal(payloadMessages.some((message) => message.role === 'system' && /Türk hukuk profesörüsün/i.test(message.content)), true);
     assert.equal(payloadMessages.some((message) => message.role === 'system' && /profesyonel ama sıcak/.test(message.content)), true);
     assert.equal(payloadMessages.some((message) => message.role === 'assistant' && /Hazırım/.test(message.content)), true);
     assert.equal(payloadMessages.some((message) => message.role === 'user' && /teşekkür mesajı/.test(message.content)), true);
@@ -160,6 +161,8 @@ test('runOrchestrator uses intent-router deep_reasoning signal to keep two-pass 
       return messages.some((message) => /Base draft answer/.test(message.content));
     })?.messages as Array<{ role: string; content: string }>) ?? [];
 
+    assert.equal(firstMessages.some((message) => message.role === 'system' && /Türk hukuk profesörüsün/i.test(message.content)), true);
+    assert.equal(secondMessages.some((message) => message.role === 'system' && /Türk hukuk profesörüsün/i.test(message.content)), true);
     assert.equal(firstMessages.some((message) => message.role === 'user' && /Internal prompt expansion/.test(message.content)), true);
     assert.equal(secondMessages.some((message) => message.role === 'user' && /Base draft answer/.test(message.content)), true);
   } finally {

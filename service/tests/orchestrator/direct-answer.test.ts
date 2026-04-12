@@ -72,6 +72,7 @@ test('toLlmConversation prepends expert persona and enriches last user message o
 
   assert.equal(conversation[0]?.role, 'system');
   assert.match(conversation[0]?.content ?? '', /SMART-AI expert answer engine/i);
+  assert.match(conversation[0]?.content ?? '', /Türk hukuk profesörüsün/i);
   assert.equal(conversation.some((message) => message.role === 'system' && /This is pass 1 of 2/.test(message.content)), true);
   const lastUser = [...conversation].reverse().find((message) => message.role === 'user');
   assert.match(lastUser?.content ?? '', /Internal prompt expansion/);
