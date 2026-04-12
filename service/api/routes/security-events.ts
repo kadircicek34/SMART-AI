@@ -634,6 +634,122 @@ async function consumeSecurityExportOperatorDelegationIfNeeded(options: {
   });
 }
 
+function getSecurityExportOperatorDelegationScope(grant: SecurityExportOperatorDelegation) {
+  const incident = getSecurityExportDeliveryIncident(grant.tenant_id, grant.incident_id);
+
+  if (grant.incident_revision === null) {
+    return {
+      status: 'legacy_unscoped' as const,
+      incident_revision: null,
+      current_incident_revision: incident?.revision ?? null,
+      incident_status: incident?.status ?? null
+    };
+  }
+
+  if (!incident) {
+    return {
+      status: 'incident_missing' as const,
+      incident_revision: grant.incident_revision,
+      current_incident_revision: null,
+      incident_status: null
+    };
+  }
+
+  if (incident.status !== 'active') {
+    return {
+      status: 'incident_resolved' as const,
+      incident_revision: grant.incident_revision,
+      current_incident_revision: incident.revision,
+      incident_status: incident.status
+    };
+  }
+
+  if (incident.revision !== grant.incident_revision) {
+    return {
+      status: 'revision_stale' as const,
+      incident_revision: grant.incident_revision,
+      current_incident_revision: incident.revision,
+      incident_status: incident.status
+    };
+  }
+
+  return {
+    status: 'current' as const,
+    incident_revision: grant.incident_revision,
+    current_incident_revision: incident.revision,
+    incident_status: incident.status
+  };
+}
+
+function validateDelegatedSecurityExportOperatorActionScope(options: {
+  tenantId: string;
+  incidentId: string;
+  expectedRevision: number | undefined;
+  authorization: {
+    authorizationMode: 'operator_policy' | 'delegated_grant' | 'denied';
+    delegationGrant: SecurityExportOperatorDelegation | null;
+  };
+}) {
+  if (options.authorization.authorizationMode !== 'delegated_grant' || !options.authorization.delegationGrant) {
+    return { ok: true as const };
+  }
+
+  const grant = options.authorization.delegationGrant;
+  if (grant.incident_revision === null) {
+    return {
+      ok: false as const,
+      statusCode: 409,
+      payload: apiError('This break-glass delegation predates incident revision scoping and must be re-requested.', {
+        code: 'delegation_scope_legacy_unscoped',
+        grant_id: grant.grant_id,
+        incident_id: grant.incident_id
+      })
+    };
+  }
+
+  if (options.expectedRevision === undefined) {
+    return {
+      ok: false as const,
+      statusCode: 400,
+      payload: invalidRequest('Delegated incident actions require the incident revision.', {
+        code: 'delegation_revision_required',
+        grant_id: grant.grant_id,
+        incident_id: grant.incident_id
+      })
+    };
+  }
+
+  if (options.expectedRevision !== grant.incident_revision) {
+    return {
+      ok: false as const,
+      statusCode: 409,
+      payload: apiError('Break-glass delegation is scoped to a different incident revision. Refresh the incident and request a new delegation.', {
+        code: 'delegation_incident_revision_conflict',
+        grant_id: grant.grant_id,
+        incident_id: grant.incident_id,
+        delegation_incident_revision: grant.incident_revision,
+        requested_incident_revision: options.expectedRevision
+      })
+    };
+  }
+
+  const scope = getSecurityExportOperatorDelegationScope(grant);
+  if (scope.status !== 'current') {
+    return {
+      ok: false as const,
+      statusCode: 409,
+      payload: apiError('Break-glass delegation scope is stale. Refresh the incident and request a new delegation.', {
+        code: 'delegation_scope_stale',
+        grant_id: grant.grant_id,
+        incident_id: grant.incident_id,
+        scope
+      })
+    };
+  }
+
+  return { ok: true as const };
+}
+
 function verifyExportBundleForTenant(bundle: SecurityAuditExportBundle, tenantId: string) {
   const integrity = verifySecurityAuditIntegrity({
     events: bundle.data,
@@ -691,6 +807,7 @@ function toSecurityExportOperatorDelegationPayload(grant: SecurityExportOperator
     tenant_id: grant.tenant_id,
     grant_id: grant.grant_id,
     incident_id: grant.incident_id,
+    incident_revision: grant.incident_revision,
     action: grant.action,
     delegate_principal: grant.delegate_principal,
     requested_by: grant.requested_by,
@@ -709,7 +826,8 @@ function toSecurityExportOperatorDelegationPayload(grant: SecurityExportOperator
     consumed_by: grant.consumed_by,
     revoked_at: grant.revoked_at,
     revoked_by: grant.revoked_by,
-    revoke_reason: grant.revoke_reason
+    revoke_reason: grant.revoke_reason,
+    scope: getSecurityExportOperatorDelegationScope(grant)
   };
 }
 
@@ -1285,6 +1403,7 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
     const result = await createSecurityExportOperatorDelegation({
       tenantId,
       incidentId: parsed.data.incidentId,
+      incidentRevision: incident.revision,
       action: parsed.data.action,
       delegatePrincipal: parsed.data.delegatePrincipal,
       actor: authorization.actor,
@@ -1358,6 +1477,18 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
           code: 'incident_inactive',
           incident_id: existing.incident_id,
           grant_id: params.data.grantId
+        })
+      );
+    }
+
+    const scope = getSecurityExportOperatorDelegationScope(existing);
+    if (scope.status !== 'current') {
+      return reply.status(409).send(
+        apiError('Break-glass delegation approval scope is stale. Refresh the incident and request a new delegation.', {
+          code: 'delegation_scope_stale',
+          grant_id: params.data.grantId,
+          incident_id: existing.incident_id,
+          scope
         })
       );
     }
@@ -1709,6 +1840,16 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
       return reply.status(403).send(authorization.payload);
     }
 
+    const scopeValidation = validateDelegatedSecurityExportOperatorActionScope({
+      tenantId,
+      incidentId: params.data.incidentId,
+      expectedRevision: parsed.data.revision,
+      authorization
+    });
+    if (!scopeValidation.ok) {
+      return reply.status(scopeValidation.statusCode).send(scopeValidation.payload);
+    }
+
     try {
       const incident = await acknowledgeSecurityExportDeliveryIncident({
         tenantId,
@@ -1783,6 +1924,16 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
     });
     if (!authorization.allowed) {
       return reply.status(403).send(authorization.payload);
+    }
+
+    const scopeValidation = validateDelegatedSecurityExportOperatorActionScope({
+      tenantId,
+      incidentId: params.data.incidentId,
+      expectedRevision: parsed.data.revision,
+      authorization
+    });
+    if (!scopeValidation.ok) {
+      return reply.status(scopeValidation.statusCode).send(scopeValidation.payload);
     }
 
     try {
@@ -1869,6 +2020,16 @@ export async function registerSecurityEventsRoute(app: FastifyInstance) {
     });
     if (!authorization.allowed) {
       return reply.status(403).send(authorization.payload);
+    }
+
+    const scopeValidation = validateDelegatedSecurityExportOperatorActionScope({
+      tenantId,
+      incidentId: params.data.incidentId,
+      expectedRevision: parsed.data.revision,
+      authorization
+    });
+    if (!scopeValidation.ok) {
+      return reply.status(scopeValidation.statusCode).send(scopeValidation.payload);
     }
 
     try {

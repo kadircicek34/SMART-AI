@@ -1,5 +1,26 @@
 # TEST REPORT — SMART-AI v1.23 (Two-Person Delegation Approval + Fresh Session Step-Up)
 
+## 2026-04-12 doğrulama özeti — incident revision scoped delegation
+
+### Çalıştırılan komutlar
+1. `npm run typecheck` → PASS
+2. `npx tsx --test tests/security/export-operator-delegation.test.ts tests/contract/security-export-operator-delegations.test.ts` → PASS (**5/5**)
+3. `npm test` → PASS (**204/204**)
+4. `npm audit --omit=dev` → PASS (0 vulnerability)
+5. `PORT=3211 MASTER_KEY_BASE64=<generated> APP_API_KEYS=smoke-admin-key node_modules/.bin/tsx api/server.ts` + `curl /health` + `GET /v1/security/export/operator-delegations?limit=5` + `GET /ui/dashboard` smoke → PASS (`{"health":true,"delegationObject":"list","delegationCount":0,"dashboardLoaded":true}`)
+6. `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/SMART-AI` → PASS
+
+### Yeni regresyon kanıtı
+- Delegation request create path'i artık `incident.revision` ile kayıt oluşturuyor; aynı incident/action/principal kombinasyonu için yeni revision geldiğinde taze delegation request açılabiliyor.
+- `POST /v1/security/export/operator-delegations/:grantId/approve` stale pending request'i aktive etmiyor; incident revision drift olduğunda `409 delegation_scope_stale` dönüyor.
+- Delegated `acknowledge`, `clear-request` ve `clear` aksiyonları grant revision ile request revision'ı eşleştiriyor; mismatch durumunda fail-closed `delegation_incident_revision_conflict` veya `delegation_scope_stale` yüzeyi dönüyor.
+- Contract workflow testi reopened incident / clear-request revision drift sonrası eski clear-approve grant'inin kullanılamadığını, yeni revision için taze delegation gerektiğini doğruluyor.
+- Dashboard delegation tablosu incident revision, current revision ve scope status görünürlüğü ile stale grant'leri operatöre açıkça gösteriyor.
+
+### Fresh verification notu
+- Revision-aware delegation modeli create, approve, authorize ve dashboard yüzeylerinde birlikte doğrulandı.
+- Tam regresyon paketi, smoke ve canonical delivery gate yeni revision-scope güvenlik modeli ile tekrar yeşil geçti.
+
 ## 2026-04-11 doğrulama özeti — two-person delegation approval + fresh session step-up
 
 ### Çalıştırılan komutlar

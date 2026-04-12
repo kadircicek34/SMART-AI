@@ -268,6 +268,8 @@ test('operator delegation requests enforce fresh step-up, require second approva
   assert.equal(requested.status, 'pending_approval');
   assert.equal(requested.requested_by, 'recovery-approver');
   assert.equal(requested.approved_by, null);
+  assert.equal(requested.incident_revision, incident.revision);
+  assert.equal(requested.scope.status, 'current');
 
   const pendingListRes = await app.inject({
     method: 'GET',
@@ -303,6 +305,8 @@ test('operator delegation requests enforce fresh step-up, require second approva
   assert.equal(approved.requested_by, 'recovery-approver');
   assert.equal(approved.issued_by, 'backup-approver');
   assert.equal(approved.approved_by, 'backup-approver');
+  assert.equal(approved.incident_revision, incident.revision);
+  assert.equal(approved.scope.status, 'current');
   assert.match(String(approved.expires_at), /T/);
 
   const revokeRes = await app.inject({
@@ -340,9 +344,33 @@ test('operator delegation requests enforce fresh step-up, require second approva
   assert.ok(events.data.some((event: any) => event.type === 'security_export_operator_delegation_revoked'));
 });
 
-test('delegated on-call operators can execute clear-request and clear approval only after second-operator delegation approval', async () => {
+test('delegation approval and usage stay incident-revision scoped across incident lifecycle changes', async () => {
   const tenantId = 'tenant-security-export-operator-delegation-workflow';
   const incident = await createIncident(tenantId, 'https://siem.example.com/hooks/delegation-workflow');
+
+  const stalePendingRes = await app.inject({
+    method: 'POST',
+    url: '/v1/security/export/operator-delegations',
+    headers: {
+      authorization: 'Bearer test-recovery-approver-key',
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      incidentId: incident.incident_id,
+      action: 'clear_request',
+      delegatePrincipal: 'night-shift',
+      justification: 'Ack öncesi hazırlanan delegation request incident revision değişirse stale olmalı.',
+      ttlMinutes: 30
+    }
+  });
+
+  assert.equal(stalePendingRes.statusCode, 200);
+  const stalePendingGrant = stalePendingRes.json().data;
+  assert.equal(stalePendingGrant.status, 'pending_approval');
+  assert.equal(stalePendingGrant.incident_revision, incident.revision);
+  assert.equal(stalePendingGrant.scope.status, 'current');
 
   const ackRes = await app.inject({
     method: 'POST',
@@ -361,6 +389,25 @@ test('delegated on-call operators can execute clear-request and clear approval o
 
   assert.equal(ackRes.statusCode, 200);
   const acknowledged = ackRes.json().data;
+
+  const staleApproveRes = await app.inject({
+    method: 'POST',
+    url: `/v1/security/export/operator-delegations/${stalePendingGrant.grant_id}/approve`,
+    headers: {
+      authorization: 'Bearer test-senior-approver-key',
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      note: 'Incident revision drifted, stale delegation must not activate.'
+    }
+  });
+
+  assert.equal(staleApproveRes.statusCode, 409);
+  const staleApproveBody = staleApproveRes.json();
+  assert.equal(staleApproveBody.delivery.code, 'delegation_scope_stale');
+  assert.equal(staleApproveBody.delivery.scope.status, 'revision_stale');
 
   Date.now = () => originalDateNow() + 61 * 60 * 1000;
   deliveryPrivate.setTransportForTests(async () => ({
@@ -392,6 +439,8 @@ test('delegated on-call operators can execute clear-request and clear approval o
   assert.equal(requestClearRequestGrantRes.statusCode, 200);
   const pendingClearRequestGrant = requestClearRequestGrantRes.json().data;
   assert.equal(pendingClearRequestGrant.status, 'pending_approval');
+  assert.equal(pendingClearRequestGrant.incident_revision, acknowledged.revision);
+  assert.equal(pendingClearRequestGrant.scope.status, 'current');
 
   const approveClearRequestGrantRes = await app.inject({
     method: 'POST',
@@ -411,6 +460,50 @@ test('delegated on-call operators can execute clear-request and clear approval o
   const clearRequestGrant = approveClearRequestGrantRes.json().data;
   assert.equal(clearRequestGrant.status, 'active');
   assert.equal(clearRequestGrant.approved_by, 'senior-approver');
+  assert.equal(clearRequestGrant.incident_revision, acknowledged.revision);
+  assert.equal(clearRequestGrant.scope.status, 'current');
+
+  const requestStaleClearApproveGrantRes = await app.inject({
+    method: 'POST',
+    url: '/v1/security/export/operator-delegations',
+    headers: {
+      authorization: 'Bearer test-recovery-approver-key',
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      incidentId: incident.incident_id,
+      action: 'clear_approve',
+      delegatePrincipal: 'relief-approver',
+      justification: 'Primary approver unavailable, relief operator four-eyes approval için hazırlanıyor.',
+      ttlMinutes: 30
+    }
+  });
+
+  assert.equal(requestStaleClearApproveGrantRes.statusCode, 200);
+  const pendingStaleClearGrant = requestStaleClearApproveGrantRes.json().data;
+  assert.equal(pendingStaleClearGrant.incident_revision, acknowledged.revision);
+  assert.equal(pendingStaleClearGrant.scope.status, 'current');
+
+  const approveStaleClearGrantRes = await app.inject({
+    method: 'POST',
+    url: `/v1/security/export/operator-delegations/${pendingStaleClearGrant.grant_id}/approve`,
+    headers: {
+      authorization: 'Bearer test-senior-approver-key',
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      note: 'Second operator approves the temporary four-eyes clear approver delegation.'
+    }
+  });
+
+  assert.equal(approveStaleClearGrantRes.statusCode, 200);
+  const staleClearGrant = approveStaleClearGrantRes.json().data;
+  assert.equal(staleClearGrant.status, 'active');
+  assert.equal(staleClearGrant.scope.status, 'current');
 
   const clearRequestRes = await app.inject({
     method: 'POST',
@@ -431,7 +524,28 @@ test('delegated on-call operators can execute clear-request and clear approval o
   const clearRequested = clearRequestRes.json().data;
   assert.equal(clearRequested.clear_request.requested_by, 'night-shift');
 
-  const requestClearApproveGrantRes = await app.inject({
+  const staleClearUseRes = await app.inject({
+    method: 'POST',
+    url: `/v1/security/export/delivery-incidents/${incident.incident_id}/clear`,
+    headers: {
+      authorization: 'Bearer test-relief-approver-key',
+      'x-tenant-id': tenantId,
+      'content-type': 'application/json',
+      origin: 'https://dashboard.example.com'
+    },
+    payload: {
+      note: 'Stale delegation should not approve clear after incident revision changed.',
+      revision: clearRequested.revision
+    }
+  });
+
+  assert.equal(staleClearUseRes.statusCode, 409);
+  const staleClearUseBody = staleClearUseRes.json();
+  assert.equal(staleClearUseBody.delivery.code, 'delegation_incident_revision_conflict');
+  assert.equal(staleClearUseBody.delivery.delegation_incident_revision, acknowledged.revision);
+  assert.equal(staleClearUseBody.delivery.requested_incident_revision, clearRequested.revision);
+
+  const requestFreshClearApproveGrantRes = await app.inject({
     method: 'POST',
     url: '/v1/security/export/operator-delegations',
     headers: {
@@ -444,18 +558,19 @@ test('delegated on-call operators can execute clear-request and clear approval o
       incidentId: incident.incident_id,
       action: 'clear_approve',
       delegatePrincipal: 'relief-approver',
-      justification: 'Primary approver unavailable, relief operator second four-eyes approval adımını tamamlayacak.',
+      justification: 'Incident revision değiştiği için relief approver için taze delegation gerekiyor.',
       ttlMinutes: 30
     }
   });
 
-  assert.equal(requestClearApproveGrantRes.statusCode, 200);
-  const pendingClearGrant = requestClearApproveGrantRes.json().data;
-  assert.equal(pendingClearGrant.status, 'pending_approval');
+  assert.equal(requestFreshClearApproveGrantRes.statusCode, 200);
+  const pendingFreshClearGrant = requestFreshClearApproveGrantRes.json().data;
+  assert.equal(pendingFreshClearGrant.incident_revision, clearRequested.revision);
+  assert.equal(pendingFreshClearGrant.scope.status, 'current');
 
-  const approveClearGrantRes = await app.inject({
+  const approveFreshClearGrantRes = await app.inject({
     method: 'POST',
-    url: `/v1/security/export/operator-delegations/${pendingClearGrant.grant_id}/approve`,
+    url: `/v1/security/export/operator-delegations/${pendingFreshClearGrant.grant_id}/approve`,
     headers: {
       authorization: 'Bearer test-senior-approver-key',
       'x-tenant-id': tenantId,
@@ -463,14 +578,15 @@ test('delegated on-call operators can execute clear-request and clear approval o
       origin: 'https://dashboard.example.com'
     },
     payload: {
-      note: 'Second operator approves the temporary four-eyes clear approver delegation.'
+      note: 'Fresh four-eyes clear approval delegation is approved for the new incident revision.'
     }
   });
 
-  assert.equal(approveClearGrantRes.statusCode, 200);
-  const clearGrant = approveClearGrantRes.json().data;
-  assert.equal(clearGrant.status, 'active');
-  assert.equal(clearGrant.approved_by, 'senior-approver');
+  assert.equal(approveFreshClearGrantRes.statusCode, 200);
+  const freshClearGrant = approveFreshClearGrantRes.json().data;
+  assert.equal(freshClearGrant.status, 'active');
+  assert.equal(freshClearGrant.incident_revision, clearRequested.revision);
+  assert.equal(freshClearGrant.scope.status, 'current');
 
   const clearRes = await app.inject({
     method: 'POST',
@@ -482,7 +598,7 @@ test('delegated on-call operators can execute clear-request and clear approval o
       origin: 'https://dashboard.example.com'
     },
     payload: {
-      note: 'Relief operator delegated four-eyes approvalı tamamladı ve hedefi yeniden açtı.',
+      note: 'Relief operator delegated four-eyes approvalı taze grant ile tamamladı ve hedefi yeniden açtı.',
       revision: clearRequested.revision
     }
   });
@@ -494,7 +610,7 @@ test('delegated on-call operators can execute clear-request and clear approval o
 
   const consumedRes = await app.inject({
     method: 'GET',
-    url: '/v1/security/export/operator-delegations?status=consumed&limit=10',
+    url: '/v1/security/export/operator-delegations?limit=10',
     headers: {
       authorization: 'Bearer test-admin-key',
       'x-tenant-id': tenantId
@@ -502,17 +618,17 @@ test('delegated on-call operators can execute clear-request and clear approval o
   });
 
   assert.equal(consumedRes.statusCode, 200);
-  const consumed = consumedRes.json();
-  const grantIds = consumed.data.map((entry: any) => entry.grant_id);
-  assert.ok(grantIds.includes(clearRequestGrant.grant_id));
-  assert.ok(grantIds.includes(clearGrant.grant_id));
-  assert.ok(consumed.data.some((entry: any) => entry.consumed_by === 'night-shift'));
-  assert.ok(consumed.data.some((entry: any) => entry.consumed_by === 'relief-approver'));
-  assert.ok(consumed.data.every((entry: any) => entry.approved_by === 'senior-approver'));
+  const delegations = consumedRes.json();
+  const consumedGrantIds = delegations.data.filter((entry: any) => entry.status === 'consumed').map((entry: any) => entry.grant_id);
+  assert.ok(consumedGrantIds.includes(clearRequestGrant.grant_id));
+  assert.ok(consumedGrantIds.includes(freshClearGrant.grant_id));
+  const staleGrantEntry = delegations.data.find((entry: any) => entry.grant_id === staleClearGrant.grant_id);
+  assert.ok(staleGrantEntry);
+  assert.equal(staleGrantEntry.scope.status, 'incident_resolved');
 
   const eventsRes = await app.inject({
     method: 'GET',
-    url: '/v1/security/events?limit=40',
+    url: '/v1/security/events?limit=60',
     headers: {
       authorization: 'Bearer test-admin-key',
       'x-tenant-id': tenantId
@@ -525,4 +641,4 @@ test('delegated on-call operators can execute clear-request and clear approval o
   assert.ok(events.data.some((event: any) => event.type === 'security_export_operator_delegation_issued'));
   assert.ok(events.data.some((event: any) => event.type === 'security_export_operator_delegation_consumed'));
   assert.ok(events.data.some((event: any) => event.type === 'security_export_delivery_incident_cleared'));
-});
+});;

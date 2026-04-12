@@ -1,5 +1,24 @@
 # SECURITY REPORT — SMART-AI v1.23
 
+## 2026-04-12 Güvenlik sertleştirmesi — incident revision scoped delegation
+
+### Bu koşumda kapatılan riskler
+1. **Stale delegation replay riski kapatıldı:** Delegation grant'leri incident revision'a bağlandı; reopened incident veya clear-request sonrası revision arttığında eski grant yeni state üzerinde kullanılamıyor.
+2. **Stale pending approval activation riski kapatıldı:** Approval endpoint'i artık missing/resolved/revision-stale delegation request'lerini `409 delegation_scope_stale` ile fail-closed reddediyor.
+3. **Revision drift körlüğü kapatıldı:** Delegated incident aksiyonları grant revision ve request revision'ı birlikte doğruluyor; mismatch durumunda açık hata kodu ile kapanıyor.
+4. **Operatör görünürlük açığı daraltıldı:** Dashboard ve list API'si grant scope status, incident revision ve current revision metadata'sını gösteriyor; stale grant'ler operasyon sırasında daha erken fark ediliyor.
+
+### Kontroller
+- Focused contract test reopened incident, stale approval, revision drift ve fresh re-delegation senaryolarını doğruladı.
+- Unit testler revision-aware duplicate request davranışını ve aynı principal için yeni revision delegation açılabildiğini doğruladı.
+- Full regression suite, smoke ve canonical delivery gate tekrar yeşil geçti.
+- `npm audit --omit=dev` sonucu: `0 vulnerability`.
+
+### Kalan riskler
+- Delegation ve operator roster bugün principal-name listesi seviyesinde; external IdP/group sync henüz yok.
+- Step-up doğrulaması şu an UI session yaşı + API key güvenine dayanıyor; WebAuthn veya harici kimlik sağlayıcı re-auth entegrasyonu henüz yok.
+- Delegation, incident, operator policy, audit ve session state hâlâ local file tabanlı; multi-instance shared backend ihtiyacı sürüyor.
+
 ## 2026-04-11 Güvenlik sertleştirmesi — two-person delegation approval + fresh session step-up
 
 ### Bu koşumda kapatılan riskler

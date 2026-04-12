@@ -29,6 +29,7 @@ test('delegation requests can be created, approved, discovered, and consumed onc
   const created = await delegationModule.createSecurityExportOperatorDelegation({
     tenantId: 'tenant-unit-delegation-lifecycle',
     incidentId: '4ff5304f-3c9e-4d8b-b79a-7fd86f14ba91',
+    incidentRevision: 2,
     action: 'clear_request',
     delegatePrincipal: 'night-shift',
     actor: 'delegation-requester',
@@ -107,6 +108,7 @@ test('self-approval, delegate approval, pending approval expiry, and active expi
   const selfApprovalRequest = await delegationModule.createSecurityExportOperatorDelegation({
     tenantId: 'tenant-unit-delegation-self-approve',
     incidentId: 'c9665900-f42c-4dfa-9f9b-ab7c774db66a',
+    incidentRevision: 1,
     action: 'acknowledge',
     delegatePrincipal: 'night-shift',
     actor: 'recovery-approver',
@@ -148,6 +150,7 @@ test('self-approval, delegate approval, pending approval expiry, and active expi
   const approvalExpiryRequest = await delegationModule.createSecurityExportOperatorDelegation({
     tenantId: 'tenant-unit-delegation-approval-expiry',
     incidentId: 'df0f35d6-5126-42b0-8ef3-3681fd76e145',
+    incidentRevision: 4,
     action: 'clear_approve',
     delegatePrincipal: 'backup-approver',
     actor: 'primary-approver',
@@ -187,6 +190,7 @@ test('self-approval, delegate approval, pending approval expiry, and active expi
   const activeExpiryRequest = await delegationModule.createSecurityExportOperatorDelegation({
     tenantId: 'tenant-unit-delegation-active-expiry',
     incidentId: '1c5a6f89-b4d1-477c-9b38-b8500ec2bf9a',
+    incidentRevision: 3,
     action: 'clear_approve',
     delegatePrincipal: 'backup-approver',
     actor: 'primary-approver',
@@ -228,4 +232,51 @@ test('self-approval, delegate approval, pending approval expiry, and active expi
   });
   assert.equal(expiredOnly.length, 1);
   assert.equal(expiredOnly[0]?.status, 'expired');
+});
+
+
+test('same incident/action/principal can request a fresh delegation after incident revision changes', async () => {
+  const first = await delegationModule.createSecurityExportOperatorDelegation({
+    tenantId: 'tenant-unit-delegation-revision-scope',
+    incidentId: '9f0a8503-03b0-44ce-9f3d-615f130a1e42',
+    incidentRevision: 2,
+    action: 'clear_approve',
+    delegatePrincipal: 'night-shift',
+    actor: 'delegation-requester',
+    justification: 'Revision 2 için geçici second-operator delegation.',
+    ttlMinutes: 15
+  });
+
+  assert.equal(first.ok, true);
+  if (!first.ok) {
+    throw new Error('expected first revision-scoped delegation request to be created');
+  }
+  assert.equal(first.grant.incident_revision, 2);
+
+  const second = await delegationModule.createSecurityExportOperatorDelegation({
+    tenantId: 'tenant-unit-delegation-revision-scope',
+    incidentId: '9f0a8503-03b0-44ce-9f3d-615f130a1e42',
+    incidentRevision: 3,
+    action: 'clear_approve',
+    delegatePrincipal: 'night-shift',
+    actor: 'delegation-requester',
+    justification: 'Incident revision arttığı için taze delegation gerekiyor.',
+    ttlMinutes: 15
+  });
+
+  assert.equal(second.ok, true);
+  if (!second.ok) {
+    throw new Error('expected second revision-scoped delegation request to be created');
+  }
+  assert.equal(second.grant.incident_revision, 3);
+
+  const pending = await delegationModule.listSecurityExportOperatorDelegations('tenant-unit-delegation-revision-scope', {
+    status: 'pending_approval',
+    limit: 10
+  });
+  assert.equal(pending.length, 2);
+  assert.deepEqual(
+    pending.map((grant) => grant.incident_revision).sort((left, right) => Number(left) - Number(right)),
+    [2, 3]
+  );
 });

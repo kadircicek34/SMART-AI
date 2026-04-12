@@ -1,7 +1,7 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "Two-person delegation approval + fresh-session step-up production-grade olarak teslim edildi",
+  "current_task": "Incident revision scoped delegation fail-closed olarak production-grade teslim edildi",
   "next_actions": [
     "Delegation ve operator roster'ı external IdP/group sync ile besle",
     "Delegation mutasyonları için WebAuthn veya harici IdP re-auth tabanlı step-up katmanı ekle",
@@ -15,6 +15,11 @@
     "Export delivery için merkezi egress proxy / VPC-level outbound control henüz yok"
   ],
   "decisions": [
+    {
+      "date": "2026-04-12",
+      "decision": "Security export operator delegation modelini incident revision scoped fail-closed posture'a yükselt",
+      "reason": "Stale delegation request/grant'lerin reopened incident veya revision drift sonrası yanlışlıkla kullanılmasını engellemek ve approval ile delegated recovery zincirini current incident state'e bağlamak"
+    },
     {
       "date": "2026-04-11",
       "decision": "Security export delegation issuance akışını two-person approval + fresh-session step-up modeline yükselt",
@@ -95,5 +100,5 @@
     "service/tests/contract/security-export-operator-delegations.test.ts",
     "service/tests/security/export-operator-delegation.test.ts"
   ],
-  "updated_at": "2026-04-11T07:00:00+03:00"
+  "updated_at": "2026-04-12T07:11:00+03:00"
 }

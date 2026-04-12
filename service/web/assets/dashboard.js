@@ -454,7 +454,11 @@ function renderSecurityDelegationsTable(grants = []) {
     const deadlineIso = pending ? grant.approval_expires_at : grant.expires_at;
     const deadlineMs = Date.parse(deadlineIso ?? '');
     const deadlineLabel = Number.isFinite(deadlineMs) ? new Date(deadlineMs).toLocaleString('tr-TR') : '—';
+    const scope = grant.scope ?? {};
     const statusBits = [grant.status ?? 'unknown'];
+    if (scope.status) {
+      statusBits.push(`scope:${scope.status}`);
+    }
     if (pending && Number.isFinite(deadlineMs) && deadlineMs <= Date.now()) {
       statusBits.push('approval-expired-local');
     }
@@ -484,9 +488,11 @@ function renderSecurityDelegationsTable(grants = []) {
       : grant.approved_by
         ? `approver=${grant.approved_by}`
         : 'approved';
+    const incidentRevision = grant.incident_revision ?? scope.incident_revision ?? '—';
+    const currentRevision = scope.current_incident_revision ?? '—';
     tr.innerHTML = `
       <td>${escapeHtml(String(grant.grant_id ?? '').slice(0, 8))}…</td>
-      <td>${escapeHtml(grant.incident_id ? `${grant.incident_id.slice(0, 8)}…` : '—')}<br /><span class="muted">${escapeHtml(grant.action ?? '—')}</span></td>
+      <td>${escapeHtml(grant.incident_id ? `${grant.incident_id.slice(0, 8)}…` : '—')}<br /><span class="muted">${escapeHtml(grant.action ?? '—')} · rev=${escapeHtml(String(incidentRevision))} → current=${escapeHtml(String(currentRevision))}</span></td>
       <td>${escapeHtml(grant.delegate_principal ?? '—')}</td>
       <td>${escapeHtml(issuerLabel)}<br /><span class="muted">${escapeHtml(new Date(issuerTime ?? Date.now()).toLocaleString('tr-TR'))} · ${escapeHtml(issuerMeta)}</span></td>
       <td>${escapeHtml(deadlineLabel)}<br /><span class="muted">${escapeHtml(statusBits.join(' | '))}</span></td>
@@ -1032,9 +1038,17 @@ async function loadSecurityDelegations(settings) {
     },
     { pending_approval: 0, active: 0, consumed: 0, revoked: 0, expired: 0, approval_expired: 0 }
   );
+  const scopeCounts = grants.reduce(
+    (acc, grant) => {
+      const scopeStatus = grant?.scope?.status ?? 'unknown';
+      acc[scopeStatus] = (acc[scopeStatus] ?? 0) + 1;
+      return acc;
+    },
+    { current: 0, revision_stale: 0, incident_resolved: 0, incident_missing: 0, legacy_unscoped: 0, unknown: 0 }
+  );
   document.getElementById('securityDelegationSummary').textContent =
-    `pending=${counts.pending_approval ?? 0}, active=${counts.active ?? 0}, consumed=${counts.consumed ?? 0}, revoked=${counts.revoked ?? 0}, expired=${counts.expired ?? 0}, approvalExpired=${counts.approval_expired ?? 0}. ` +
-    'Break-glass delegationlar artık ikinci operatör approve adımı ve taze UI session veya direkt API key step-up gerektirir.';
+    `pending=${counts.pending_approval ?? 0}, active=${counts.active ?? 0}, consumed=${counts.consumed ?? 0}, revoked=${counts.revoked ?? 0}, expired=${counts.expired ?? 0}, approvalExpired=${counts.approval_expired ?? 0}, currentScope=${scopeCounts.current ?? 0}, staleScope=${scopeCounts.revision_stale ?? 0}. ` +
+    'Break-glass delegationlar artık incident revision scope bilgisi taşır; stale grantler yeni revision için kullanılamaz ve ikinci operatör approve adımı ile taze UI session veya direkt API key step-up gerektirir.';
   renderSecurityDelegationsTable(grants);
   return grants;
 }

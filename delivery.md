@@ -1,5 +1,27 @@
 # DELIVERY — SMART-AI v1.23 (Two-Person Delegation Approval + Fresh Session Step-Up)
 
+## 2026-04-12 Teslim Özeti
+
+### Yapılanlar
+- Security export delegation modeli incident revision scoped hale getirildi; create path artık aktif incident revision'ı grant'e yazıyor ve stale revision grant'leri yeni lifecycle state üzerinde kullanılamıyor.
+- Approval hattı sertleştirildi: stale/missing/resolved/legacy-unscoped delegation request'leri `409 delegation_scope_stale` ile fail-closed reddediliyor.
+- Delegated incident authorize zinciri revision-aware hale getirildi; `acknowledge`, `clear-request` ve `clear` aksiyonları grant revision ve istek revision'ını birlikte doğruluyor.
+- Dashboard delegation görünürlüğü genişletildi: incident revision, current revision ve scope status bilgisi summary + tablo üzerinde gösteriliyor.
+- Focused unit/contract test paketi stale approval, reopened incident, revision drift ve fresh re-delegation regresyonlarıyla production-grade kanıt seviyesine yükseltildi.
+
+### Doğrulama
+- `npm run typecheck` → PASS
+- `npx tsx --test tests/security/export-operator-delegation.test.ts tests/contract/security-export-operator-delegations.test.ts` → PASS (5/5)
+- `npm test` → PASS (204/204)
+- `npm audit --omit=dev` → PASS (0 vulnerability)
+- Smoke (`/health`, `GET /v1/security/export/operator-delegations?limit=5`, `/ui/dashboard`) → PASS
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/SMART-AI` → PASS
+
+### Kalan riskler
+- Delegation ve operator roster bugün principal-name listesi seviyesinde; external IdP/group sync henüz yok.
+- Step-up doğrulaması şu an UI session tazeliği + API key modeline dayanıyor; WebAuthn/IdP re-auth entegrasyonu henüz yok.
+- Delegation, incident, operator policy, audit ve session state hâlâ local file tabanlı; shared backend / multi-instance HA ihtiyacı sürüyor.
+
 ## 2026-04-11 Teslim Özeti
 
 ### Yapılanlar

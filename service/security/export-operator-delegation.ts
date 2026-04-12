@@ -23,6 +23,7 @@ export type SecurityExportOperatorDelegation = {
   grant_id: string;
   tenant_id: string;
   incident_id: string;
+  incident_revision: number | null;
   action: SecurityExportOperatorAction;
   delegate_principal: string;
   requested_by: string;
@@ -51,6 +52,7 @@ type SecurityExportOperatorDelegationFile = {
 type CreateSecurityExportOperatorDelegationInput = {
   tenantId: string;
   incidentId: string;
+  incidentRevision: number;
   action: SecurityExportOperatorAction;
   delegatePrincipal: string;
   actor: string;
@@ -118,6 +120,11 @@ function normalizePrincipal(value: string | undefined): string {
 
 function normalizeIncidentId(value: string | undefined): string {
   return sanitizeString(value, 64).toLowerCase();
+}
+
+function normalizeIncidentRevision(value: unknown): number | null {
+  const parsed = Math.trunc(Number(value));
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 function normalizeAction(value: string | undefined): SecurityExportOperatorAction | null {
@@ -212,6 +219,7 @@ function sanitizeStoredGrant(value: unknown): SecurityExportOperatorDelegation |
   const approvalExpiresAt = normalizeIsoDate(candidate.approval_expires_at);
   const requestedTtlMinutes = Math.trunc(Number(candidate.requested_ttl_minutes ?? 0));
   const status = sanitizeString(candidate.status, 32).toLowerCase();
+  const incidentRevision = normalizeIncidentRevision(candidate.incident_revision);
 
   if (
     !candidate.grant_id ||
@@ -239,6 +247,7 @@ function sanitizeStoredGrant(value: unknown): SecurityExportOperatorDelegation |
     grant_id: sanitizeString(candidate.grant_id, 96),
     tenant_id: sanitizeString(candidate.tenant_id, 128),
     incident_id: incidentId,
+    incident_revision: incidentRevision,
     action,
     delegate_principal: delegatePrincipal,
     requested_by: requestedBy,
@@ -339,11 +348,13 @@ export async function findActiveSecurityExportOperatorDelegation(options: {
   incidentId: string;
   action: SecurityExportOperatorAction;
   delegatePrincipal: string;
+  incidentRevision?: number;
 }): Promise<SecurityExportOperatorDelegation | null> {
   const store = readStore();
   const grants = withMaterializedTenantGrants(store, options.tenantId);
   const incidentId = normalizeIncidentId(options.incidentId);
   const delegatePrincipal = normalizePrincipal(options.delegatePrincipal);
+  const incidentRevision = normalizeIncidentRevision(options.incidentRevision);
 
   return (
     grants.find(
@@ -351,7 +362,8 @@ export async function findActiveSecurityExportOperatorDelegation(options: {
         grant.status === 'active' &&
         grant.incident_id === incidentId &&
         grant.action === options.action &&
-        grant.delegate_principal === delegatePrincipal
+        grant.delegate_principal === delegatePrincipal &&
+        (incidentRevision === null || grant.incident_revision === incidentRevision)
     ) ?? null
   );
 }
@@ -363,8 +375,13 @@ export async function createSecurityExportOperatorDelegation(
   | SecurityExportOperatorDelegationErrorResult
 > {
   const incidentId = normalizeIncidentId(input.incidentId);
+  const incidentRevision = normalizeIncidentRevision(input.incidentRevision);
   if (!INCIDENT_ID_REGEX.test(incidentId)) {
     return errorResult('Invalid incident id for operator delegation.', 'incident_id_invalid', 400);
+  }
+
+  if (!incidentRevision) {
+    return errorResult('Invalid incident revision for operator delegation.', 'incident_revision_invalid', 400);
   }
 
   if (!isAction(input.action)) {
@@ -418,6 +435,7 @@ export async function createSecurityExportOperatorDelegation(
     (grant) =>
       (grant.status === 'active' || grant.status === 'pending_approval') &&
       grant.incident_id === incidentId &&
+      grant.incident_revision === incidentRevision &&
       grant.action === input.action &&
       grant.delegate_principal === delegatePrincipal
   );
@@ -435,6 +453,7 @@ export async function createSecurityExportOperatorDelegation(
     grant_id: crypto.randomUUID(),
     tenant_id: sanitizeString(input.tenantId, 128),
     incident_id: incidentId,
+    incident_revision: incidentRevision,
     action: input.action,
     delegate_principal: delegatePrincipal,
     requested_by: actor,
@@ -508,6 +527,7 @@ export async function approveSecurityExportOperatorDelegation(
       grant.grant_id !== current.grant_id &&
       grant.status === 'active' &&
       grant.incident_id === current.incident_id &&
+      grant.incident_revision === current.incident_revision &&
       grant.action === current.action &&
       grant.delegate_principal === current.delegate_principal
   );

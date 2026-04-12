@@ -1,5 +1,40 @@
 # DECISIONS — OpenRouter Agentic Intelligence API
 
+## 2026-04-12 — Incident revision scoped delegation kararı
+### Problem
+Dünkü two-person delegation approval modeli issuance tarafını güvenli hale getirdi, ancak delivery incident yaşam döngüsünde üç kritik açık kaldı:
+1. Delegation grant'leri incident kimliğine bağlıydı ama incident revision'a bağlanmadığı için aynı incident tekrar açıldığında veya clear-request sonrası revision arttığında eski grant yeni state üzerinde yanlışlıkla kullanılabiliyordu.
+2. Pending delegation request, incident ack/reopen sonrası stale kalsa bile ikinci operatör approval aşamasında aktif grant'e dönüşebiliyordu; bu da delegation approval tarafında fail-open pencere bırakıyordu.
+3. Dashboard ve API görünürlüğü delegation'ın hangi incident revision için geçerli olduğunu net göstermediği için operatör stale grant ile current incident state'i ayırt etmekte zorlanıyordu.
+
+### Seçenekler
+- A: Mevcut incident-id scoped delegation modelini koruyup operatör runbook disiplini ile revision drift'i yönetmek
+- B: Yalnızca consume aşamasında revision check ekleyip create/approve akışını değiştirmemek
+- C: Delegation create, approve, authorize ve dashboard yüzeyini incident revision scoped hale getirip stale/missing/resolved delegation'ları fail-closed reddetmek
+
+### Karar
+**C seçildi:**
+1. **Yeni özellik:** Security export operator delegation modeli artık incident revision scoped çalışıyor. `createSecurityExportOperatorDelegation(...)` çağrıları güncel `incident.revision` ile kayıt oluşturuyor ve dashboard/list API'si grant scope metadata'sını gösteriyor.
+2. **Ciddi güvenlik iyileştirmesi #1:** Delegation approval artık stale pending request'i aktive edemiyor. `getSecurityExportOperatorDelegationScope(...)` üzerinden revision drift, resolved incident, missing incident ve legacy unscoped grant durumları hesaplanıyor; current olmayan grant approval'ları `409 delegation_scope_stale` ile fail-closed reddediliyor.
+3. **Ciddi güvenlik iyileştirmesi #2:** Delegated incident aksiyonları (`acknowledge`, `clear-request`, `clear`) artık authorization sonrası `validateDelegatedSecurityExportOperatorActionScope(...)` ile current incident revision'a karşı doğrulanıyor. Revision mismatch `delegation_incident_revision_conflict`, stale/resolved state ise `delegation_scope_stale` ile kapanıyor.
+4. **Ciddi güvenlik iyileştirmesi #3:** Delegation lookup/create duplicate kontrolleri revision-aware hale getirildi; aynı principal aynı action için yeni incident revision'da taze delegation isteyebilirken eski revision grant'i yeni state'i bloke etmiyor.
+5. **Operasyon / kalite iyileştirmesi:** Dashboard delegation tablosu ve özet alanı incident revision → current revision görünürlüğü ve scope status bilgisi kazandı; focused unit + contract testler stale approval, reopened incident, revision drift ve fresh re-delegation regresyonlarını kapsayacak şekilde genişletildi.
+
+### Gerekçe
+- Incident recovery zinciri revision temelli çalıştığı için delegation modelinin incident kimliğiyle sınırlı kalması güvenlik olarak eksikti.
+- Approval aşamasında stale request'in aktive olabilmesi, two-person approval modelini incident lifecycle değişimlerine karşı zayıflatıyordu.
+- Operatörün hangi grant'in current incident state'e ait olduğunu açıkça görebilmesi üretim incident yönetiminde kritik.
+
+### Etki
+- Delegation grant'leri artık incident lifecycle ile birlikte taşınan revision scope'a bağlandı.
+- Reopen veya clear-request sonrası revision drift oluştuğunda eski delegation'lar yeni state üzerinde kullanılamıyor.
+- Dashboard ve API yüzeyinde stale/current scope ayrımı görünür hale geldi; break-glass recovery zinciri daha güvenli ve daha anlaşılır oldu.
+
+### Bilinçli Olarak Ertelenenler
+- Delegation scope enforcement için external IdP / signed step-up attestation bağlamak
+- Legacy unscoped grant'ler için otomatik migration veya arka plan cleanup işi eklemek
+- Delegation/operator/incident state'ini shared backend ile distributed coordination'a taşımak
+
 ## 2026-04-11 — Delegation issuance için two-person approval + fresh-session step-up kararı
 ### Problem
 Dünkü tenant-scoped delegation modeli roster deadlock riskini açtı ama issuance tarafında üç kritik güvenlik açığı bıraktı:
