@@ -95,6 +95,21 @@ function stripTrailingInternalAuditBlock(value: string): string {
   return lines.slice(0, markerIndex).join('\n').trim();
 }
 
+function stripProcessAttributionPhrases(value: string): string {
+  const sanitized = value
+    .split('\n')
+    .map((line) =>
+      line
+        .replace(/^\s*(RAG sonuçlarına göre|Mevzuat veritabanında bulduğum bilgiye göre|Web araması sonucunda|Kaynaklarıma göre|İç dokümanlardan elde ettiğim bilgiye göre)\s*[:,.-]?\s*/i, '')
+        .replace(/\b(?:web_search|rag_search|qmd_search|mevzuat_mcp_search|yargi_mcp_search|borsa_mcp_search|openbb_search|deep_research)\s+kullanarak\s*/gi, '')
+        .replace(/\b(?:Tool|Araç)\s+[A-Za-z_][\w-]*\s+kullanarak\s*/gi, '')
+        .trimEnd()
+    )
+    .join('\n');
+
+  return sanitized.replace(/\n{3,}/g, '\n\n').trim();
+}
+
 function sanitizeAssistantAnswer(value: string): string {
   const normalized = stripTrailingInternalAuditBlock(value);
   if (!normalized) {
@@ -113,11 +128,11 @@ function sanitizeAssistantAnswer(value: string): string {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
-  return cleaned;
+  return stripProcessAttributionPhrases(cleaned);
 }
 
 function formatSources(citations: string[]): string {
-  return `Kaynaklar:\n${citations.map((c) => `- ${c}`).join('\n')}`;
+  return `Kaynaklar:\n${citations.map((citation) => `- ${citation}`).join('\n')}`;
 }
 
 function fallbackSynthesis(params: {
@@ -136,7 +151,7 @@ function fallbackSynthesis(params: {
   }
 
   const merged = params.results
-    .map((r) => r.summary.trim())
+    .map((result) => result.summary.trim())
     .filter(Boolean)
     .slice(0, 3)
     .join('\n\n');
@@ -183,6 +198,8 @@ function buildSynthesisMessages(params: {
         'Only add caveats when the evidence truly requires them.',
         'Do not expose plan/tool internals unless explicitly requested.',
         'Never repeat internal labels such as Plan, Verifier, Evidence, Tool, Summary, or Citations in the final answer.',
+        'Never say how the information was obtained. Do not mention searches, tools, pipelines, RAG, MCP, internal documents, or source collection mechanics.',
+        'If a legal or formal source matters, cite it naturally as domain knowledge, for example: İş Kanunu’nun 17. maddesi uyarınca...',
         'Do not include links/sources unless the user explicitly asked for them.'
       ].join(' ')
     },
@@ -203,6 +220,7 @@ function buildSynthesisMessages(params: {
           ? 'User explicitly asked for sources. Add a compact source list at the end.'
           : 'Do not add a source list or raw links unless the user explicitly asked for them.',
         'If the evidence is partial, stay helpful and honest without becoming robotic.',
+        'Never say things like “RAG sonuçlarına göre”, “Web araması sonucunda”, “Kaynaklarıma göre”, or any equivalent process attribution.',
         'Write final answer in Turkish unless the query explicitly asks another language.'
       ].join('\n\n')
     }
@@ -224,7 +242,7 @@ export async function synthesizeAnswer(params: {
   promptProfile?: PromptProfile;
 }): Promise<{ text: string; usage: { promptTokens: number; completionTokens: number; totalTokens: number }; model: string }> {
   const evidence = buildEvidenceBlock(params.results);
-  const citations = dedupe(params.results.flatMap((r) => r.citations));
+  const citations = dedupe(params.results.flatMap((result) => result.citations));
   const includeSources = shouldAttachSources({
     query: params.query,
     verification: params.verification,
@@ -288,5 +306,6 @@ export const __private__ = {
   stripTrailingSourcesSection,
   stripTrailingInternalAuditBlock,
   isInternalAuditStart,
+  stripProcessAttributionPhrases,
   sanitizeAssistantAnswer
 };

@@ -146,6 +146,12 @@ export const config = {
     jobTimeoutMs: Number(process.env.RESEARCH_JOB_TIMEOUT_MS ?? 120_000),
     maxJobsPerTenant: Number(process.env.RESEARCH_MAX_JOBS_PER_TENANT ?? 500)
   },
+  intentRouter: {
+    model: process.env.INTENT_ROUTER_MODEL?.trim() || 'deepseek/deepseek-v3.2',
+    timeoutMs: Number(process.env.INTENT_ROUTER_TIMEOUT_MS ?? 200),
+    maxTokens: Number(process.env.INTENT_ROUTER_MAX_TOKENS ?? 150),
+    temperature: 0
+  },
   openRouter: {
     baseUrl: process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1',
     defaultModel: process.env.OPENROUTER_DEFAULT_MODEL ?? 'deepseek/deepseek-v3.2',

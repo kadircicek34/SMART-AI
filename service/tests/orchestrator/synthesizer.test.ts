@@ -51,7 +51,22 @@ test('synthesizer removes leaked trailing internal audit block from final answer
   assert.equal(cleaned, 'BTC şu an güçlü görünüm koruyor.');
 });
 
- test('synthesizer detects internal audit markers with markdown wrappers', () => {
+test('synthesizer strips forbidden process attribution phrases', () => {
+  const raw = [
+    'Web araması sonucunda dolar bugün 38 TL civarında.',
+    'RAG sonuçlarına göre bu projede 12 endpoint var.',
+    'Mevzuat veritabanında bulduğum bilgiye göre kıdem tazminatı belirli şartlarda doğar.'
+  ].join('\n');
+
+  const cleaned = __private__.sanitizeAssistantAnswer(raw);
+
+  assert.equal(/Web araması sonucunda|RAG sonuçlarına göre|Mevzuat veritabanında bulduğum bilgiye göre/i.test(cleaned), false);
+  assert.match(cleaned, /dolar bugün 38 TL civarında/);
+  assert.match(cleaned, /bu projede 12 endpoint var/);
+  assert.match(cleaned, /kıdem tazminatı belirli şartlarda doğar/);
+});
+
+test('synthesizer detects internal audit markers with markdown wrappers', () => {
   assert.equal(__private__.isInternalAuditStart('## Evidence (internal use only):'), true);
   assert.equal(__private__.isInternalAuditStart('- **Tool:** openbb_search'), true);
   assert.equal(__private__.isInternalAuditStart('Normal kullanıcı yanıtı'), false);

@@ -3,7 +3,9 @@ import { createBudget, assertWithinRuntime } from '../security/budget-guard.js';
 import { enforceToolPolicy } from '../security/policy-engine.js';
 import type { ToolName, ToolResult } from '../tools/types.js';
 import { executePlan } from './executor.js';
-import { buildPlanningQuery, classifyPromptProfile, generateDirectAnswer, userAskedForBrevity } from './direct-answer.js';
+import { buildPlanningQuery, classifyPromptProfile, generateDirectAnswer, type PromptProfile, userAskedForBrevity } from './direct-answer.js';
+import { routeIntent, type IntentRouteResult } from './intent-router.js';
+import { buildPlanFromTools } from './planner.js';
 import { chooseBestPlan } from './thinking-loop.js';
 import { synthesizeAnswer } from './synthesizer.js';
 import type { Plan, RunInput, RunOutput } from './types.js';
@@ -13,7 +15,7 @@ import { throwIfAborted } from '../utils/abort.js';
 function normalizePlanTools(plan: Plan, allowed: ToolName[]): Plan {
   return {
     ...plan,
-    tools: plan.tools.filter((t) => allowed.includes(t))
+    tools: plan.tools.filter((tool) => allowed.includes(tool))
   };
 }
 
@@ -139,17 +141,88 @@ function decoratePlanReasoning(plan: Plan, mode: string): Plan {
   };
 }
 
+function applyIntentPromptProfile(profile: PromptProfile, intentRoute: IntentRouteResult | null): PromptProfile {
+  if (!intentRoute) {
+    return profile;
+  }
+
+  const reasons = [...profile.reasons];
+  let complexity = profile.complexity;
+  let useEnrichment = profile.useEnrichment;
+  let useTwoPass = profile.useTwoPass;
+
+  if (intentRoute.semanticTools.some((tool) => tool !== 'direct_answer')) {
+    complexity = 'complex';
+    useEnrichment = true;
+    if (!reasons.includes('intent-router-domain-route')) {
+      reasons.push('intent-router-domain-route');
+    }
+  }
+
+  if (intentRoute.semanticTools.includes('deep_reasoning')) {
+    complexity = 'complex';
+    useEnrichment = true;
+    useTwoPass = true;
+    if (!reasons.includes('intent-router-deep-reasoning')) {
+      reasons.push('intent-router-deep-reasoning');
+    }
+  }
+
+  return {
+    complexity,
+    useEnrichment,
+    useTwoPass,
+    reasons
+  };
+}
+
+function buildInitialPlan(planningQuery: string, intentRoute: IntentRouteResult | null): Plan {
+  if (!intentRoute) {
+    return chooseBestPlan(planningQuery);
+  }
+
+  return buildPlanFromTools(
+    planningQuery,
+    intentRoute.planTools,
+    `Intent router selected: ${intentRoute.semanticTools.join(', ')} (confidence=${intentRoute.confidence.toFixed(2)}). ${intentRoute.reasoning}`
+  );
+}
+
 export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
   throwIfAborted(input.signal);
 
   const startedAt = Date.now();
   const budget = createBudget();
-  const lastUser = [...input.messages].reverse().find((m) => m.role === 'user');
+  const lastUser = [...input.messages].reverse().find((message) => message.role === 'user');
   const rawQuery = lastUser?.content?.trim() || 'No query provided.';
   const planningQuery = buildPlanningQuery(input.messages);
-
   const isSmallTalk = /^(selam|merhaba|hi|hello|hey|nasılsın|naber)[!.?\s]*$/i.test(rawQuery);
-  if (isSmallTalk) {
+
+  const intentRoute = await routeIntent({
+    query: planningQuery,
+    apiKey: input.openRouterApiKey,
+    signal: input.signal
+  });
+
+  let plan = buildInitialPlan(planningQuery, intentRoute);
+
+  const policy = enforceToolPolicy({
+    tenantId: input.tenantId,
+    requestedTools: plan.tools
+  });
+
+  plan = normalizePlanTools(plan, policy.allowed);
+
+  let promptProfile = classifyPromptProfile({
+    query: rawQuery,
+    planningQuery,
+    messages: input.messages,
+    toolCount: plan.tools.length
+  });
+
+  promptProfile = applyIntentPromptProfile(promptProfile, intentRoute);
+
+  if (!input.openRouterApiKey && isSmallTalk && plan.tools.length === 0) {
     const smallTalkText = 'Merhaba Başkanım, nasıl yardımcı olayım?';
     const simplicity = scoreAnswerSimplicity(smallTalkText);
     const simplicityThreshold = config.verifier.minSimplicityScore;
@@ -167,7 +240,7 @@ export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
       plan: {
         objective: rawQuery,
         tools: [],
-        reasoning: 'Smalltalk short-circuit',
+        reasoning: intentRoute ? 'Intent-router smalltalk short-circuit' : 'Smalltalk short-circuit',
         stages: [{ id: 'direct', title: 'Doğrudan yanıt', tools: [], status: 'done' }]
       },
       verification: {
@@ -186,22 +259,7 @@ export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
     };
   }
 
-  let plan = chooseBestPlan(planningQuery);
-
-  const policy = enforceToolPolicy({
-    tenantId: input.tenantId,
-    requestedTools: plan.tools
-  });
-
-  plan = normalizePlanTools(plan, policy.allowed);
-
-  const promptProfile = classifyPromptProfile({
-    query: rawQuery,
-    planningQuery,
-    messages: input.messages,
-    toolCount: plan.tools.length
-  });
-
+  plan = decoratePlanReasoning(plan, intentRoute ? 'intent-router-primary' : 'keyword-fallback');
   plan = decoratePlanReasoning(
     plan,
     promptProfile.useTwoPass ? 'expert-persona + enriched-query + two-pass' : 'expert-persona + reasoning-enabled'
@@ -354,7 +412,7 @@ export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
     const toolsToRun: ToolName[] =
       step === 0
         ? [...plan.tools]
-        : verification.suggestedTool && !allResults.some((r) => r.tool === verification.suggestedTool)
+        : verification.suggestedTool && !allResults.some((result) => result.tool === verification.suggestedTool)
           ? [verification.suggestedTool]
           : [];
 
@@ -463,5 +521,7 @@ export const __private__ = {
   toolPassSignature,
   shouldPreferDraftAnswer,
   shouldUseDirectModelResponse,
-  decoratePlanReasoning
+  decoratePlanReasoning,
+  applyIntentPromptProfile,
+  buildInitialPlan
 };

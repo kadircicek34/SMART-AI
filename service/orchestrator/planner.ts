@@ -129,7 +129,16 @@ const MEVZUAT_KEYWORDS = [
   'khk',
   'tüzük',
   'yönetmelik',
-  'hukuk metni'
+  'hukuk metni',
+  'iş sözleşmesi',
+  'iş akdi',
+  'fesih',
+  'kıdem tazminatı',
+  'ihbar tazminatı',
+  'iş hukuku',
+  'ceza hukuku',
+  'medeni hukuk',
+  'borçlar hukuku'
 ];
 
 const YARGI_KEYWORDS = [
@@ -146,7 +155,13 @@ const YARGI_KEYWORDS = [
   'rekabet kurumu',
   'kvkk kararı',
   'bddk kararı',
-  'sigorta tahkim'
+  'sigorta tahkim',
+  'içtihat',
+  'ictihat',
+  'aym',
+  'bireysel başvuru',
+  'kira uyuşmazlığı',
+  'kira uyuşmazlıkları'
 ];
 
 const BORSA_MCP_KEYWORDS = [
@@ -164,9 +179,17 @@ const BORSA_MCP_KEYWORDS = [
   'tuprs'
 ];
 
+function normalizeText(value: string): string {
+  return value
+    .toLocaleLowerCase('tr-TR')
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .replace(/ı/g, 'i');
+}
+
 function hasKeyword(text: string, keywords: string[]): boolean {
-  const lower = text.toLowerCase();
-  return keywords.some((k) => lower.includes(k));
+  const normalizedText = normalizeText(text);
+  return keywords.some((keyword) => normalizedText.includes(normalizeText(keyword)));
 }
 
 function dedupe<T>(arr: T[]): T[] {
@@ -206,6 +229,23 @@ function buildStages(tools: ToolName[]): PlanStage[] {
       ];
 }
 
+export function buildPlanFromTools(objective: string, tools: ToolName[], reasoning?: string): Plan {
+  const uniqueTools = dedupe(tools);
+  const maxTools = uniqueTools.includes('deep_research') ? 6 : 5;
+  const normalizedTools = uniqueTools.slice(0, maxTools);
+
+  return {
+    objective,
+    tools: normalizedTools,
+    reasoning:
+      reasoning ??
+      (normalizedTools.length > 0
+        ? `Planner selected tools: ${normalizedTools.join(', ')}`
+        : 'Direct answer plan selected: no external evidence required.'),
+    stages: buildStages(normalizedTools)
+  };
+}
+
 function shouldUseRag(query: string): boolean {
   const normalized = query.toLowerCase();
   if (hasKeyword(normalized, RAG_KEYWORDS)) return true;
@@ -231,14 +271,16 @@ function shouldUseMevzuatMcp(query: string): boolean {
   const normalized = query.toLowerCase();
   if (hasKeyword(normalized, MEVZUAT_KEYWORDS)) return true;
 
-  return /(hukuk|mevzuat|kanun|resmi gazete)/i.test(query);
+  return /(hukuk|mevzuat|kanun|resmi gazete|iş sözleşmesi|iş akdi|fesih|kıdem tazminatı|ihbar tazminatı|iş hukuku|ceza hukuku|medeni hukuk|borçlar hukuku)/i.test(
+    query
+  );
 }
 
 function shouldUseYargiMcp(query: string): boolean {
   const normalized = query.toLowerCase();
   if (hasKeyword(normalized, YARGI_KEYWORDS)) return true;
 
-  return /(mahkeme|emsal|karar metni|yargı|yargi)/i.test(query);
+  return /(mahkeme|emsal|karar metni|yargı|yargi|içtihat|ictihat|anayasa mahkemesi|aym|bireysel başvuru)/i.test(query);
 }
 
 function shouldUseBorsaMcp(query: string): boolean {
@@ -356,10 +398,9 @@ export function planForQuery(query: string): Plan {
   const maxTools = shouldUseDeepReasoning(query) ? 6 : 5;
   const normalizedTools = dedupe(tools).slice(0, maxTools);
 
-  return {
-    objective: query,
-    tools: normalizedTools,
-    reasoning: normalizedTools.length > 0 ? `Poetiq-plan selected tools: ${normalizedTools.join(', ')}` : 'Direct answer plan selected: no external evidence required.',
-    stages: buildStages(normalizedTools)
-  };
+  return buildPlanFromTools(
+    query,
+    normalizedTools,
+    normalizedTools.length > 0 ? `Poetiq-plan selected tools: ${normalizedTools.join(', ')}` : 'Direct answer plan selected: no external evidence required.'
+  );
 }

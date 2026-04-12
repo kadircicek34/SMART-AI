@@ -46,3 +46,16 @@ test('planner adds web search only when freshness or explicit sources are reques
   assert.equal(fresh.tools.includes('web_search'), true);
   assert.equal(timeless.tools.includes('web_search'), false);
 });
+
+test('planner fallback recognizes common employment-law questions without kanun keyword', () => {
+  const plan = planForQuery('İş sözleşmesi feshi hangi durumlarda geçerlidir?');
+
+  assert.equal(plan.tools.includes('mevzuat_mcp_search'), true);
+});
+
+test('planner fallback recognizes AYM bireysel başvuru queries as yargi domain', () => {
+  const plan = planForQuery('AYM’nin bireysel başvuru istatistikleri nedir?');
+
+  assert.equal(plan.tools.includes('yargi_mcp_search'), true);
+  assert.equal(plan.tools.includes('web_search'), true);
+});
