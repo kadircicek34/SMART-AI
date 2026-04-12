@@ -1,7 +1,7 @@
 import { config } from '../config.js';
 import { chatWithOpenRouter } from '../llm/openrouter-client.js';
 import type { ToolResult } from '../tools/types.js';
-import { toLlmConversation } from './direct-answer.js';
+import { toLlmConversation, type PromptProfile } from './direct-answer.js';
 import type { ChatMessage, Plan } from './types.js';
 import type { VerificationResult } from './verifier.js';
 
@@ -76,7 +76,7 @@ function isInternalAuditStart(line: string): boolean {
     /^Tool:\s*[a-z_][a-z0-9_:-]*\s*$/i,
     /^Summary:\s*$/i,
     /^Citations:\s*.*$/i,
-    /^-{3,}\s*$/
+    /^-{3,}\s*$/i
   ].some((pattern) => pattern.test(trimmed));
 }
 
@@ -156,8 +156,13 @@ function buildSynthesisMessages(params: {
   evidence: string;
   includeSources: boolean;
   draftAnswer?: string;
+  promptProfile?: PromptProfile;
 }) {
-  const conversation = toLlmConversation(params.messages, 6);
+  const conversation = toLlmConversation(params.messages, 6, {
+    includePersona: true,
+    enrichLastUser: false,
+    promptProfile: params.promptProfile
+  });
   const systemMessages = conversation.filter((message) => message.role === 'system');
   const contextMessages = conversation.filter((message) => message.role !== 'system');
 
@@ -172,6 +177,9 @@ function buildSynthesisMessages(params: {
         'Do not dumb down, flatten, or over-shorten the answer.',
         'Use verified evidence to add accuracy, freshness, specificity, and confidence.',
         'Keep the user-requested tone, structure, and depth.',
+        params.promptProfile?.useTwoPass
+          ? 'This is pass 2 of 2 for a complex prompt. Refine the draft into the strongest final user-facing answer while keeping all hidden analysis private.'
+          : 'Produce the cleanest final answer directly.',
         'Only add caveats when the evidence truly requires them.',
         'Do not expose plan/tool internals unless explicitly requested.',
         'Never repeat internal labels such as Plan, Verifier, Evidence, Tool, Summary, or Citations in the final answer.',
@@ -213,6 +221,7 @@ export async function synthesizeAnswer(params: {
   temperature?: number;
   maxTokens?: number;
   signal?: AbortSignal;
+  promptProfile?: PromptProfile;
 }): Promise<{ text: string; usage: { promptTokens: number; completionTokens: number; totalTokens: number }; model: string }> {
   const evidence = buildEvidenceBlock(params.results);
   const citations = dedupe(params.results.flatMap((r) => r.citations));
@@ -246,7 +255,8 @@ export async function synthesizeAnswer(params: {
         verification: params.verification,
         evidence,
         includeSources,
-        draftAnswer: params.draftAnswer
+        draftAnswer: params.draftAnswer,
+        promptProfile: params.promptProfile
       })
     });
 

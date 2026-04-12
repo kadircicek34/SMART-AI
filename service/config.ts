@@ -162,7 +162,13 @@ export const config = {
     globalApiKey: process.env.OPENROUTER_API_KEY,
     maxRetries: Number(process.env.OPENROUTER_MAX_RETRIES ?? 2),
     retryBaseDelayMs: Number(process.env.OPENROUTER_RETRY_BASE_DELAY_MS ?? 400),
-    retryMaxDelayMs: Number(process.env.OPENROUTER_RETRY_MAX_DELAY_MS ?? 4_000)
+    retryMaxDelayMs: Number(process.env.OPENROUTER_RETRY_MAX_DELAY_MS ?? 4_000),
+    reasoningEnabled: parseBoolean(process.env.OPENROUTER_REASONING_ENABLED, true),
+    reasoningExclude: parseBoolean(process.env.OPENROUTER_REASONING_EXCLUDE, true),
+    reasoningModels: (() => {
+      const configured = parseCsv(process.env.OPENROUTER_REASONING_MODELS);
+      return configured.length > 0 ? configured : ['deepseek/deepseek-v3.2', 'deepseek/deepseek-v3.2-exp'];
+    })()
   },
   tools: {
     exaApiKey: process.env.EXA_API_KEY,

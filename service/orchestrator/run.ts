@@ -3,7 +3,7 @@ import { createBudget, assertWithinRuntime } from '../security/budget-guard.js';
 import { enforceToolPolicy } from '../security/policy-engine.js';
 import type { ToolName, ToolResult } from '../tools/types.js';
 import { executePlan } from './executor.js';
-import { buildPlanningQuery, generateDirectAnswer, userAskedForBrevity } from './direct-answer.js';
+import { buildPlanningQuery, classifyPromptProfile, generateDirectAnswer, userAskedForBrevity } from './direct-answer.js';
 import { chooseBestPlan } from './thinking-loop.js';
 import { synthesizeAnswer } from './synthesizer.js';
 import type { Plan, RunInput, RunOutput } from './types.js';
@@ -93,6 +93,7 @@ function shouldPreferDraftAnswer(params: {
   synthesizedAnswer: string;
   verification: VerificationResult;
   toolResults: ToolResult[];
+  allowNoToolSecondPass?: boolean;
 }): boolean {
   if (!params.draftAnswer?.trim()) {
     return false;
@@ -103,7 +104,13 @@ function shouldPreferDraftAnswer(params: {
   }
 
   if (params.toolResults.length === 0) {
-    return true;
+    if (!params.allowNoToolSecondPass) {
+      return true;
+    }
+
+    const draftWords = countWords(params.draftAnswer);
+    const synthesizedWords = countWords(params.synthesizedAnswer);
+    return draftWords >= 70 && synthesizedWords < Math.floor(draftWords * 0.6);
   }
 
   if (!params.verification.sufficient && params.toolResults.every((result) => looksFailureSummary(result.summary))) {
@@ -119,6 +126,17 @@ function shouldPreferDraftAnswer(params: {
   }
 
   return false;
+}
+
+function promptTokensApprox(messages: RunInput['messages']): number {
+  return Math.ceil(JSON.stringify(messages).length / 4);
+}
+
+function decoratePlanReasoning(plan: Plan, mode: string): Plan {
+  return {
+    ...plan,
+    reasoning: `${plan.reasoning} | ${mode}`
+  };
 }
 
 export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
@@ -141,9 +159,9 @@ export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
       finishReason: 'stop',
       model: 'rule-based-smalltalk',
       usage: {
-        promptTokens: Math.ceil(JSON.stringify(input.messages).length / 4),
+        promptTokens: promptTokensApprox(input.messages),
         completionTokens: 10,
-        totalTokens: Math.ceil(JSON.stringify(input.messages).length / 4) + 10
+        totalTokens: promptTokensApprox(input.messages) + 10
       },
       toolResults: [],
       plan: {
@@ -177,6 +195,18 @@ export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
 
   plan = normalizePlanTools(plan, policy.allowed);
 
+  const promptProfile = classifyPromptProfile({
+    query: rawQuery,
+    planningQuery,
+    messages: input.messages,
+    toolCount: plan.tools.length
+  });
+
+  plan = decoratePlanReasoning(
+    plan,
+    promptProfile.useTwoPass ? 'expert-persona + enriched-query + two-pass' : 'expert-persona + reasoning-enabled'
+  );
+
   if (shouldUseDirectModelResponse({ openRouterApiKey: input.openRouterApiKey, plan })) {
     try {
       const direct = await generateDirectAnswer({
@@ -185,29 +215,92 @@ export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
         messages: input.messages,
         temperature: input.temperature,
         maxTokens: input.maxTokens,
-        signal: input.signal
+        signal: input.signal,
+        promptProfile,
+        phase: promptProfile.useTwoPass ? 'analysis-pass' : 'single-pass'
       });
 
-      const simplicity = scoreAnswerSimplicity(direct.text);
+      if (!promptProfile.useTwoPass) {
+        const simplicity = scoreAnswerSimplicity(direct.text);
+        const simplicityThreshold = config.verifier.minSimplicityScore;
+
+        return {
+          text: direct.text,
+          finishReason: 'stop',
+          model: direct.model,
+          usage: direct.usage,
+          toolResults: [],
+          plan,
+          verification: {
+            evidence: {
+              sufficient: true,
+              confidence: 0.9,
+              reason: 'Direct model passthrough selected because no external evidence was required.',
+              suggestedTool: undefined
+            },
+            simplicity: {
+              ...simplicity,
+              threshold: simplicityThreshold,
+              belowThreshold: simplicity.score < simplicityThreshold
+            }
+          }
+        };
+      }
+
+      const refinementVerification: VerificationResult = {
+        sufficient: true,
+        confidence: 0.88,
+        reason: 'Complex direct prompt routed through two-pass refinement without external tools.'
+      };
+
+      const refined = await synthesizeAnswer({
+        query: rawQuery,
+        model: input.model,
+        openRouterApiKey: input.openRouterApiKey,
+        plan,
+        verification: refinementVerification,
+        results: [],
+        messages: input.messages,
+        draftAnswer: direct.text,
+        temperature: input.temperature,
+        maxTokens: input.maxTokens,
+        signal: input.signal,
+        promptProfile
+      });
+
+      const finalText = shouldPreferDraftAnswer({
+        query: rawQuery,
+        draftAnswer: direct.text,
+        synthesizedAnswer: refined.text,
+        verification: refinementVerification,
+        toolResults: [],
+        allowNoToolSecondPass: true
+      })
+        ? direct.text
+        : refined.text;
+
+      const finalModel = finalText === direct.text ? direct.model : refined.model;
+      const mergedUsage = mergeUsage(direct.usage, refined.usage);
+      const approx = promptTokensApprox(input.messages);
+      const simplicity = scoreAnswerSimplicity(finalText);
       const simplicityThreshold = config.verifier.minSimplicityScore;
 
       return {
-        text: direct.text,
+        text: finalText,
         finishReason: 'stop',
-        model: direct.model,
-        usage: direct.usage,
-        toolResults: [],
-        plan: {
-          objective: planningQuery,
-          tools: [],
-          reasoning: 'Direct model mode selected. Full conversation context preserved; no external evidence required.',
-          stages: [{ id: 'direct', title: 'Doğrudan yanıt', tools: [], status: 'done' }]
+        model: finalModel,
+        usage: {
+          promptTokens: mergedUsage.promptTokens || approx,
+          completionTokens: mergedUsage.completionTokens,
+          totalTokens: mergedUsage.totalTokens || approx + mergedUsage.completionTokens
         },
+        toolResults: [],
+        plan,
         verification: {
           evidence: {
             sufficient: true,
             confidence: 0.9,
-            reason: 'Direct model passthrough selected because no external evidence was required.',
+            reason: 'Complex prompt completed with two-pass direct generation and expert persona prompting.',
             suggestedTool: undefined
           },
           simplicity: {
@@ -239,7 +332,9 @@ export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
         messages: input.messages,
         temperature: input.temperature,
         maxTokens: input.maxTokens,
-        signal: input.signal
+        signal: input.signal,
+        promptProfile,
+        phase: promptProfile.useTwoPass ? 'analysis-pass' : 'single-pass'
       });
     } catch {
       draftResponse = undefined;
@@ -315,7 +410,8 @@ export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
     draftAnswer: draftResponse?.text,
     temperature: input.temperature,
     maxTokens: input.maxTokens,
-    signal: input.signal
+    signal: input.signal,
+    promptProfile
   });
 
   const finalText = shouldPreferDraftAnswer({
@@ -323,14 +419,15 @@ export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
     draftAnswer: draftResponse?.text,
     synthesizedAnswer: synthesized.text,
     verification,
-    toolResults: allResults
+    toolResults: allResults,
+    allowNoToolSecondPass: promptProfile.useTwoPass
   })
     ? draftResponse!.text
     : synthesized.text;
 
   const finalModel = finalText === draftResponse?.text ? draftResponse.model : synthesized.model;
   const mergedUsage = mergeUsage(draftResponse?.usage, synthesized.usage);
-  const promptTokensApprox = Math.ceil(JSON.stringify(input.messages).length / 4);
+  const approx = promptTokensApprox(input.messages);
 
   const simplicity = scoreAnswerSimplicity(finalText);
   const simplicityThreshold = config.verifier.minSimplicityScore;
@@ -340,9 +437,9 @@ export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
     finishReason: 'stop',
     model: finalModel,
     usage: {
-      promptTokens: mergedUsage.promptTokens || promptTokensApprox,
+      promptTokens: mergedUsage.promptTokens || approx,
       completionTokens: mergedUsage.completionTokens,
-      totalTokens: mergedUsage.totalTokens || promptTokensApprox + mergedUsage.completionTokens
+      totalTokens: mergedUsage.totalTokens || approx + mergedUsage.completionTokens
     },
     toolResults: allResults,
     plan,
@@ -365,5 +462,6 @@ export async function runOrchestrator(input: RunInput): Promise<RunOutput> {
 export const __private__ = {
   toolPassSignature,
   shouldPreferDraftAnswer,
-  shouldUseDirectModelResponse
+  shouldUseDirectModelResponse,
+  decoratePlanReasoning
 };

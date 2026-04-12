@@ -4,10 +4,21 @@ import { createTimeoutSignal, sleep, throwIfAborted } from '../utils/abort.js';
 export type LlmMessage = {
   role: 'system' | 'user' | 'assistant';
   content: string;
+  reasoning?: string;
+  reasoning_details?: unknown;
+};
+
+export type LlmReasoningConfig = {
+  enabled?: boolean;
+  exclude?: boolean;
+  effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+  max_tokens?: number;
 };
 
 export type LlmResponse = {
   text: string;
+  reasoning?: string;
+  reasoningDetails?: unknown;
   usage: {
     promptTokens: number;
     completionTokens: number;
@@ -47,6 +58,54 @@ function calculateBackoffDelayMs(attempt: number): number {
   return capped + jitter;
 }
 
+function normalizeModelId(model: string): string {
+  return model.trim().toLowerCase().split(':')[0] ?? model.trim().toLowerCase();
+}
+
+function supportsAutoReasoning(model: string): boolean {
+  if (!config.openRouter.reasoningEnabled) {
+    return false;
+  }
+
+  const normalized = normalizeModelId(model);
+  return config.openRouter.reasoningModels.some((candidate) => normalizeModelId(candidate) === normalized);
+}
+
+function buildReasoningPayload(model: string, reasoning?: LlmReasoningConfig | false): LlmReasoningConfig | undefined {
+  if (reasoning === false) {
+    return undefined;
+  }
+
+  if (reasoning) {
+    const payload: LlmReasoningConfig = {
+      enabled: reasoning.enabled ?? true
+    };
+
+    if (reasoning.exclude !== undefined) {
+      payload.exclude = reasoning.exclude;
+    }
+
+    if (reasoning.effort !== undefined) {
+      payload.effort = reasoning.effort;
+    }
+
+    if (reasoning.max_tokens !== undefined) {
+      payload.max_tokens = reasoning.max_tokens;
+    }
+
+    return payload;
+  }
+
+  if (!supportsAutoReasoning(model)) {
+    return undefined;
+  }
+
+  return {
+    enabled: true,
+    exclude: config.openRouter.reasoningExclude
+  };
+}
+
 export async function chatWithOpenRouter(params: {
   apiKey: string;
   model: string;
@@ -54,6 +113,7 @@ export async function chatWithOpenRouter(params: {
   temperature?: number;
   maxTokens?: number;
   signal?: AbortSignal;
+  reasoning?: LlmReasoningConfig | false;
 }): Promise<LlmResponse> {
   const maxAttempts = Math.max(1, config.openRouter.maxRetries + 1);
 
@@ -74,6 +134,11 @@ export async function chatWithOpenRouter(params: {
       payload.max_tokens = params.maxTokens;
     }
 
+    const reasoningPayload = buildReasoningPayload(params.model, params.reasoning);
+    if (reasoningPayload) {
+      payload.reasoning = reasoningPayload;
+    }
+
     const response = await fetch(`${config.openRouter.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -89,15 +154,18 @@ export async function chatWithOpenRouter(params: {
     if (response.ok) {
       const json = (await response.json()) as {
         model?: string;
-        choices?: Array<{ message?: { content?: string } }>;
+        choices?: Array<{ message?: { content?: string; reasoning?: string; reasoning_details?: unknown } }>;
         usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
       };
 
-      const content = json.choices?.[0]?.message?.content ?? '';
+      const message = json.choices?.[0]?.message ?? {};
+      const content = message.content ?? '';
       const usage = json.usage ?? {};
 
       return {
         text: content,
+        reasoning: message.reasoning,
+        reasoningDetails: message.reasoning_details,
         model: json.model ?? params.model,
         usage: {
           promptTokens: usage.prompt_tokens ?? 0,
@@ -124,5 +192,8 @@ export async function chatWithOpenRouter(params: {
 export const __private__ = {
   parseRetryAfterMs,
   isRetryableStatus,
-  calculateBackoffDelayMs
+  calculateBackoffDelayMs,
+  normalizeModelId,
+  supportsAutoReasoning,
+  buildReasoningPayload
 };

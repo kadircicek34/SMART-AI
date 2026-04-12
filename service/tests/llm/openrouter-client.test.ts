@@ -178,3 +178,82 @@ test('chatWithOpenRouter forwards explicit temperature and max tokens when provi
     globalThis.fetch = originalFetch;
   }
 });
+
+test('chatWithOpenRouter auto-enables reasoning for deepseek v3.2 family', async () => {
+  const originalFetch = globalThis.fetch;
+  let capturedBody: Record<string, unknown> | undefined;
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+    return new Response(
+      JSON.stringify({
+        model: 'deepseek/deepseek-v3.2',
+        choices: [{ message: { content: 'ok' } }],
+        usage: {
+          prompt_tokens: 1,
+          completion_tokens: 1,
+          total_tokens: 2
+        }
+      }),
+      {
+        status: 200,
+        headers: {
+          'content-type': 'application/json'
+        }
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    await chatWithOpenRouter({
+      apiKey: 'test-key',
+      model: 'deepseek/deepseek-v3.2',
+      messages: [{ role: 'user', content: 'hello' }]
+    });
+
+    assert.deepEqual(capturedBody?.reasoning, {
+      enabled: true,
+      exclude: true
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('chatWithOpenRouter does not inject reasoning for unrelated models', async () => {
+  const originalFetch = globalThis.fetch;
+  let capturedBody: Record<string, unknown> | undefined;
+
+  globalThis.fetch = (async (_input, init) => {
+    capturedBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+    return new Response(
+      JSON.stringify({
+        model: 'openai/gpt-4.1',
+        choices: [{ message: { content: 'ok' } }],
+        usage: {
+          prompt_tokens: 1,
+          completion_tokens: 1,
+          total_tokens: 2
+        }
+      }),
+      {
+        status: 200,
+        headers: {
+          'content-type': 'application/json'
+        }
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    await chatWithOpenRouter({
+      apiKey: 'test-key',
+      model: 'openai/gpt-4.1',
+      messages: [{ role: 'user', content: 'hello' }]
+    });
+
+    assert.equal('reasoning' in (capturedBody ?? {}), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
