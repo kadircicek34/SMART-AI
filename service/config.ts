@@ -147,21 +147,21 @@ export const config = {
     maxJobsPerTenant: Number(process.env.RESEARCH_MAX_JOBS_PER_TENANT ?? 500)
   },
   intentRouter: {
-    model: process.env.INTENT_ROUTER_MODEL?.trim() || 'deepseek/deepseek-v3.2',
+    model: process.env.INTENT_ROUTER_MODEL?.trim() || 'deepseek/deepseek-chat-v3.1',
     timeoutMs: Number(process.env.INTENT_ROUTER_TIMEOUT_MS ?? 200),
     maxTokens: Number(process.env.INTENT_ROUTER_MAX_TOKENS ?? 150),
     temperature: 0
   },
   openRouter: {
     baseUrl: process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1',
-    defaultModel: process.env.OPENROUTER_DEFAULT_MODEL ?? 'deepseek/deepseek-v3.2',
+    defaultModel: process.env.OPENROUTER_DEFAULT_MODEL ?? 'deepseek/deepseek-chat-v3.1',
     allowedModels: (() => {
       const configured = parseCsv(process.env.OPENROUTER_ALLOWED_MODELS);
       if (configured.length > 0) {
         return configured;
       }
 
-      return [process.env.OPENROUTER_DEFAULT_MODEL ?? 'deepseek/deepseek-v3.2'];
+      return [process.env.OPENROUTER_DEFAULT_MODEL ?? 'deepseek/deepseek-chat-v3.1'];
     })(),
     maxTenantAllowedModels: Number(process.env.OPENROUTER_MAX_TENANT_ALLOWED_MODELS ?? 12),
     modelIdMaxLength: Number(process.env.OPENROUTER_MODEL_ID_MAX_LENGTH ?? 120),
@@ -173,7 +173,9 @@ export const config = {
     reasoningExclude: parseBoolean(process.env.OPENROUTER_REASONING_EXCLUDE, true),
     reasoningModels: (() => {
       const configured = parseCsv(process.env.OPENROUTER_REASONING_MODELS);
-      return configured.length > 0 ? configured : ['deepseek/deepseek-v3.2', 'deepseek/deepseek-v3.2-exp'];
+      return configured.length > 0
+        ? configured
+        : ['deepseek/deepseek-chat-v3.1', 'deepseek/deepseek-v3.2', 'deepseek/deepseek-v3.2-exp'];
     })()
   },
   tools: {

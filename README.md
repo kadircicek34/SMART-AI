@@ -30,7 +30,7 @@ bir akış ile daha güvenilir ve araştırmacı bir zeka katmanı sağlanır.
 - **Deep research budget/concurrency kontrolleri**
 - **Research job runtime hardening** (Idempotency-Key TTL + tenant active-job cap + AbortSignal destekli gerçek cancel/timeout + cancellation reason telemetry)
 - **Model allowlist policy** (`OPENROUTER_ALLOWED_MODELS` + model format doğrulaması + security audit event)
-- **Tenant model policy override** (`/v1/model-policy` ile per-tenant allowlist + default model + fail-closed invalid policy handling)
+- **Tenant model policy override** (`/v1/model-policy` + `/v1/model-policy/preview` ile per-tenant allowlist, revision guard, change reason ve fail-closed invalid policy handling)
 - **Tenant Memory Layer** (memorizasyon + retrieval + auto-capture)
 - **QMD Local Search entegrasyonu** (VPS'teki kurulu `qmd` ile proje doküman araması)
 - **Memory hotness scoring + retrieval telemetry** (OpenViking pattern)
@@ -430,14 +430,26 @@ curl http://127.0.0.1:8080/v1/model-policy \
   -H 'Authorization: Bearer dev-admin-key' \
   -H 'x-tenant-id: tenant-a'
 
-# tenant için daha dar güvenli model kümesi tanımla
+# kaydetmeden önce preview al
+curl -X POST http://127.0.0.1:8080/v1/model-policy/preview \
+  -H 'Authorization: Bearer dev-admin-key' \
+  -H 'x-tenant-id: tenant-a' \
+  -H 'content-type: application/json' \
+  -d '{
+    "defaultModel":"deepseek/deepseek-chat-v3.1",
+    "allowedModels":["deepseek/deepseek-chat-v3.1","openai/gpt-4o-mini"]
+  }'
+
+# tenant için daha dar güvenli model kümesi tanımla (revision guard + change reason zorunlu)
 curl -X PUT http://127.0.0.1:8080/v1/model-policy \
   -H 'Authorization: Bearer dev-admin-key' \
   -H 'x-tenant-id: tenant-a' \
   -H 'content-type: application/json' \
   -d '{
-    "defaultModel":"openai/gpt-4o-mini",
-    "allowedModels":["openai/gpt-4o-mini","deepseek/deepseek-v3.2"]
+    "defaultModel":"deepseek/deepseek-chat-v3.1",
+    "allowedModels":["deepseek/deepseek-chat-v3.1","openai/gpt-4o-mini"],
+    "expectedRevision":0,
+    "changeReason":"Tenant için iki güvenli model ile kontrollü allowlist uygulanıyor."
   }'
 ```
 

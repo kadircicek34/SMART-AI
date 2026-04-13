@@ -251,7 +251,9 @@ test('POST /v1/jobs/research uses tenant default model when request omits model'
     },
     payload: {
       defaultModel: 'openai/gpt-4o-mini',
-      allowedModels: ['openai/gpt-4o-mini']
+      allowedModels: ['openai/gpt-4o-mini'],
+      expectedRevision: 0,
+      changeReason: 'Araştırma jobları için tenant default modeli daraltılıyor.'
     }
   });
 

@@ -13,7 +13,7 @@
 
 ## Optional env
 - `OPENROUTER_API_KEY` (global fallback)
-- `OPENROUTER_ALLOWED_MODELS` (CSV allowlist, varsayılan: sadece `OPENROUTER_DEFAULT_MODEL`)
+- `OPENROUTER_ALLOWED_MODELS` (CSV allowlist, varsayılan: sadece `OPENROUTER_DEFAULT_MODEL`; önerilen başlangıç modeli `deepseek/deepseek-chat-v3.1`)
 - `OPENROUTER_MAX_TENANT_ALLOWED_MODELS` (tenant custom policy için üst sınır, varsayılan: 12)
 - `OPENROUTER_MODEL_ID_MAX_LENGTH` (varsayılan: 120)
 - `OPENROUTER_MAX_RETRIES` (varsayılan: 2)
@@ -200,9 +200,10 @@
 - `POST /v1/security/export/deliveries` → allowlisted HTTPS webhook/SIEM hedefine Ed25519-imzalı export gönder (`mode=sync|async`; async mod encrypted retry queue + backoff + dead-letter lifecycle + Idempotency-Key dedupe)
 - `POST /v1/security/export/deliveries/:deliveryId/redrive` → dead-letter delivery için aynı payload + aynı hedef ile manual redrive başlat
 - `POST /v1/security/export/verify` → export edilen audit bundle'ın bütünlüğünü ve detached signature’ını yeniden doğrula
-- `GET /v1/model-policy` → tenant için effective model policy (inherit/custom/invalid durumu)
-- `PUT /v1/model-policy` → tenant bazlı model allowlist + default model güncelleme
-- `DELETE /v1/model-policy` → tenant policy reset → deployment defaults
+- `GET /v1/model-policy` → tenant için effective model policy (source/status + revision + actor metadata)
+- `POST /v1/model-policy/preview` → candidate allowlist/default değişikliği için diff + risk preview üret
+- `PUT /v1/model-policy` → tenant bazlı model allowlist + default model güncelleme (`expectedRevision` + `changeReason` zorunlu)
+- `DELETE /v1/model-policy` → tenant policy reset → deployment defaults (`expectedRevision` + `changeReason` zorunlu)
 - `POST /v1/jobs/research` → async research job oluştur (Idempotency-Key + tenant model policy doğrulaması)
 - `GET /v1/jobs` → tenant job listesi (status + limit filtreli)
 - `GET /v1/jobs/:jobId` → job detay/durum (`started_at`, `completed_at`, `cancellation_reason`)

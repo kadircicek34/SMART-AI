@@ -1,4 +1,25 @@
-# TEST REPORT — SMART-AI v1.23 (Two-Person Delegation Approval + Fresh Session Step-Up)
+# TEST REPORT — SMART-AI v1.24 (Tenant Model Policy Preview + Revision Guard)
+
+## 2026-04-13 doğrulama özeti — tenant model policy preview + revision guard
+
+### Çalıştırılan komutlar
+1. `npm run typecheck` → PASS
+2. `npx tsx --test tests/security/model-policy.test.ts tests/contract/model-policy.test.ts tests/contract/auth-context.test.ts tests/contract/ui.test.ts` → PASS (**27/27**)
+3. `npm test` → PASS (**227/227**)
+4. `npm audit --omit=dev` → PASS (0 vulnerability)
+5. `PORT=3211 APP_API_KEYS=test-api-key MASTER_KEY_BASE64=<generated> npm start` + `curl /health` + `GET /ui/dashboard` + `GET /v1/model-policy` smoke → PASS (`health.ok=true`, `dashboardHasPreview=true`, `policy.default_model=deepseek/deepseek-chat-v3.1`)
+6. `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/SMART-AI` → PASS
+
+### Yeni regresyon kanıtı
+- `POST /v1/model-policy/preview` candidate allowlist/default değişikliği için `diff`, `risk`, `reasoning`, `current_revision` ve `next_revision` alanlarını dönüyor; reasoning-capable model kaybı `high` risk olarak işaretleniyor.
+- `PUT /v1/model-policy` artık `expectedRevision` + `changeReason` zorunlu. Contract test stale payload ile `409 revision_conflict` ve `current_revision` detayını doğruluyor.
+- `DELETE /v1/model-policy` reset sonrası deployment defaults'a dönüyor ama revision, actor ve `last_change_kind=reset` metadata'sını koruyor.
+- `GET /v1/model-policy` ve `/v1/models` effective tenant policy'yi revision/actor metadata ile yansıtıyor; tenant default model omission senaryoları chat/jobs kontratlarında korundu.
+- `/ui/dashboard` artık `Policy Önizle` butonu ve revision guard/change-reason kopyası içeriyor; UI contract testi HTML yüzeyinde bunu doğruluyor.
+
+### Fresh verification notu
+- Model policy security API, dashboard UX, docs/default-model hizalaması ve tenant-default consumption akışları birlikte doğrulandı.
+- Canonical repo üzerinde tam test, smoke, audit ve delivery gate yeniden yeşil geçti.
 
 ## 2026-04-12 doğrulama özeti — incident revision scoped delegation
 

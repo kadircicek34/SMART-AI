@@ -1,5 +1,41 @@
 # DECISIONS — OpenRouter Agentic Intelligence API
 
+## 2026-04-13 — Tenant model policy preview + optimistic concurrency guard kararı
+### Problem
+Security export hattı ciddi biçimde sertleşmişti, ancak tenant model policy control plane'i hâlâ üç kritik boşluk taşıyordu:
+1. Dashboard veya API üzerinden model allowlist değişikliği yapılmadan önce operatör diff/risk etkisini göremiyordu; yanlış default model rotasyonu veya reasoning-capable model kaybı kaydetme anında fark ediliyordu.
+2. `PUT` / `DELETE /v1/model-policy` mutasyonları optimistic concurrency guard olmadan çalıştığı için stale dashboard verisi ile son yazan kazanır yarışı oluşabiliyor, eski panel state'i yeni tenant policy'yi sessizce ezebiliyordu.
+3. Hassas model policy değişiklikleri zorunlu change reason ve actor metadata olmadan kaydedildiği için kim neden allowlist daralttı, reset attı veya reasoning yüzeyini küçülttü sorusu audit zincirinde zayıf kalıyordu.
+
+### Seçenekler
+- A: Basit CRUD modelini koruyup runbook/disiplin ile preview ve stale write riskini yönetmek
+- B: Sadece backend revision guard ekleyip preview ve dashboard görünürlüğünü ertelemek
+- C: Preview endpoint'i, revision guard, zorunlu change reason, audit telemetry, dashboard UX ve testleri tek koşumda production-grade hale getirmek
+
+### Karar
+**C seçildi:**
+1. **Yeni özellik:** `POST /v1/model-policy/preview` eklendi. Candidate allowlist/default değişikliği için diff, risk seviyesi, reasoning-capable model etkisi ve next revision bilgisi dönüyor; dashboard'a `Policy Önizle` akışı bağlandı.
+2. **Ciddi güvenlik iyileştirmesi #1:** `PUT /v1/model-policy` ve `DELETE /v1/model-policy` artık `expectedRevision` zorunlu optimistic concurrency guard ile çalışıyor. Stale panel verisi `409 revision_conflict` ve `current_revision` detayı ile fail-closed reddediliyor.
+3. **Ciddi güvenlik iyileştirmesi #2:** Model policy mutasyonlarında `changeReason` zorunlu hale getirildi; persisted state artık `revision`, `updatedBy`, `updatedByAuthMode`, `changeReason`, `lastChangeKind` metadata'sını taşıyor.
+4. **Ciddi güvenlik iyileştirmesi #3:** Route katmanında `model_policy_change_rejected`, `model_policy_updated`, `model_policy_reset` audit event zinciri eklendi; invalid body, stale revision ve reset/update kararları görünür hale geldi.
+5. **Kalite / DX iyileştirmesi:** Dashboard summary revision/actor metadata gösteriyor, preview sonucu risk özetini render ediyor; contract + unit + UI testleri preview, revision conflict, reset metadata ve admin authorization senaryolarıyla genişletildi. Deployment default model dokümantasyonu da `deepseek/deepseek-chat-v3.1` hedefine hizalandı.
+
+### Gerekçe
+- Model policy artık tenant güvenlik sınırının parçası; kör CRUD yerine change-management benzeri preview + reason + revision guard gerektiriyordu.
+- Reasoning-capable model kaybı gibi riskler save sonrası değil save öncesi görünür olmalıydı.
+- Audit zinciri actor/reason/revision taşımadığında model erişim değişiklikleri operasyonel olarak savunulamaz kalıyordu.
+
+### Etki
+- Tenant model allowlist değişiklikleri artık kaydetmeden önce risk ve diff olarak görülebiliyor.
+- Stale dashboard veya yarışan admin mutasyonları sessiz overwrite yapamıyor; optimistic concurrency fail-closed çalışıyor.
+- Model policy değişiklikleri kim, nasıl, hangi sebeple yaptı sorusuna audit ve UI yüzeyinde cevap verecek metadata ile saklanıyor.
+- Varsayılan OpenRouter model hedefi, env ve dokümantasyon yüzeyinde `deepseek/deepseek-chat-v3.1` çizgisine hizalandı.
+
+### Bilinçli Olarak Ertelenenler
+- Model policy mutasyonları için iki kişili onay veya ayrı approver workflow'u
+- Change reason için yapılandırılmış kategori/enforcement sözlüğü
+- Tenant policy geçmişi için diff bazlı version browser / rollback UI
+
 ## 2026-04-12 — Incident revision scoped delegation kararı
 ### Problem
 Dünkü two-person delegation approval modeli issuance tarafını güvenli hale getirdi, ancak delivery incident yaşam döngüsünde üç kritik açık kaldı:

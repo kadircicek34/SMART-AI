@@ -1,23 +1,28 @@
 {
   "project": "SMART-AI",
   "status": "done",
-  "current_task": "Response quality floor ve smart routing hattı production-grade olarak güçlendirildi",
+  "current_task": "Tenant model policy preview, revision guard ve audit metadata hattı production-grade olarak teslim edildi",
   "next_actions": [
-    "Intent bazlı online routing telemetry ile hangi query türünün passthrough vs evidence mode aldığına dair kalite dashboardu ekle",
-    "Golden prompt benchmark seti ile raw model vs SMART-AI kalite regresyon CI kapısı ekle",
+    "Model policy mutasyonları için iki kişili approval veya ayrı approver workflow'u tasarla",
+    "Model policy geçmişi için diff bazlı timeline ve rollback UX ekle",
     "Delegation ve operator roster'ı external IdP/group sync ile besle",
-    "Delegation mutasyonları için WebAuthn veya harici IdP re-auth tabanlı step-up katmanı ekle",
+    "Delegation ve hassas dashboard mutasyonları için WebAuthn veya harici IdP re-auth tabanlı step-up katmanı ekle",
     "Delegation, operator policy, incident, audit ve session state'ini gerçek shared backend'e taşı",
     "Export delivery için merkezi egress proxy / VPC-level outbound enforcement tasarla ve uygula"
   ],
   "risks": [
-    "Hybrid direct/evidence routing kaliteyi ciddi yükseltir ancak latencyyi artırır; gerekirse ileride cached draft veya intent-level fast-path tuning yapılmalıdır",
+    "Model policy mutasyonları şu an revision guard + reason ile korunuyor ancak iki kişili approval veya structured change-classification henüz yok",
     "Delegation ve operator roster bugün principal-name listesi seviyesinde; external IdP/group directory entegrasyonu henüz yok",
     "Delegation step-up doğrulaması şu an UI session yaşı + API key güvenine dayanıyor; WebAuthn veya harici kimlik sağlayıcı re-auth entegrasyonu henüz yok",
     "Delegation, operator policy, incident, queue, audit ve session persistence hâlâ local file tabanlı; multi-instance HA için shared backend gerekecek",
     "Export delivery için merkezi egress proxy / VPC-level outbound control henüz yok"
   ],
   "decisions": [
+    {
+      "date": "2026-04-13",
+      "decision": "Tenant model policy control plane'ini preview + optimistic concurrency + zorunlu change reason modeline yükselt",
+      "reason": "Tenant model erişim sınırlarının kör CRUD ile değil, diff/risk preview, revision guard ve actor/reason metadata ile yönetilmesi; stale dashboard overwrite riskini fail-closed kapatmak ve change audit zincirini güçlendirmek"
+    },
     {
       "date": "2026-04-12",
       "decision": "Ham model kalitesini koruyan hybrid direct-answer + evidence-upgrade routing modeline geç",
@@ -100,13 +105,16 @@
     "service/README.md",
     "service/.env.example",
     "service/config.ts",
-    "service/api/routes/security-events.ts",
-    "service/security/audit-log.ts",
-    "service/security/export-operator-delegation.ts",
+    "service/api/routes/model-policy.ts",
+    "service/security/model-policy.ts",
     "service/web/assets/dashboard.js",
     "service/web/dashboard.html",
-    "service/tests/contract/security-export-operator-delegations.test.ts",
-    "service/tests/security/export-operator-delegation.test.ts"
+    "service/tests/contract/auth-context.test.ts",
+    "service/tests/contract/chat-completions.test.ts",
+    "service/tests/contract/jobs.test.ts",
+    "service/tests/contract/model-policy.test.ts",
+    "service/tests/contract/ui.test.ts",
+    "service/tests/security/model-policy.test.ts"
   ],
-  "updated_at": "2026-04-12T12:45:00+03:00"
+  "updated_at": "2026-04-13T07:00:00+03:00"
 }

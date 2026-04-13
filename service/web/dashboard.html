@@ -105,13 +105,15 @@
         </div>
         <label>
           Allowed Models (satır başına bir model)
-          <textarea id="policyAllowedModels" rows="6" placeholder="deepseek/deepseek-v3.2"></textarea>
+          <textarea id="policyAllowedModels" rows="6" placeholder="deepseek/deepseek-chat-v3.1"></textarea>
         </label>
         <div class="actions">
+          <button id="previewPolicy" class="secondary">Policy Önizle</button>
           <button id="savePolicy">Policy Kaydet</button>
           <button id="resetPolicy" class="secondary">Deployment Default'a Dön</button>
         </div>
-        <p class="muted">Tenant modeli, deployment allowlist içindeki güvenli alt kümeyle sınırlandırılır.</p>
+        <p id="modelPolicyPreviewSummary" class="muted">Önizleme yapılmadı.</p>
+        <p class="muted">Tenant modeli, deployment allowlist içindeki güvenli alt kümeyle sınırlandırılır. Mutasyonlarda revision guard + zorunlu change reason uygulanır.</p>
       </section>
 
       <section class="card">

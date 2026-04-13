@@ -1,4 +1,27 @@
-# DELIVERY — SMART-AI v1.23 (Two-Person Delegation Approval + Fresh Session Step-Up)
+# DELIVERY — SMART-AI v1.24 (Tenant Model Policy Preview + Revision Guard)
+
+## 2026-04-13 Teslim Özeti
+
+### Yapılanlar
+- Tenant model policy control plane'ine yeni `POST /v1/model-policy/preview` özelliği eklendi; dashboard artık save öncesi diff, risk ve revision etkisini gösterebiliyor.
+- Model policy mutasyonları ciddi biçimde sertleştirildi: `PUT` ve `DELETE` akışlarında `expectedRevision` optimistic concurrency guard ve zorunlu `changeReason` devreye alındı.
+- Persisted policy metadata genişletildi: `revision`, `updatedBy`, `updatedByAuthMode`, `changeReason`, `lastChangeKind`, `reasoningAllowedModels` alanları effective response yüzeyine bağlandı.
+- Audit zinciri production-grade hale getirildi: `model_policy_change_rejected`, `model_policy_updated`, `model_policy_reset` eventleri route katmanında kayda giriyor.
+- Varsayılan OpenRouter modeli, env örneği ve README'ler `deepseek/deepseek-chat-v3.1` hedefine hizalandı; dashboard placeholder ve smoke çıktısı da bu yeni baseline'ı gösteriyor.
+- Test ve UX yüzeyi genişletildi: unit + contract + UI testleri preview, stale revision, reset metadata, admin authorization ve dashboard kopyasını kapsıyor.
+
+### Doğrulama
+- `npm run typecheck` → PASS
+- `npx tsx --test tests/security/model-policy.test.ts tests/contract/model-policy.test.ts tests/contract/auth-context.test.ts tests/contract/ui.test.ts` → PASS (27/27)
+- `npm test` → PASS (227/227)
+- `npm audit --omit=dev` → PASS (0 vulnerability)
+- Smoke (`/health`, `/ui/dashboard`, `GET /v1/model-policy`) → PASS
+- `/root/.openclaw/workspace-yazilimci/scripts/delivery-gate.sh /root/SMART-AI` → PASS
+
+### Kalan riskler
+- Model policy değişiklikleri için iki kişili onay veya ayrı approver workflow'u henüz yok.
+- Change reason bugün serbest metin; yapılandırılmış kategori/enforcement sözlüğü henüz yok.
+- Delegation, incident, operator policy, audit ve session state hâlâ local file tabanlı; shared backend / multi-instance HA ihtiyacı sürüyor.
 
 ## 2026-04-12 Teslim Özeti
 

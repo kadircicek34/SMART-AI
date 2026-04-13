@@ -68,7 +68,9 @@ test('POST /v1/chat/completions uses tenant default model when request omits mod
     },
     payload: {
       defaultModel: 'openai/gpt-4o-mini',
-      allowedModels: ['openai/gpt-4o-mini']
+      allowedModels: ['openai/gpt-4o-mini'],
+      expectedRevision: 0,
+      changeReason: 'Tenant chat trafiği için tek güvenli model default yapılıyor.'
     }
   });
 

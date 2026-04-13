@@ -1,4 +1,23 @@
-# SECURITY REPORT — SMART-AI v1.23
+# SECURITY REPORT — SMART-AI v1.24
+
+## 2026-04-13 Güvenlik sertleştirmesi — tenant model policy preview + revision guard
+
+### Bu koşumda kapatılan riskler
+1. **Stale dashboard overwrite riski kapatıldı:** `PUT` / `DELETE /v1/model-policy` artık `expectedRevision` ile optimistic concurrency guard uyguluyor; stale payload `409 revision_conflict` ile fail-closed reddediliyor.
+2. **Kör model daraltma riski daraltıldı:** `POST /v1/model-policy/preview` save öncesinde diff, reasoning-capable model kaybı ve risk seviyesi gösteriyor; tek model fallback ve reasoning kaybı operatör tarafından kaydetmeden önce görülebiliyor.
+3. **Audit körlüğü kapatıldı:** Model policy state artık `revision`, `updatedBy`, `updatedByAuthMode`, `changeReason`, `lastChangeKind` metadata'sını saklıyor; route katmanında rejected/update/reset eventleri audit feed'e yazılıyor.
+4. **Default model drift riski azaltıldı:** Config, env örneği ve dokümantasyon `deepseek/deepseek-chat-v3.1` hedefine hizalandı; smoke doğrulaması deployment default modelin bu hedefe döndüğünü kanıtladı.
+
+### Kontroller
+- Unit + contract testler preview, reset metadata, stale revision reject, auth scope ve dashboard copy senaryolarını doğruladı.
+- Full regression suite tenant default modelin chat/jobs tüketiminde kırılmadığını tekrar doğruladı.
+- Smoke doğrulaması `/health`, `/ui/dashboard` ve `GET /v1/model-policy` yüzeyinde canlı çıktı üretti.
+- `npm audit --omit=dev` sonucu: `0 vulnerability`.
+
+### Kalan riskler
+- Model policy mutasyonları için iki kişili onay veya ayrı approver workflow'u henüz yok.
+- Change reason bugün serbest metin; yapılandırılmış kategori/enforcement sözlüğü henüz yok.
+- Delegation, incident, operator policy, audit ve session state hâlâ local file tabanlı; multi-instance shared backend ihtiyacı sürüyor.
 
 ## 2026-04-12 Güvenlik sertleştirmesi — incident revision scoped delegation
 

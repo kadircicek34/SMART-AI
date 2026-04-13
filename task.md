@@ -1,5 +1,16 @@
 # TASKS — OpenRouter Agentic Intelligence API
 
+## v1.24 Delta (Tenant Model Policy Preview + Revision Guard) — Tamamlandı
+- [x] Yeni özellik: `POST /v1/model-policy/preview` endpointi eklendi
+- [x] Dashboard'a `Policy Önizle` butonu, risk summary alanı ve revision/change-reason kopyası eklendi
+- [x] Güvenlik: `PUT /v1/model-policy` optimistic concurrency için `expectedRevision` zorunlu hale getirildi
+- [x] Güvenlik: `DELETE /v1/model-policy` reset akışı `expectedRevision` + `changeReason` ile fail-closed korundu
+- [x] Güvenlik: persisted model policy state `revision`, `updatedBy`, `updatedByAuthMode`, `changeReason`, `lastChangeKind` metadata'sı ile genişletildi
+- [x] Audit telemetry: `model_policy_change_rejected`, `model_policy_updated`, `model_policy_reset` event tipleri route yüzeyine bağlandı
+- [x] Dokümantasyon / config: varsayılan OpenRouter modeli `deepseek/deepseek-chat-v3.1` hedefine hizalandı (`config`, `.env.example`, README'ler)
+- [x] Contract + unit + UI testleri: preview, revision conflict, reset metadata, auth scope ve dashboard copy senaryoları yazıldı/güncellendi
+- [x] Fresh verification: typecheck + focused tests + full test + audit + smoke + delivery-gate akışı tamamlandı
+
 ## v1.23 Delta (Two-Person Delegation Approval + Fresh Session Step-Up) — Tamamlandı
 - [x] Yeni özellik: `POST /v1/security/export/operator-delegations/:grantId/approve` endpointi eklendi
 - [x] Güvenlik: delegation create artık `pending_approval` request üretiyor, approval sonrası grant `active` oluyor

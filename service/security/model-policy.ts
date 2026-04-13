@@ -3,15 +3,27 @@ import path from 'node:path';
 import { config } from '../config.js';
 
 const MODEL_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._/-]*$/;
+const MODEL_POLICY_CHANGE_REASON_MIN_LENGTH = 8;
+const MODEL_POLICY_CHANGE_REASON_MAX_LENGTH = 280;
+
+export type ModelPolicyActor = {
+  principalName?: string | null;
+  authMode?: 'api_key' | 'ui_session' | 'unknown' | null;
+};
 
 type ModelPolicyFile = {
   tenants: Record<string, StoredTenantModelPolicy>;
 };
 
 export type StoredTenantModelPolicy = {
+  state: 'active' | 'reset';
   allowedModels: string[];
-  defaultModel: string;
+  defaultModel: string | null;
   updatedAt: string;
+  revision: number;
+  updatedBy: string | null;
+  updatedByAuthMode: 'api_key' | 'ui_session' | 'unknown' | null;
+  changeReason: string | null;
 };
 
 export type EffectiveModelPolicy = {
@@ -22,11 +34,57 @@ export type EffectiveModelPolicy = {
   defaultModel: string | null;
   deploymentAllowedModels: string[];
   updatedAt: string | null;
+  revision: number;
+  updatedBy: string | null;
+  updatedByAuthMode: 'api_key' | 'ui_session' | 'unknown' | null;
+  changeReason: string | null;
+  lastChangeKind: 'deployment_default' | 'override' | 'reset';
+  reasoningAllowedModels: string[];
 };
 
 export type TenantModelPolicyInput = {
   allowedModels: string[];
   defaultModel: string;
+};
+
+export type TenantModelPolicyPreview = {
+  tenantId: string;
+  currentRevision: number;
+  nextRevision: number;
+  currentSource: 'deployment' | 'tenant';
+  currentPolicyStatus: 'inherited' | 'active' | 'invalid';
+  wouldChange: boolean;
+  changeKind:
+    | 'no_change'
+    | 'create_override'
+    | 'tighten_override'
+    | 'widen_override'
+    | 'rotate_default'
+    | 'equivalent_to_reset';
+  currentDefaultModel: string | null;
+  candidateDefaultModel: string;
+  diff: {
+    addedModels: string[];
+    removedModels: string[];
+    unchangedModels: string[];
+    defaultModelChanged: boolean;
+  };
+  reasoning: {
+    currentModels: string[];
+    candidateModels: string[];
+    removedModels: string[];
+    remainingModels: string[];
+    defaultModelReasoningEnabled: boolean;
+  };
+  risk: {
+    level: 'low' | 'medium' | 'high';
+    reasons: string[];
+  };
+  warnings: string[];
+  candidatePolicy: {
+    allowedModels: string[];
+    defaultModel: string;
+  };
 };
 
 export type ResolveTenantModelResult =
@@ -48,6 +106,60 @@ export type ResolveTenantModelResult =
 
 function normalize(model: string): string {
   return model.trim();
+}
+
+function normalizeActorName(value: string | null | undefined): string | null {
+  const normalized = String(value ?? '').trim().slice(0, 128);
+  return normalized || null;
+}
+
+function normalizeActorMode(value: string | null | undefined): 'api_key' | 'ui_session' | 'unknown' | null {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (normalized === 'api_key' || normalized === 'ui_session') {
+    return normalized;
+  }
+
+  return normalized ? 'unknown' : null;
+}
+
+export function normalizeModelPolicyChangeReason(value: string | undefined): string {
+  return String(value ?? '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .slice(0, MODEL_POLICY_CHANGE_REASON_MAX_LENGTH);
+}
+
+function validateModelPolicyChangeControl(params: {
+  expectedRevision: number;
+  changeReason: string;
+}): { ok: true; value: { expectedRevision: number; changeReason: string } } | { ok: false; reason: string; code: string; statusCode: number } {
+  const expectedRevision = Number(params.expectedRevision);
+  if (!Number.isInteger(expectedRevision) || expectedRevision < 0) {
+    return {
+      ok: false,
+      reason: 'expectedRevision must be a non-negative integer.',
+      code: 'invalid_expected_revision',
+      statusCode: 400
+    };
+  }
+
+  const changeReason = normalizeModelPolicyChangeReason(params.changeReason);
+  if (changeReason.length < MODEL_POLICY_CHANGE_REASON_MIN_LENGTH) {
+    return {
+      ok: false,
+      reason: `changeReason must be at least ${MODEL_POLICY_CHANGE_REASON_MIN_LENGTH} characters.`,
+      code: 'change_reason_too_short',
+      statusCode: 400
+    };
+  }
+
+  return {
+    ok: true,
+    value: {
+      expectedRevision,
+      changeReason
+    }
+  };
 }
 
 function dedupeModels(models: string[]): string[] {
@@ -81,6 +193,31 @@ function getDeploymentDefaultModel(): string {
   }
 
   return configured;
+}
+
+function getReasoningAllowedModels(models: string[]): string[] {
+  const reasoningSet = new Set(config.openRouter.reasoningModels.map((model) => normalize(model).toLowerCase()));
+  return models.filter((model) => reasoningSet.has(normalize(model).toLowerCase()));
+}
+
+function hasSameMembers(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  const leftSet = new Set(left);
+  return right.every((value) => leftSet.has(value));
+}
+
+function diffModels(current: string[], candidate: string[]) {
+  const currentSet = new Set(current);
+  const candidateSet = new Set(candidate);
+
+  return {
+    addedModels: candidate.filter((model) => !currentSet.has(model)),
+    removedModels: current.filter((model) => !candidateSet.has(model)),
+    unchangedModels: candidate.filter((model) => currentSet.has(model))
+  };
 }
 
 async function ensureStoreExists(): Promise<void> {
@@ -120,6 +257,65 @@ export function validateModelId(model: string): { ok: true; normalized: string }
   }
 
   return { ok: true, normalized };
+}
+
+function sanitizeStoredAllowedModels(input: unknown): string[] {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of input) {
+    const validation = validateModelId(String(entry ?? ''));
+    if (!validation.ok || seen.has(validation.normalized)) {
+      continue;
+    }
+
+    seen.add(validation.normalized);
+    normalized.push(validation.normalized);
+  }
+
+  return normalized;
+}
+
+function sanitizeStoredDefaultModel(input: unknown): string | null {
+  const validation = validateModelId(String(input ?? ''));
+  return validation.ok ? validation.normalized : null;
+}
+
+function sanitizeStoredTenantModelPolicy(value: unknown): StoredTenantModelPolicy | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+
+  const candidate = value as Partial<StoredTenantModelPolicy> & {
+    state?: unknown;
+    allowedModels?: unknown;
+    defaultModel?: unknown;
+    revision?: unknown;
+    updatedBy?: unknown;
+    updatedByAuthMode?: unknown;
+    changeReason?: unknown;
+    updatedAt?: unknown;
+  };
+
+  const rawState = String(candidate.state ?? '').trim().toLowerCase();
+  const state: StoredTenantModelPolicy['state'] = rawState === 'reset' ? 'reset' : 'active';
+  const revision = Number(candidate.revision);
+  const updatedAt = String(candidate.updatedAt ?? '').trim();
+  const parsedUpdatedAt = Date.parse(updatedAt);
+
+  return {
+    state,
+    allowedModels: state === 'reset' ? [] : sanitizeStoredAllowedModels(candidate.allowedModels),
+    defaultModel: state === 'reset' ? null : sanitizeStoredDefaultModel(candidate.defaultModel),
+    updatedAt: Number.isFinite(parsedUpdatedAt) ? new Date(parsedUpdatedAt).toISOString() : new Date().toISOString(),
+    revision: Number.isInteger(revision) && revision > 0 ? revision : 1,
+    updatedBy: normalizeActorName(typeof candidate.updatedBy === 'string' ? candidate.updatedBy : null),
+    updatedByAuthMode: normalizeActorMode(typeof candidate.updatedByAuthMode === 'string' ? candidate.updatedByAuthMode : null),
+    changeReason: normalizeModelPolicyChangeReason(typeof candidate.changeReason === 'string' ? candidate.changeReason : undefined) || null
+  };
 }
 
 export function isAllowedModel(model: string): boolean {
@@ -208,14 +404,29 @@ export function validateTenantModelPolicyInput(input: TenantModelPolicyInput):
 
 export async function getTenantModelPolicy(tenantId: string): Promise<StoredTenantModelPolicy | null> {
   const store = await readStore();
-  return store.tenants[tenantId] ?? null;
+  return sanitizeStoredTenantModelPolicy(store.tenants[tenantId]);
 }
 
-export async function setTenantModelPolicy(
+function getCurrentStoredRevision(policy: StoredTenantModelPolicy | null): number {
+  return Math.max(0, policy?.revision ?? 0);
+}
+
+function buildStoredPolicyMetadata(params: {
+  actor?: ModelPolicyActor;
+  changeReason: string;
+}) {
+  return {
+    updatedBy: normalizeActorName(params.actor?.principalName),
+    updatedByAuthMode: normalizeActorMode(params.actor?.authMode),
+    changeReason: normalizeModelPolicyChangeReason(params.changeReason) || null
+  } satisfies Pick<StoredTenantModelPolicy, 'updatedBy' | 'updatedByAuthMode' | 'changeReason'>;
+}
+
+export async function previewTenantModelPolicyChange(
   tenantId: string,
   input: TenantModelPolicyInput
 ): Promise<
-  | { ok: true; policy: StoredTenantModelPolicy }
+  | { ok: true; preview: TenantModelPolicyPreview }
   | { ok: false; reason: string; code: string; statusCode: number }
 > {
   const validated = validateTenantModelPolicyInput(input);
@@ -223,11 +434,169 @@ export async function setTenantModelPolicy(
     return validated;
   }
 
+  const currentPolicy = await getEffectiveModelPolicy(tenantId);
+  const currentAllowed = currentPolicy.allowedModels;
+  const candidateAllowed = validated.value.allowedModels;
+  const diff = diffModels(currentAllowed, candidateAllowed);
+  const defaultModelChanged = currentPolicy.defaultModel !== validated.value.defaultModel;
+  const currentReasoningModels = currentPolicy.reasoningAllowedModels;
+  const candidateReasoningModels = getReasoningAllowedModels(candidateAllowed);
+  const removedReasoningModels = currentReasoningModels.filter((model) => !candidateReasoningModels.includes(model));
+  const remainingReasoningModels = candidateReasoningModels.filter((model) => currentReasoningModels.includes(model));
+
+  let changeKind: TenantModelPolicyPreview['changeKind'] = 'create_override';
+  const wouldChange =
+    !hasSameMembers(currentAllowed, candidateAllowed) ||
+    normalize(currentPolicy.defaultModel ?? '') !== normalize(validated.value.defaultModel);
+
+  if (!wouldChange) {
+    changeKind = 'no_change';
+  } else if (
+    currentPolicy.source === 'tenant' &&
+    hasSameMembers(candidateAllowed, currentPolicy.deploymentAllowedModels) &&
+    validated.value.defaultModel === getDeploymentDefaultModel()
+  ) {
+    changeKind = 'equivalent_to_reset';
+  } else if (diff.addedModels.length === 0 && diff.removedModels.length === 0 && defaultModelChanged) {
+    changeKind = 'rotate_default';
+  } else if (currentPolicy.source === 'deployment') {
+    changeKind = 'create_override';
+  } else if (diff.removedModels.length > diff.addedModels.length) {
+    changeKind = 'tighten_override';
+  } else if (diff.addedModels.length > diff.removedModels.length) {
+    changeKind = 'widen_override';
+  } else if (diff.removedModels.length > 0) {
+    changeKind = 'tighten_override';
+  } else {
+    changeKind = 'widen_override';
+  }
+
+  const warnings: string[] = [];
+  const riskReasons: string[] = [];
+  let riskLevel: TenantModelPolicyPreview['risk']['level'] = 'low';
+
+  if (diff.removedModels.includes(currentPolicy.defaultModel ?? '')) {
+    riskLevel = 'high';
+    riskReasons.push('Current default model will be removed from the tenant allowlist.');
+  }
+
+  if (currentReasoningModels.length > 0 && candidateReasoningModels.length === 0) {
+    riskLevel = 'high';
+    riskReasons.push('All reasoning-capable models would be removed for this tenant.');
+  }
+
+  if (currentAllowed.length > 1 && candidateAllowed.length === 1) {
+    if (riskLevel !== 'high') {
+      riskLevel = 'medium';
+    }
+    riskReasons.push('Model redundancy will drop to a single allowed model.');
+    warnings.push('Single-model policy fallback surface becomes narrower during provider incidents.');
+  }
+
+  if (defaultModelChanged) {
+    if (riskLevel === 'low') {
+      riskLevel = 'medium';
+    }
+    riskReasons.push('Tenant default model will change.');
+  }
+
+  if (removedReasoningModels.length > 0 && candidateReasoningModels.length > 0) {
+    if (riskLevel === 'low') {
+      riskLevel = 'medium';
+    }
+    riskReasons.push('Some reasoning-capable models would be removed.');
+  }
+
+  if (!candidateReasoningModels.includes(validated.value.defaultModel)) {
+    warnings.push('Selected default model is not in the configured reasoning-capable model set.');
+  }
+
+  if (changeKind === 'equivalent_to_reset') {
+    warnings.push('Candidate policy matches deployment defaults. Reset may be simpler than storing an explicit override.');
+  }
+
+  return {
+    ok: true,
+    preview: {
+      tenantId,
+      currentRevision: currentPolicy.revision,
+      nextRevision: currentPolicy.revision + 1,
+      currentSource: currentPolicy.source,
+      currentPolicyStatus: currentPolicy.policyStatus,
+      wouldChange,
+      changeKind,
+      currentDefaultModel: currentPolicy.defaultModel,
+      candidateDefaultModel: validated.value.defaultModel,
+      diff: {
+        ...diff,
+        defaultModelChanged
+      },
+      reasoning: {
+        currentModels: currentReasoningModels,
+        candidateModels: candidateReasoningModels,
+        removedModels: removedReasoningModels,
+        remainingModels: remainingReasoningModels,
+        defaultModelReasoningEnabled: candidateReasoningModels.includes(validated.value.defaultModel)
+      },
+      risk: {
+        level: riskLevel,
+        reasons: riskReasons
+      },
+      warnings,
+      candidatePolicy: {
+        allowedModels: validated.value.allowedModels,
+        defaultModel: validated.value.defaultModel
+      }
+    }
+  };
+}
+
+export async function setTenantModelPolicy(
+  tenantId: string,
+  input: TenantModelPolicyInput,
+  options: {
+    expectedRevision: number;
+    changeReason: string;
+    actor?: ModelPolicyActor;
+  }
+): Promise<
+  | { ok: true; policy: StoredTenantModelPolicy }
+  | { ok: false; reason: string; code: string; statusCode: number; currentRevision?: number }
+> {
+  const validated = validateTenantModelPolicyInput(input);
+  if (!validated.ok) {
+    return validated;
+  }
+
+  const changeControl = validateModelPolicyChangeControl(options);
+  if (!changeControl.ok) {
+    return changeControl;
+  }
+
   const store = await readStore();
+  const current = sanitizeStoredTenantModelPolicy(store.tenants[tenantId]);
+  const currentRevision = getCurrentStoredRevision(current);
+
+  if (changeControl.value.expectedRevision !== currentRevision) {
+    return {
+      ok: false,
+      reason: 'Model policy revision mismatch. Refresh current policy and retry.',
+      code: 'revision_conflict',
+      statusCode: 409,
+      currentRevision
+    };
+  }
+
   const policy: StoredTenantModelPolicy = {
+    state: 'active',
     allowedModels: validated.value.allowedModels,
     defaultModel: validated.value.defaultModel,
-    updatedAt: new Date().toISOString()
+    updatedAt: new Date().toISOString(),
+    revision: currentRevision + 1,
+    ...buildStoredPolicyMetadata({
+      actor: options.actor,
+      changeReason: changeControl.value.changeReason
+    })
   };
 
   store.tenants[tenantId] = policy;
@@ -236,21 +605,70 @@ export async function setTenantModelPolicy(
   return { ok: true, policy };
 }
 
-export async function resetTenantModelPolicy(tenantId: string): Promise<boolean> {
-  const store = await readStore();
-  const existed = Boolean(store.tenants[tenantId]);
-
-  if (existed) {
-    delete store.tenants[tenantId];
-    await writeStore(store);
+export async function resetTenantModelPolicy(
+  tenantId: string,
+  options: {
+    expectedRevision: number;
+    changeReason: string;
+    actor?: ModelPolicyActor;
+  }
+): Promise<
+  | { ok: true; reset: boolean; policy: StoredTenantModelPolicy | null }
+  | { ok: false; reason: string; code: string; statusCode: number; currentRevision?: number }
+> {
+  const changeControl = validateModelPolicyChangeControl(options);
+  if (!changeControl.ok) {
+    return changeControl;
   }
 
-  return existed;
+  const store = await readStore();
+  const current = sanitizeStoredTenantModelPolicy(store.tenants[tenantId]);
+  const currentRevision = getCurrentStoredRevision(current);
+
+  if (changeControl.value.expectedRevision !== currentRevision) {
+    return {
+      ok: false,
+      reason: 'Model policy revision mismatch. Refresh current policy and retry.',
+      code: 'revision_conflict',
+      statusCode: 409,
+      currentRevision
+    };
+  }
+
+  if (!current || current.state === 'reset') {
+    return {
+      ok: true,
+      reset: false,
+      policy: current
+    };
+  }
+
+  const policy: StoredTenantModelPolicy = {
+    state: 'reset',
+    allowedModels: [],
+    defaultModel: null,
+    updatedAt: new Date().toISOString(),
+    revision: currentRevision + 1,
+    ...buildStoredPolicyMetadata({
+      actor: options.actor,
+      changeReason: changeControl.value.changeReason
+    })
+  };
+
+  store.tenants[tenantId] = policy;
+  await writeStore(store);
+
+  return {
+    ok: true,
+    reset: true,
+    policy
+  };
 }
 
 export async function getEffectiveModelPolicy(tenantId: string): Promise<EffectiveModelPolicy> {
   const deploymentAllowedModels = getDeploymentAllowedModels();
   const stored = await getTenantModelPolicy(tenantId);
+  const deploymentDefaultModel = getDeploymentDefaultModel();
 
   if (!stored) {
     return {
@@ -258,15 +676,39 @@ export async function getEffectiveModelPolicy(tenantId: string): Promise<Effecti
       source: 'deployment',
       policyStatus: 'inherited',
       allowedModels: deploymentAllowedModels,
-      defaultModel: getDeploymentDefaultModel(),
+      defaultModel: deploymentDefaultModel,
       deploymentAllowedModels,
-      updatedAt: null
+      updatedAt: null,
+      revision: 0,
+      updatedBy: null,
+      updatedByAuthMode: null,
+      changeReason: null,
+      lastChangeKind: 'deployment_default',
+      reasoningAllowedModels: getReasoningAllowedModels(deploymentAllowedModels)
+    };
+  }
+
+  if (stored.state === 'reset') {
+    return {
+      tenantId,
+      source: 'deployment',
+      policyStatus: 'inherited',
+      allowedModels: deploymentAllowedModels,
+      defaultModel: deploymentDefaultModel,
+      deploymentAllowedModels,
+      updatedAt: stored.updatedAt,
+      revision: stored.revision,
+      updatedBy: stored.updatedBy,
+      updatedByAuthMode: stored.updatedByAuthMode,
+      changeReason: stored.changeReason,
+      lastChangeKind: 'reset',
+      reasoningAllowedModels: getReasoningAllowedModels(deploymentAllowedModels)
     };
   }
 
   const deploymentAllowedSet = new Set(deploymentAllowedModels);
   const allowedModels = dedupeModels(stored.allowedModels).filter((model) => deploymentAllowedSet.has(model));
-  const defaultModel = allowedModels.includes(stored.defaultModel) ? stored.defaultModel : (allowedModels[0] ?? null);
+  const defaultModel = stored.defaultModel && allowedModels.includes(stored.defaultModel) ? stored.defaultModel : (allowedModels[0] ?? null);
 
   return {
     tenantId,
@@ -275,7 +717,13 @@ export async function getEffectiveModelPolicy(tenantId: string): Promise<Effecti
     allowedModels,
     defaultModel,
     deploymentAllowedModels,
-    updatedAt: stored.updatedAt
+    updatedAt: stored.updatedAt,
+    revision: stored.revision,
+    updatedBy: stored.updatedBy,
+    updatedByAuthMode: stored.updatedByAuthMode,
+    changeReason: stored.changeReason,
+    lastChangeKind: 'override',
+    reasoningAllowedModels: getReasoningAllowedModels(allowedModels)
   };
 }
 

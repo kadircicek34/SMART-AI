@@ -31,6 +31,8 @@ test('GET /ui/dashboard serves control dashboard HTML with security headers', as
   assert.equal(res.statusCode, 200);
   assert.match(res.headers['content-type'] ?? '', /text\/html/);
   assert.match(res.body, /SMART-AI Control Dashboard/);
+  assert.match(res.body, /Policy Önizle/);
+  assert.match(res.body, /revision guard \+ zorunlu change reason/);
   assert.match(String(res.headers['content-security-policy'] ?? ''), /default-src 'self'/);
   assert.equal(res.headers['x-frame-options'], 'DENY');
   assert.equal(res.headers['x-content-type-options'], 'nosniff');

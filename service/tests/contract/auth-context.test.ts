@@ -130,7 +130,9 @@ test('operate credential can use tenant write APIs but cannot access admin-only 
     },
     payload: {
       defaultModel: 'deepseek/deepseek-v3.2',
-      allowedModels: ['deepseek/deepseek-v3.2']
+      allowedModels: ['deepseek/deepseek-v3.2'],
+      expectedRevision: 0,
+      changeReason: 'Operate scope bu admin mutasyonunu yapmamalı.'
     }
   });
 
@@ -228,7 +230,9 @@ test('admin credential can manage model policy and protected key routes', async 
     },
     payload: {
       defaultModel: 'deepseek/deepseek-v3.2',
-      allowedModels: ['deepseek/deepseek-v3.2']
+      allowedModels: ['deepseek/deepseek-v3.2'],
+      expectedRevision: 0,
+      changeReason: 'Admin credential model policy güncellemesini yapabilmeli.'
     }
   });
 

@@ -88,6 +88,7 @@ function setSessionCapabilities(message, isError = false) {
 function setAdminControlsEnabled(enabled) {
   for (const id of [
     'flushMcp',
+    'previewPolicy',
     'savePolicy',
     'resetPolicy',
     'policyDefaultModel',
@@ -555,6 +556,63 @@ function parsePositiveInteger(value, fallback, { min = 1, max = Number.MAX_SAFE_
   return Math.min(max, Math.max(min, Math.trunc(parsed)));
 }
 
+function parseNonNegativeInteger(value, fallback = 0) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return fallback;
+  }
+
+  return Math.trunc(parsed);
+}
+
+function getCurrentModelPolicyRevision() {
+  const summary = document.getElementById('modelPolicySummary');
+  return parseNonNegativeInteger(summary?.dataset?.policyRevision, 0);
+}
+
+function promptModelPolicyChangeReason(actionLabel) {
+  const reason = window.prompt(
+    `${actionLabel} için change reason girin (en az 8 karakter):`,
+    actionLabel === 'reset'
+      ? 'Tenant override kaldırılıyor ve deployment defaultlarına dönülüyor.'
+      : 'Tenant model erişimi kontrollü biçimde güncelleniyor.'
+  );
+
+  if (!reason) {
+    return null;
+  }
+
+  const normalized = String(reason).trim().replace(/\s+/g, ' ');
+  if (normalized.length < 8) {
+    throw new Error('Change reason en az 8 karakter olmalı.');
+  }
+
+  return normalized;
+}
+
+function renderModelPolicyPreview(preview) {
+  const node = document.getElementById('modelPolicyPreviewSummary');
+  if (!node) return;
+
+  if (!preview) {
+    node.textContent = 'Önizleme yapılmadı.';
+    return;
+  }
+
+  const diff = preview?.diff ?? {};
+  const risk = preview?.risk ?? {};
+  const warnings = Array.isArray(preview?.warnings) ? preview.warnings : [];
+  const added = Array.isArray(diff?.added_models) ? diff.added_models.length : 0;
+  const removed = Array.isArray(diff?.removed_models) ? diff.removed_models.length : 0;
+  const riskReasons = Array.isArray(risk?.reasons) && risk.reasons.length ? ` | ${risk.reasons.join(' | ')}` : '';
+  const warningText = warnings.length ? ` | warning=${warnings.join(' | ')}` : '';
+
+  node.textContent =
+    `kind=${preview?.change_kind ?? 'unknown'}, currentRev=${preview?.current_revision ?? 0}, nextRev=${preview?.next_revision ?? 1}, ` +
+    `added=${added}, removed=${removed}, defaultChanged=${preview?.diff?.default_model_changed ? 'evet' : 'hayır'}, ` +
+    `risk=${preview?.risk?.level ?? 'low'}${riskReasons}${warningText}`;
+}
+
 function renderModelPolicy(policy) {
   const summary = document.getElementById('modelPolicySummary');
   const status = document.getElementById('policyStatus');
@@ -566,8 +624,14 @@ function renderModelPolicy(policy) {
   const source = policy?.source ?? 'deployment';
   const policyStatus = policy?.policy_status ?? 'inherited';
   const defaultModel = policy?.default_model ?? '';
+  const revision = parseNonNegativeInteger(policy?.revision, 0);
+  const updatedBy = policy?.updated_by ?? '—';
+  const lastChangeKind = policy?.last_change_kind ?? 'deployment_default';
+  const reasoningModels = Array.isArray(policy?.reasoning_allowed_models) ? policy.reasoning_allowed_models.length : 0;
 
-  summary.textContent = `source=${source}, status=${policyStatus}, default=${defaultModel || '—'}, models=${allowed.length}`;
+  summary.textContent =
+    `source=${source}, status=${policyStatus}, default=${defaultModel || '—'}, models=${allowed.length}, reasoning=${reasoningModels}, rev=${revision}, last=${lastChangeKind}, actor=${updatedBy}`;
+  summary.dataset.policyRevision = String(revision);
   status.value = `${source} / ${policyStatus}`;
   textarea.value = allowed.join('\n');
 
@@ -644,6 +708,7 @@ function applyAuthContext(context) {
     document.getElementById('securityDeliverySummary').textContent = 'admin gerekli';
     document.getElementById('securityDeliveryPreviewSummary').textContent = 'admin gerekli';
     document.getElementById('securityDeliveryAnalyticsSummary').textContent = 'admin gerekli';
+    document.getElementById('modelPolicyPreviewSummary').textContent = 'admin gerekli';
     document.getElementById('securitySigningSummary').textContent = 'admin gerekli';
     document.getElementById('securitySigningMaintenanceSummary').textContent = 'admin gerekli';
     document.getElementById('securitySigningMetric').textContent = 'admin gerekli';
@@ -675,10 +740,11 @@ async function loadModelPolicy(settings) {
   });
 
   renderModelPolicy(policy);
+  renderModelPolicyPreview(null);
   return policy;
 }
 
-async function saveModelPolicy(settings) {
+async function previewModelPolicy(settings) {
   await maybeRefreshSession(settings);
 
   const allowedModels = parseAllowedModelsInput(document.getElementById('policyAllowedModels').value);
@@ -688,26 +754,72 @@ async function saveModelPolicy(settings) {
     throw new Error('En az bir allowed model gerekli.');
   }
 
-  const policy = await safeFetchJson(`${settings.baseUrl}/v1/model-policy`, {
-    method: 'PUT',
+  const preview = await safeFetchJson(`${settings.baseUrl}/v1/model-policy/preview`, {
+    method: 'POST',
     headers: authHeaders(settings),
     body: JSON.stringify({ allowedModels, defaultModel })
   });
 
+  renderModelPolicyPreview(preview);
+  log(
+    `Model policy preview hazır. kind=${preview.change_kind}, nextRev=${preview.next_revision}, risk=${preview?.risk?.level ?? 'low'}`
+  );
+  return preview;
+}
+
+async function saveModelPolicy(settings) {
+  await maybeRefreshSession(settings);
+
+  const allowedModels = parseAllowedModelsInput(document.getElementById('policyAllowedModels').value);
+  const defaultModel = document.getElementById('policyDefaultModel').value;
+  const changeReason = promptModelPolicyChangeReason('save');
+
+  if (!changeReason) {
+    return null;
+  }
+
+  if (!allowedModels.length) {
+    throw new Error('En az bir allowed model gerekli.');
+  }
+
+  const policy = await safeFetchJson(`${settings.baseUrl}/v1/model-policy`, {
+    method: 'PUT',
+    headers: authHeaders(settings),
+    body: JSON.stringify({
+      allowedModels,
+      defaultModel,
+      expectedRevision: getCurrentModelPolicyRevision(),
+      changeReason
+    })
+  });
+
   renderModelPolicy(policy);
-  log(`Tenant model policy güncellendi. default=${policy.default_model}`);
+  renderModelPolicyPreview(null);
+  log(`Tenant model policy güncellendi. default=${policy.default_model}, rev=${policy.revision}`);
+  return policy;
 }
 
 async function resetModelPolicy(settings) {
   await maybeRefreshSession(settings);
 
+  const changeReason = promptModelPolicyChangeReason('reset');
+  if (!changeReason) {
+    return null;
+  }
+
   const policy = await safeFetchJson(`${settings.baseUrl}/v1/model-policy`, {
     method: 'DELETE',
-    headers: authHeaders(settings)
+    headers: authHeaders(settings),
+    body: JSON.stringify({
+      expectedRevision: getCurrentModelPolicyRevision(),
+      changeReason
+    })
   });
 
   renderModelPolicy(policy);
-  log('Tenant model policy deployment defaultlarına döndürüldü.');
+  renderModelPolicyPreview(null);
+  log(`Tenant model policy deployment defaultlarına döndürüldü. reset=${policy.reset ? 'evet' : 'hayır'}, rev=${policy.revision}`);
+  return policy;
 }
 
 async function loadRemotePolicy(settings) {
@@ -1386,6 +1498,8 @@ async function signOut(settings) {
     document.getElementById('uiSessionsSummary').textContent = '—';
     document.getElementById('remotePolicySummary').textContent = '—';
     document.getElementById('deliveryPolicySummary').textContent = '—';
+    document.getElementById('modelPolicyPreviewSummary').textContent = 'Önizleme yapılmadı.';
+    document.getElementById('modelPolicySummary').dataset.policyRevision = '0';
     document.getElementById('securityDeliveryPreviewSummary').textContent = 'Önizleme yapılmadı.';
     document.getElementById('securityDeliverySummary').textContent = '—';
     document.getElementById('securityDeliveryAnalyticsSummary').textContent = '—';
@@ -1764,13 +1878,28 @@ async function init() {
     }
   });
 
+  document.getElementById('previewPolicy').addEventListener('click', async () => {
+    const next = readSettingsForm();
+    setSettings(next);
+
+    try {
+      await previewModelPolicy(next);
+      setStatus('Tenant model policy önizlemesi hazır.');
+    } catch (error) {
+      setStatus(String(error), true);
+      log(`Hata: ${String(error)}`);
+    }
+  });
+
   document.getElementById('savePolicy').addEventListener('click', async () => {
     const next = readSettingsForm();
     setSettings(next);
 
     try {
-      await saveModelPolicy(next);
-      setStatus('Tenant model policy kaydedildi.');
+      const saved = await saveModelPolicy(next);
+      if (saved) {
+        setStatus('Tenant model policy kaydedildi.');
+      }
     } catch (error) {
       setStatus(String(error), true);
       log(`Hata: ${String(error)}`);
@@ -1782,8 +1911,10 @@ async function init() {
     setSettings(next);
 
     try {
-      await resetModelPolicy(next);
-      setStatus('Tenant model policy deployment defaultlarına döndü.');
+      const reset = await resetModelPolicy(next);
+      if (reset) {
+        setStatus('Tenant model policy deployment defaultlarına döndü.');
+      }
     } catch (error) {
       setStatus(String(error), true);
       log(`Hata: ${String(error)}`);
